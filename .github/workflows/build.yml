@@ -1,82 +1,70 @@
-name: Build HyperPods
+name: Build HyperPods HyperOS 4
 
 on:
+  workflow_dispatch:
   push:
-    tags: [ "*" ]
-    branches: [ "main", "aap" ]
+    branches: ["os4-dev"]
+    tags: ["v*"]
   pull_request:
-    branches: [ "main", "aap" ]
+    branches: ["os4-dev"]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
-  
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
-        with:
-          gradle-home-cache-cleanup: true
 
-      - name: Build with Gradle
-        run: |
-          echo 'org.gradle.parallel=true' >> gradle.properties
-          echo 'org.gradle.vfs.watch=true' >> gradle.properties
-          echo 'org.gradle.jvmargs=-Xmx2048m' >> gradle.properties
-          sed -i 's/org.gradle.configuration-cache=true//g' gradle.properties
-          ./gradlew assembleRelease
-
-      - name: Get Build Tool Version
-        shell: bash
-        run: |
-          BUILD_TOOL_VERSION=$(ls /usr/local/lib/android/sdk/build-tools/ | tail -n 1)
-          echo "BUILD_TOOL_VERSION=$BUILD_TOOL_VERSION" >> $GITHUB_ENV
-          echo Last build tool version is: $BUILD_TOOL_VERSION
-
-      - name: Sign Release
-        env: 
+      - name: Restore release keystore
+        if: github.event_name != 'pull_request'
+        env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          BUILD_TOOLS_VERSION: ${{ env.BUILD_TOOL_VERSION }}
-        if: ${{ env.SIGNING_KEY != '' }}
-        continue-on-error: true
-        uses: kevin-david/zipalign-sign-android-release@v2
-        id: sign_app
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          test -n "$SIGNING_KEY"
+          printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/hyperpods-release.jks"
 
-      - name: Upload build artifact
-        env: 
-           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-        if: ${{ env.SIGNING_KEY != '' }}
+      - name: Build signed release
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:assembleRelease \
+            -PKEYSTORE_FILE="$RUNNER_TEMP/hyperpods-release.jks" \
+            -PKEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
+            -PKEY_ALIAS="$KEY_ALIAS" \
+            -PKEY_PASSWORD="$KEY_PASSWORD"
+
+      - name: Build pull request
+        if: github.event_name == 'pull_request'
+        run: ./gradlew :app:assembleDebug
+
+      - name: Rename release APK
+        if: github.event_name != 'pull_request'
+        run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/HyperPods-3.0.0-AAP-W-HyperOS4.apk
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: HyperPods
-          path: ${{steps.sign_app.outputs.signedReleaseFile}}
+          name: HyperPods-${{ github.sha }}
+          path: app/build/outputs/apk/**/*.apk
 
-      - name: Release apk
-        env: 
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-        if: ${{ env.SIGNING_KEY != '' && github.ref_type == 'tag' }}
-        continue-on-error: true
-        uses: ncipollo/release-action@v1
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
         with:
-          token: ${{ github.token }}
-          artifacts: ${{steps.sign_app.outputs.signedReleaseFile}}
-          generateReleaseNotes: true
-          makeLatest: true
-          replacesArtifacts: true
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/HyperPods-3.0.0-AAP-W-HyperOS4.apk
