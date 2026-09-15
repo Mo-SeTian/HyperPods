@@ -8,6 +8,7 @@ import android.content.Context
 import android.os.UserHandle
 import android.os.VibrationEffect
 import android.os.VibratorManager
+import android.provider.Settings
 import de.robv.android.xposed.XposedHelpers
 import java.io.BufferedReader
 import java.io.IOException
@@ -336,6 +337,16 @@ object SystemApisUtils {
         get() {
             return getPropByShell("ro.mi.os.version.code") == "3"
         }
+
+    fun supportsIsland(context: Context): Boolean {
+        val protocol = Settings.System.getInt(
+            context.contentResolver,
+            "notification_focus_protocol",
+            0
+        )
+        val feature = getPropByShell("persist.sys.feature.island")
+        return protocol >= 3 || feature == "1" || feature.equals("true", ignoreCase = true)
+    }
 
     fun performVibrateClick(context: Context) {
         val vibrator = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager

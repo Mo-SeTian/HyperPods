@@ -21,12 +21,13 @@ import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.factory.constructor
 import com.highcapable.yukihookapi.hook.factory.method
 import com.hyperfocus.api.FocusApi
+import com.hyperfocus.api.IslandApi
 import de.robv.android.xposed.XposedHelpers
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.SystemApisUtils
 import moe.chenxy.hyperpods.utils.SystemApisUtils.cancelAsUser
-import moe.chenxy.hyperpods.utils.SystemApisUtils.isHyperOS3
 import moe.chenxy.hyperpods.utils.SystemApisUtils.notifyAsUser
+import moe.chenxy.hyperpods.utils.SystemApisUtils.supportsIsland
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.showCaseBatteryToast
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.showPodsBatteryToast
@@ -34,7 +35,6 @@ import org.json.JSONObject
 import java.io.File
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
-import kotlin.math.min
 
 
 @SuppressLint("MissingPermission")
@@ -53,6 +53,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
 
     lateinit var mThiz: Any
     val focusApi = FocusApi
+    val islandApi = IslandApi
 
     @OptIn(ExperimentalEncodingApi::class)
     override fun onHook() {
@@ -118,6 +119,64 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             }
         }
 
+        fun shouldShowCaseBattery(batteryParams: BatteryParams): Boolean {
+            return batteryParams.case?.isConnected == true &&
+                    (batteryParams.left?.isInCase == true || batteryParams.right?.isInCase == true)
+        }
+
+        fun buildEarBatteryText(batteryParams: BatteryParams): String {
+            val values = mutableListOf<String>()
+            if (batteryParams.left?.isConnected == true) {
+                values += "左 ${batteryParams.left!!.battery}%"
+            }
+            if (batteryParams.right?.isConnected == true) {
+                values += "右 ${batteryParams.right!!.battery}%"
+            }
+            return values.joinToString("  ").ifEmpty { "已连接" }
+        }
+
+        fun buildIslandTicker(batteryParams: BatteryParams): String {
+            val earBattery = listOfNotNull(
+                batteryParams.left?.takeIf { it.isConnected }?.battery,
+                batteryParams.right?.takeIf { it.isConnected }?.battery
+            ).minOrNull()
+            val parts = mutableListOf<String>()
+            earBattery?.let { parts += "$it%" }
+            if (shouldShowCaseBattery(batteryParams)) {
+                parts += "仓${batteryParams.case!!.battery}%"
+            }
+            return parts.joinToString(" ").ifEmpty { "已连接" }
+        }
+
+        fun buildIslandData(batteryParams: BatteryParams): JSONObject {
+            val icon = islandApi.picInfo(pic = "miui.focus.pic_mark_v2")
+            val earInfo = islandApi.imageTextInfo(
+                picInfo = icon,
+                textInfo = islandApi.TextInfo(title = buildEarBatteryText(batteryParams)),
+                type = 1
+            )
+            val caseInfo = if (shouldShowCaseBattery(batteryParams)) {
+                islandApi.imageTextInfo(
+                    picInfo = icon,
+                    textInfo = islandApi.TextInfo(
+                        frontTitle = "仓",
+                        title = "${batteryParams.case!!.battery}%"
+                    ),
+                    type = 1
+                )
+            } else null
+            return islandApi.IslandTemplate(
+                bigIslandArea = islandApi.bigIslandArea(
+                    imageTextInfoLeft = earInfo,
+                    imageTextInfoRight = caseInfo
+                ),
+                business = "headset",
+                islandProperty = 1,
+                islandTimeout = 3600,
+                smallIslandArea = islandApi.SmallIslandArea(picInfo = icon)
+            )
+        }
+
         fun buildNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams): Notification.Builder {
             initResources(context)
 
@@ -161,7 +220,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 PendingIntent.FLAG_IMMUTABLE
             )
 
-            val caseBattStr = if (batteryParams.case!!.isConnected)
+            val caseBattStr = if (shouldShowCaseBattery(batteryParams))
                 "${context.resources.getString(miheadset_notification_Box)}：${batteryParams.case!!.battery} %" +
                         "${if (batteryParams.case!!.isCharging) " ⚡" else ""}\n"
             else ""
@@ -188,6 +247,10 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             initResources(context)
             val notificationManager = context.getSystemService("notification") as NotificationManager
             val connectedStrID = context.resources.getIdentifier("headset_autoswitch_connected", "string", "com.xiaomi.bluetooth")
+            val channelId = "BTHeadset${bluetoothDevice.address}"
+            val deviceName = bluetoothDevice.alias?.takeIf { it.isNotEmpty() }
+                ?: bluetoothDevice.name
+                ?: "AirPods"
 
             val baseInfo = focusApi.baseinfo(title = bluetoothDevice.name,
                 basetype = 0, content = context.getString(connectedStrID))
@@ -211,30 +274,31 @@ object MiBluetoothToastHook : YukiBaseHooker(){
 
             notificationManager.createNotificationChannel(
                 NotificationChannel(
-                    "HEADSET_CONNECT_NOTIFICATION",
-                    "HEADSET_CONNECT_NOTIFICATION",
+                    channelId,
+                    deviceName,
                     NotificationManager.IMPORTANCE_DEFAULT
                 )
             )
 
             val notificationBuild: Notification =
-                Notification.Builder(context, "HEADSET_CONNECT_NOTIFICATION")
-                    .setSmallIcon(earphone_drawable).addExtras(a).build()
+                Notification.Builder(context, channelId)
+                    .setSmallIcon(earphone_drawable)
+                    .setContentTitle(deviceName)
+                    .setContentText(context.getString(connectedStrID))
+                    .addExtras(a)
+                    .build()
 
+            notificationManager.cancelAsUser("HEADSET_CONNECT_NOTIFICATION", 1001, Process.myUserHandle())
             notificationManager.notifyAsUser(
-                "HEADSET_CONNECT_NOTIFICATION",
-                1001,
+                channelId,
+                10003,
                 notificationBuild,
                 Process.myUserHandle()
             )
         }
 
-        fun createPodsNotificationOS3(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams) {
+        fun createPodsIslandNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams) {
             val sendNotification = buildNotification(bluetoothDevice, context, batteryParams)
-
-            val picProfiles = focusApi.addpics("icon",Icon.createWithResource(context, earphone_drawable))
-            val pics = Bundle()
-            pics.putAll(picProfiles)
 //            val actions = focusApi.actionInfo(actionIntent = actionIntent, actionIntentType = "2", actionTitle = context.resources
 //                .getString(miheadset_notification_Disconnect))
 
@@ -255,21 +319,10 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val bundle = Bundle()
             bundle.putParcelable("miui.focus.action_disconnect", action)
 
-            var minBatteryLevel =
-                if (batteryParams.left?.isConnected == true && batteryParams.right?.isConnected == true)
-                    min(batteryParams.left?.battery!!, batteryParams.right?.battery!!)
-                else if (batteryParams.left?.isConnected == true) {
-                    batteryParams.left?.battery
-                } else if (batteryParams.right?.isConnected == true) {
-                    batteryParams.right?.battery
-                }
-                else 0
-
-            if (minBatteryLevel == -1) minBatteryLevel = 0
-
-            val caseBattStr =
-                "${context.resources.getString(miheadset_notification_Box)}：" + if (batteryParams.case!!.isConnected) "${batteryParams.case!!.battery} %" else "- %" +
+            val caseBattStr = if (shouldShowCaseBattery(batteryParams))
+                "${context.resources.getString(miheadset_notification_Box)}：${batteryParams.case!!.battery} %" +
                         "${if (batteryParams.case!!.isCharging) " ⚡" else ""}\n"
+            else ""
             val leftEar = if (batteryParams.left!!.isConnected) "${context.resources.getString(miheadset_notification_LeftEar)}：${batteryParams.left!!.battery} %" +
                     (if (batteryParams.left!!.isCharging) " ⚡" else "") else ""
             val leftToRight = if (batteryParams.left!!.isConnected && batteryParams.right!!.isConnected) " | " else ""
@@ -288,16 +341,24 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val api = focusApi.sendFocus(
                 title = "BTHeadset${bluetoothDevice.address}",
                 cancel = false,
+                island = buildIslandData(batteryParams),
                 baseInfo = baseInfo,
                 hintInfo = hintInfo,
+                updatable = true,
                 enableFloat = false,
+                isShowNotification = true,
+                islandFirstFloat = false,
                 reopen = "true", // allow notify again after notification cleaned
                 picInfo = Icon.createWithResource(context, earphone_drawable),
                 picInfotype = 2,
-                timeout = 1000,
-                ticker = "$minBatteryLevel %",
+                ticker = buildIslandTicker(batteryParams),
                 picticker = Icon.createWithResource(context, earphone_drawable)
             )
+            api.getString("miui.focus.param")?.let { focusParam ->
+                val focusJson = JSONObject(focusParam)
+                focusJson.getJSONObject("param_v2").put("business", "headset")
+                api.putString("miui.focus.param", focusJson.toString())
+            }
             val a = Bundle()
             a.putString("miui.effect.src","true")
             a.putBundle("miui.focus.actions", bundle)
@@ -321,7 +382,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 Log.e("Art_Chen", "createPodsNotification: btDevice null");
                 return
             }
-            if (isHyperOS3) return createPodsNotificationOS3(bluetoothDevice, context, batteryParams)
+            if (supportsIsland(context)) return createPodsIslandNotification(bluetoothDevice, context, batteryParams)
 
             try {
                 val address: String = bluetoothDevice.address

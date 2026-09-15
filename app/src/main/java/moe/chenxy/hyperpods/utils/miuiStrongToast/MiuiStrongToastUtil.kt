@@ -134,7 +134,8 @@ object MiuiStrongToastUtil {
                 "setStatus", Int::class.javaPrimitiveType, String::class.java, Bundle::class.java
             ).invoke(service, 1, "strong_toast_action", bundle)
             lastPodsTimestamp = System.currentTimeMillis()
-            if (batteryParams.case!!.isConnected) {
+            if (batteryParams.case!!.isConnected &&
+                (batteryParams.left!!.isInCase || batteryParams.right!!.isInCase)) {
                 CoroutineScope(Dispatchers.Main).launch {
                     delay(4000)
                     showCaseBatteryToast(

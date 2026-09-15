@@ -12,7 +12,8 @@ data class PodBatteryParams (
     var battery: Int = 0,
     var isCharging: Boolean = false,
     var isConnected: Boolean = false,
-    var rawStatus: Int = 0
+    var rawStatus: Int = 0,
+    var isInCase: Boolean = false
 ) : Parcelable
 
 @SuppressLint("UnsafeOptInUsageError")

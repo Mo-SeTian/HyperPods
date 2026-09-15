@@ -67,6 +67,8 @@ object L2CAPController {
     // Status
     private var mShowedConnectedToast = false
     private var lastCaseConnected = false
+    private var batteryStateValid = false
+    private var earDetectionStateValid = false
     private var disconnectedAudio = true /* default to true to connect audio first time always */
     private var pausedAudio = false
     private var lastTempBatt = 0
@@ -131,10 +133,10 @@ object L2CAPController {
             HyperPodsAction.ACTION_PODS_UI_INIT -> {
                 Log.i(TAG, "UI Init")
 
-                if (::currentEarDetectionParams.isInitialized)
+                if (earDetectionStateValid && ::currentEarDetectionParams.isInitialized)
                     changeUIInEarStatus(currentEarDetectionParams)
 
-                if (::currentBatteryParams.isInitialized)
+                if (batteryStateValid && ::currentBatteryParams.isInitialized)
                     changeUIBatteryStatus(currentBatteryParams)
 
                 changeUIAncStatus(currentAnc)
@@ -161,14 +163,28 @@ object L2CAPController {
     }
 
     private fun handleInEarStatusChanged(status: List<Byte>) {
-        if (::currentEarDetectionParams.isInitialized) {
+        if (earDetectionStateValid && ::currentEarDetectionParams.isInitialized) {
             if (currentEarDetectionParams.left == status[0] && currentEarDetectionParams.right == status[1]) {
                 Log.d(TAG, "receive same in ear status, ignored")
                 return
             }
         }
         currentEarDetectionParams = EarDetectionParams(status[0], status[1])
+        earDetectionStateValid = true
         changeUIInEarStatus(currentEarDetectionParams)
+
+        if (batteryStateValid && ::currentBatteryParams.isInitialized) {
+            val leftInCase = isInCaseStatus(status[0])
+            val rightInCase = isInCaseStatus(status[1])
+            val caseStateChanged = currentBatteryParams.left?.isInCase != leftInCase ||
+                    currentBatteryParams.right?.isInCase != rightInCase
+            currentBatteryParams.left?.isInCase = leftInCase
+            currentBatteryParams.right?.isInCase = rightInCase
+            if (caseStateChanged) {
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice)
+                changeUIBatteryStatus(currentBatteryParams)
+            }
+        }
 
         if (!earDetection) return
 
@@ -213,17 +229,23 @@ object L2CAPController {
     @OptIn(ExperimentalStdlibApi::class)
     fun handleBatteryChanged(packet: ByteArray) {
         val batteries = AirPodsNotifications.BatteryNotification.getBattery()
+        val leftInCase = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
+                isInCaseStatus(currentEarDetectionParams.left)
+        val rightInCase = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
+                isInCaseStatus(currentEarDetectionParams.right)
         val left = PodBatteryParams(
             batteries[0].level,
             batteries[0].status == BatteryStatus.CHARGING,
             batteries[0].status != BatteryStatus.DISCONNECTED,
-            batteries[0].status
+            batteries[0].status,
+            leftInCase
         )
         val right = PodBatteryParams(
             batteries[1].level,
             batteries[1].status == BatteryStatus.CHARGING,
             batteries[1].status != BatteryStatus.DISCONNECTED,
-            batteries[1].status
+            batteries[1].status,
+            rightInCase
         )
         val case = PodBatteryParams(
             batteries[2].level,
@@ -250,6 +272,7 @@ object L2CAPController {
 
         val batteryParams = BatteryParams(left, right, case)
         currentBatteryParams = batteryParams
+        batteryStateValid = true
 
         // allow show toast again when case status from disconnected to active, it means pods put in the case again
         if (shouldShowToast) {
@@ -269,6 +292,10 @@ object L2CAPController {
             else SystemApisUtils.BATTERY_LEVEL_UNKNOWN
 
         setRegularBatteryLevel(lastTempBatt)
+    }
+
+    private fun isInCaseStatus(status: Byte): Boolean {
+        return status == EarDetectionStatus.IN_CASE || status == 0x3.toByte()
     }
 
     fun initAllCustomSettings() {
@@ -483,6 +510,8 @@ object L2CAPController {
         mContext = context
         mDevice = device
         mPrefsBridge = prefsBridge
+        batteryStateValid = false
+        earDetectionStateValid = false
 
         updateFeatureToggle()
 
@@ -603,6 +632,8 @@ object L2CAPController {
         }
 
         mShowedConnectedToast = false
+        batteryStateValid = false
+        earDetectionStateValid = false
         pausedAudio = false
 //        disconnectedAudio = false
         mContext = null
