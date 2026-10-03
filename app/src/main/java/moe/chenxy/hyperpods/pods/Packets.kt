@@ -42,6 +42,10 @@ object BatteryStatus {
 
 @Parcelize
 data class Battery(val component: Int, val level: Int, val status: Int) : Parcelable {
+    val isAvailable: Boolean
+        get() = level in 0..100 &&
+            (status == BatteryStatus.CHARGING || status == BatteryStatus.NOT_CHARGING)
+
     fun getComponentName(): String? {
         return when (component) {
             BatteryComponent.LEFT -> "LEFT"
@@ -148,9 +152,15 @@ class AirPodsNotifications {
     }
 
     object BatteryNotification {
-        private var first: Battery = Battery(BatteryComponent.LEFT, 0, BatteryStatus.DISCONNECTED)
-        private var second: Battery = Battery(BatteryComponent.RIGHT, 0, BatteryStatus.DISCONNECTED)
-        private var case: Battery = Battery(BatteryComponent.CASE, 0, BatteryStatus.DISCONNECTED)
+        private var first = Battery(BatteryComponent.LEFT, -1, BatteryStatus.DISCONNECTED)
+        private var second = Battery(BatteryComponent.RIGHT, -1, BatteryStatus.DISCONNECTED)
+        private var case = Battery(BatteryComponent.CASE, -1, BatteryStatus.DISCONNECTED)
+
+        fun reset() {
+            first = Battery(BatteryComponent.LEFT, -1, BatteryStatus.DISCONNECTED)
+            second = Battery(BatteryComponent.RIGHT, -1, BatteryStatus.DISCONNECTED)
+            case = Battery(BatteryComponent.CASE, -1, BatteryStatus.DISCONNECTED)
+        }
 
         fun isBatteryData(data: ByteArray): Boolean {
             if (data.size != 22) {
@@ -160,29 +170,33 @@ class AirPodsNotifications {
             return data.joinToString("") { "%02x".format(it) }.startsWith("040004000400")
         }
 
-        fun setBattery(data: ByteArray) {
-            first = if (data[10].toInt() == BatteryStatus.DISCONNECTED || data[10].toInt() == BatteryStatus.NEED_AGAIN) {
-                Battery(first.component, first.level, data[10].toInt())
-            } else {
-                Battery(data[7].toInt(), data[9].toInt(), data[10].toInt())
+        fun setBattery(data: ByteArray): Boolean {
+            if (!isBatteryData(data)) return false
+            // Records may arrive in either ear order. Never reuse the other
+            // ear's cached level when a record is disconnected or not ready.
+            for (offset in listOf(7, 12, 17)) {
+                val component = data[offset].toInt() and 0xff
+                val previous = when (component) {
+                    BatteryComponent.LEFT -> first
+                    BatteryComponent.RIGHT -> second
+                    BatteryComponent.CASE -> case
+                    else -> continue
+                }
+                val status = data[offset + 3].toInt() and 0xff
+                val level = if (status == BatteryStatus.DISCONNECTED || status == BatteryStatus.NEED_AGAIN)
+                    previous.level else data[offset + 2].toInt() and 0xff
+                val battery = Battery(component, level, status)
+                when (component) {
+                    BatteryComponent.LEFT -> first = battery
+                    BatteryComponent.RIGHT -> second = battery
+                    BatteryComponent.CASE -> case = battery
+                }
             }
-            second = if (data[15].toInt() == BatteryStatus.DISCONNECTED || data[15].toInt() == BatteryStatus.NEED_AGAIN) {
-                Battery(second.component, second.level, data[15].toInt())
-            } else {
-                Battery(data[12].toInt(), data[14].toInt(), data[15].toInt())
-            }
-            case = if ((data[20].toInt() == BatteryStatus.DISCONNECTED || data[20].toInt() == BatteryStatus.NEED_AGAIN)
-                        && case.status != BatteryStatus.DISCONNECTED && case.status != BatteryStatus.NEED_AGAIN) {
-                Battery(case.component, case.level, data[20].toInt())
-            } else {
-                Battery(data[17].toInt(), data[19].toInt(), data[20].toInt())
-            }
+            return true
         }
 
         fun getBattery(): List<Battery> {
-            val left = if (first.component == BatteryComponent.LEFT) first else second
-            val right = if (first.component == BatteryComponent.LEFT) second else first
-            return listOf(left, right, case)
+            return listOf(first, second, case)
         }
     }
 

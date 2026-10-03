@@ -22,6 +22,9 @@ import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import de.robv.android.xposed.XposedHelpers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import moe.chenxy.hyperpods.BuildConfig
@@ -56,6 +59,7 @@ object L2CAPController {
     private lateinit var mPrefsBridge: YukiHookPrefsBridge
 
     private var aacpManager: AACPManager? = null
+    private var connectionJob: Job? = null
 
 //    private lateinit var mAirPodsInstance: AirPodsInstance
 
@@ -67,7 +71,7 @@ object L2CAPController {
     // Status
     private var mShowedConnectedToast = false
     private var lastCaseConnected = false
-    private var batteryStateValid = false
+    @Volatile private var batteryStateValid = false
     private var earDetectionStateValid = false
     private var disconnectedAudio = true /* default to true to connect audio first time always */
     private var pausedAudio = false
@@ -236,21 +240,21 @@ object L2CAPController {
         val left = PodBatteryParams(
             batteries[0].level,
             batteries[0].status == BatteryStatus.CHARGING,
-            batteries[0].status != BatteryStatus.DISCONNECTED,
+            batteries[0].isAvailable,
             batteries[0].status,
             leftInCase
         )
         val right = PodBatteryParams(
             batteries[1].level,
             batteries[1].status == BatteryStatus.CHARGING,
-            batteries[1].status != BatteryStatus.DISCONNECTED,
+            batteries[1].isAvailable,
             batteries[1].status,
             rightInCase
         )
         val case = PodBatteryParams(
             batteries[2].level,
             batteries[2].status == BatteryStatus.CHARGING,
-            batteries[2].status != BatteryStatus.DISCONNECTED,
+            batteries[2].isAvailable,
             batteries[2].status
         )
         if (BuildConfig.DEBUG) {
@@ -265,17 +269,14 @@ object L2CAPController {
         }
 
         val shouldShowToast = !mShowedConnectedToast || (lastCaseConnected != case.isConnected && !lastCaseConnected)
-        if (shouldShowToast && (left.battery <= 0 || right.battery <= 0 || (case.isConnected && case.battery <= 0))) {
-            // only show connected toast when battery info all correct
-            return
-        }
-
         val batteryParams = BatteryParams(left, right, case)
         currentBatteryParams = batteryParams
-        batteryStateValid = true
+        batteryStateValid = left.isConnected || right.isConnected
 
         // allow show toast again when case status from disconnected to active, it means pods put in the case again
-        if (shouldShowToast) {
+        // The transient animation must never block the persistent settings entry
+        // or usable battery data. A genuine 0% is also a valid reading.
+        if (shouldShowToast && batteryStateValid) {
             MiuiStrongToastUtil.showPodsBatteryToastByMiuiBt(mContext, batteryParams)
             mShowedConnectedToast = true
         }
@@ -433,7 +434,10 @@ object L2CAPController {
 
     private val packetCallback = object : AACPManager.PacketCallback {
         override fun onBatteryInfoReceived(batteryInfo: ByteArray) {
-            AirPodsNotifications.BatteryNotification.setBattery(batteryInfo)
+            if (!AirPodsNotifications.BatteryNotification.setBattery(batteryInfo)) {
+                Log.w(TAG, "Ignoring incomplete battery packet (${batteryInfo.size} bytes)")
+                return
+            }
             handleBatteryChanged(batteryInfo)
         }
 
@@ -507,11 +511,17 @@ object L2CAPController {
     }
 
     fun connectPod(context: Context, device: BluetoothDevice, prefsBridge: YukiHookPrefsBridge) {
+        if (connectionJob?.isActive == true && mContext != null && mDevice == device) return
+        if (mContext != null) disconnectedPod(context, mDevice)
         mContext = context
         mDevice = device
         mPrefsBridge = prefsBridge
         batteryStateValid = false
         earDetectionStateValid = false
+        mShowedConnectedToast = false
+        lastCaseConnected = false
+        AirPodsNotifications.BatteryNotification.reset()
+        currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
 
         updateFeatureToggle()
 
@@ -577,49 +587,84 @@ object L2CAPController {
             return constructor.newInstance(*args) as BluetoothSocket
         }
 
-        CoroutineScope(Dispatchers.IO).launch {
+        connectionJob = CoroutineScope(Dispatchers.IO).launch {
             delay(500)
+            val connectingSocket = try {
+                getBtSocket()
+            } catch (e: Exception) {
+                Log.e(TAG, "failed to create AirPods socket", e)
+                return@launch
+            }
             try {
-                socket = getBtSocket()
+                ensureActive()
+                socket = connectingSocket
                 Log.d(TAG, "connecting AirPods!")
-                socket.connect()
+                connectingSocket.connect()
+                ensureActive()
+            } catch (e: CancellationException) {
+                runCatching { connectingSocket.close() }
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "failed to connect to AirPods socket; stop retrying", e)
-                runCatching { if (::socket.isInitialized) socket.close() }
+                runCatching { connectingSocket.close() }
                 return@launch
             }
 
 
             Log.d(TAG, "connected!")
-            aacpManager = AACPManager(socket)
-            aacpManager!!.setPacketCallback(packetCallback)
-            aacpManager!!.sendDataPacket(aacpManager!!.createHandshakePacket())
-            aacpManager!!.sendPacket(aacpManager!!.createHandshakePacket())
-            delay(200)
-            aacpManager!!.sendSetFeatureFlagsPacket()
-            delay(200)
-            aacpManager!!.sendNotificationRequest()
-            delay(200)
-            while (socket.isConnected) {
-                val buffer = ByteArray(1024)
-                val bytesRead = socket.inputStream.read(buffer)
-                if (BuildConfig.DEBUG) {
-                    Log.v(TAG, "bytesRead $bytesRead!")
+            val connectedSocket = connectingSocket
+            val manager = AACPManager(connectedSocket)
+            aacpManager = manager
+            var statusRequestJob: Job? = null
+            try {
+                manager.setPacketCallback(packetCallback)
+                // Expose the controls as soon as AAP connects, even if the case
+                // goes away before the first usable battery report arrives.
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device)
+                manager.sendDataPacket(manager.createHandshakePacket())
+                manager.sendPacket(manager.createHandshakePacket())
+                delay(200)
+                manager.sendSetFeatureFlagsPacket()
+                delay(200)
+                manager.sendNotificationRequest()
+                statusRequestJob = launch {
+                    // Retry only the status subscription, not the native socket.
+                    // This job belongs to the connection and stops on disconnect.
+                    for (waitMs in listOf(1000L, 2000L, 4000L)) {
+                        delay(waitMs)
+                        val earsReady = batteryStateValid &&
+                            currentBatteryParams.left?.rawStatus != BatteryStatus.NEED_AGAIN &&
+                            currentBatteryParams.right?.rawStatus != BatteryStatus.NEED_AGAIN
+                        if (earsReady || !connectedSocket.isConnected) break
+                        Log.i(TAG, "Battery not ready; requesting initial status again")
+                        manager.sendNotificationRequest()
+                    }
                 }
-                if (bytesRead > 0) {
-                    aacpManager!!.receivePacket(buffer.copyOfRange(0, bytesRead))
-//                    handleAirPodsPacket(buffer.copyOfRange(0, bytesRead))
-                } else if (bytesRead == -1) {
-                    // disconnected
-                    socket.close()
+                // Begin receiving immediately after subscribing; no extra delay.
+                while (connectedSocket.isConnected) {
+                    val buffer = ByteArray(1024)
+                    val bytesRead = connectedSocket.inputStream.read(buffer)
+                    ensureActive()
+                    if (bytesRead == -1) break
+                    if (bytesRead > 0) manager.receivePacket(buffer.copyOfRange(0, bytesRead))
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "AirPods status session ended", e)
+            } finally {
+                statusRequestJob?.cancel()
+                runCatching { connectedSocket.close() }
+                if (aacpManager === manager) aacpManager = null
             }
         }
     }
 
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
+        connectionJob?.cancel()
+        connectionJob = null
         if (::socket.isInitialized) {
-            socket.close()
+            runCatching { socket.close() }
         }
 
         mContext?.let {
@@ -632,6 +677,7 @@ object L2CAPController {
         }
 
         mShowedConnectedToast = false
+        lastCaseConnected = false
         batteryStateValid = false
         earDetectionStateValid = false
         pausedAudio = false

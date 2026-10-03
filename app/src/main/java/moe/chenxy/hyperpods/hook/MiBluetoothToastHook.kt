@@ -23,6 +23,8 @@ import com.highcapable.yukihookapi.hook.factory.method
 import com.hyperfocus.api.FocusApi
 import de.robv.android.xposed.XposedHelpers
 import moe.chenxy.hyperpods.BuildConfig
+import moe.chenxy.hyperpods.R
+import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.SystemApisUtils
 import moe.chenxy.hyperpods.utils.SystemApisUtils.cancelAsUser
 import moe.chenxy.hyperpods.utils.SystemApisUtils.notifyAsUser
@@ -123,11 +125,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
         }
 
         fun buildIslandTicker(batteryParams: BatteryParams): String {
-            val minBatteryLevel = listOfNotNull(
-                batteryParams.left?.takeIf { it.isConnected }?.battery,
-                batteryParams.right?.takeIf { it.isConnected }?.battery
-            ).minOrNull()?.takeIf { it >= 0 } ?: 0
-            return "$minBatteryLevel %"
+            return "${PodsIslandData.batteryText(batteryParams.left)} / ${PodsIslandData.batteryText(batteryParams.right)}"
         }
 
         fun buildNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams): Notification.Builder {
@@ -271,6 +269,12 @@ object MiBluetoothToastHook : YukiBaseHooker(){
 
             val bundle = Bundle()
             bundle.putParcelable("miui.focus.action_disconnect", action)
+            val islandPics = Bundle().apply {
+                putParcelable(PodsIslandData.LEFT_ICON,
+                    Icon.createWithResource(BuildConfig.APPLICATION_ID, R.drawable.airpods_pro_2_left))
+                putParcelable(PodsIslandData.RIGHT_ICON,
+                    Icon.createWithResource(BuildConfig.APPLICATION_ID, R.drawable.airpods_pro_2_right))
+            }
 
             val caseBattStr = if (shouldShowCaseBattery(batteryParams))
                 "${context.resources.getString(miheadset_notification_Box)}：${batteryParams.case!!.battery} %" +
@@ -296,6 +300,11 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 cancel = false,
                 baseInfo = baseInfo,
                 hintInfo = hintInfo,
+                island = PodsIslandData.build(batteryParams),
+                addpics = islandPics,
+                updatable = true,
+                isShowNotification = true,
+                islandFirstFloat = false,
                 enableFloat = false,
                 reopen = "true", // allow notify again after notification cleaned
                 picInfo = Icon.createWithResource(context, earphone_drawable),
@@ -402,7 +411,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             }
             context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
             receiverRegistered = true
-            Log.i("Art_Chen", "HyperPods toast receiver registered directly")
+            Log.i("Art_Chen", "HyperPods toast receiver registered directly (split-island-v2)")
         }
 
         // Register after the Xiaomi Bluetooth application has created its real

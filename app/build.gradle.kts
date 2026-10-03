@@ -25,7 +25,7 @@ android {
         applicationId = "moe.chenxy.hyperpods"
         minSdk = 35
         targetSdk = 36
-        versionCode = 6
+        versionCode = 7
         versionName = "3.0.0-AAP-W-HyperOS4"
         externalNativeBuild {
             cmake {
@@ -103,6 +103,8 @@ configurations.configureEach {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     implementation(libs.coreKtx)
     compileOnly(libs.xposedApi)
     implementation(libs.yukihookApi)
