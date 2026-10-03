@@ -7,6 +7,7 @@ object HyperPodsAction {
     const val ACTION_PODS_BATTERY_CHANGED = "chen.action.hyperpods.pods_battery_changed"
 
     const val ACTION_ANC_SELECT = "chen.action.hyperpods.anc_select"
+    const val ACTION_PODS_RENAME = "chen.action.hyperpods.rename"
     const val ACTION_PODS_ANC_CHANGED = "chen.action.hyperpods.pods_anc_select"
     const val ACTION_EAR_DETECTION_STATUS_CHANGED = "chen.action.hyperpods.ear_detection_status_changed"
     @Deprecated("Use ACTION_PODS_SETTINGS_CHANGED instead")

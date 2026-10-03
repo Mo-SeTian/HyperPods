@@ -31,8 +31,10 @@ import moe.chenxy.hyperpods.utils.SystemApisUtils.notifyAsUser
 import moe.chenxy.hyperpods.utils.SystemApisUtils.supportsIsland
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.showCaseBatteryToast
+import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.showPodsBatteryToast
 import org.json.JSONObject
+import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import java.io.File
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -59,7 +61,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
     override fun onHook() {
         fun getCaseMp4Uri(context: Context): Uri? {
             val file = File(context.filesDir, "my_internal_files")
-            if (file.exists()) {
+            if (file.isDirectory || file.mkdirs()) {
                 val file2 = File(file, "airpods_gen3_case.mp4")
                 if (!file2.exists()) {
                     file2.createNewFile()
@@ -103,8 +105,11 @@ object MiBluetoothToastHook : YukiBaseHooker(){
 
         fun deleteIntent(context: Context, bluetoothDevice: BluetoothDevice): PendingIntent? {
             val intent = Intent("com.android.bluetooth.headset.notification.cancle")
+            intent.setPackage(HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
             intent.putExtra("android.bluetooth.device.extra.DEVICE", bluetoothDevice)
-            return PendingIntent.getBroadcast(context, 0, intent, 201326592)
+            intent.identifier = "BTHeadset${bluetoothDevice.address}"
+            return PendingIntent.getBroadcast(context, 0, intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
 
         fun initResources(context: Context) {
@@ -116,6 +121,9 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 system_notification_accent_color = context.resources.getIdentifier("system_notification_accent_color", "color", "android")
                 ic_headset_notification = context.resources.getIdentifier("ic_headset_notification", "drawable", "com.xiaomi.bluetooth")
                 earphone_drawable = context.resources.getIdentifier("earphone", "drawable", "com.xiaomi.bluetooth")
+                if (ic_headset_notification == 0) ic_headset_notification = android.R.drawable.stat_sys_data_bluetooth
+                if (earphone_drawable == 0) earphone_drawable = android.R.drawable.stat_sys_data_bluetooth
+                if (system_notification_accent_color == 0) system_notification_accent_color = android.R.color.holo_blue_light
             }
         }
 
@@ -149,6 +157,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val bundle = Bundle()
             bundle.putParcelable("Device", bluetoothDevice)
             val intent = Intent("com.android.bluetooth.headset.notification")
+            intent.setPackage(HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
             intent.putExtra("btData", bundle)
             intent.putExtra("disconnect", "1")
             intent.identifier = "BTHeadset$address"
@@ -156,7 +165,8 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 285737079,
                 context.resources
                     .getString(miheadset_notification_Disconnect),
-                PendingIntent.getBroadcast(context, 0, intent, 201326592)
+                PendingIntent.getBroadcast(context, 0, intent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             )
             val bundle2 = Bundle()
             bundle2.putBoolean("miui.showAction", true)
@@ -167,7 +177,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val pendingIntent = PendingIntent.getActivity(
                 context,
                 0,
-                Intent("chen.action.hyperpods.show_airpods_ui"),
+                Intent("chen.action.hyperpods.show_airpods_ui").setPackage(BuildConfig.APPLICATION_ID),
                 PendingIntent.FLAG_IMMUTABLE
             )
 
@@ -256,6 +266,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val disconnectBundle = Bundle()
             disconnectBundle.putParcelable("Device", bluetoothDevice)
             val intent = Intent("com.android.bluetooth.headset.notification")
+            intent.setPackage(HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
             intent.putExtra("btData", disconnectBundle)
             intent.putExtra("disconnect", "1")
             intent.identifier = "BTHeadset${bluetoothDevice.address}"
@@ -341,7 +352,14 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 Log.e("Art_Chen", "createPodsNotification: btDevice null");
                 return
             }
-            if (supportsIsland(context)) return createPodsIslandNotification(bluetoothDevice, context, batteryParams)
+            if (supportsIsland(context)) {
+                try {
+                    createPodsIslandNotification(bluetoothDevice, context, batteryParams)
+                    return
+                } catch (error: Exception) {
+                    Log.w("Art_Chen", "Unable to create headset island; using notification", error)
+                }
+            }
 
             try {
                 val address: String = bluetoothDevice.address
@@ -363,6 +381,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
         }
 
         fun cancelNotification(bluetoothDevice: BluetoothDevice, context: Context) {
+            MiuiStrongToastUtil.cancelCaseBatteryToast()
             try {
                 val address = bluetoothDevice.address
                 if (address.isNotEmpty()) {
@@ -380,27 +399,34 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             if (receiverRegistered) return
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(receiveContext: Context?, intent: Intent?) {
-                    when (intent?.action) {
-                        "chen.action.hyperpods.sendstrongtoast" -> {
-                            val batteryParams = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
-                            val caseUri = getCaseMp4Uri(context)
-                            if (!batteryParams.left!!.isConnected && !batteryParams.right!!.isConnected && batteryParams.case!!.isConnected && caseUri != null) {
-                                showCaseBatteryToast(context, batteryParams.case!!.battery, batteryParams.case!!.isCharging, caseUri, 20)
-                                return
+                    if (!HyperPodsBroadcasts.isTrusted(context, this, HyperPodsBroadcasts.BLUETOOTH)) return
+                    try {
+                        when (intent?.action) {
+                            "chen.action.hyperpods.sendstrongtoast" -> {
+                                val batteryParams = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
+                                MiuiStrongToastUtil.updateCaseBatteryState(batteryParams)
+                                val caseUri = getCaseMp4Uri(context)
+                                if (!batteryParams.left!!.isConnected && !batteryParams.right!!.isConnected && batteryParams.case!!.isConnected && caseUri != null) {
+                                    showCaseBatteryToast(context, batteryParams.case!!.battery, batteryParams.case!!.isCharging, caseUri, 20)
+                                    return
+                                }
+                                val leftUri = getResourcesUrl(context, if (batteryParams.left!!.isConnected) "earphone_left_inear" else "earphone_left_no_inear")
+                                val rightUri = getResourcesUrl(context, if (batteryParams.right!!.isConnected) "earphone_right_inear" else "earphone_right_no_inear")
+                                if (leftUri != null && rightUri != null && caseUri != null)
+                                    showPodsBatteryToast(context, leftUri, rightUri, caseUri, 20, batteryParams)
                             }
-                            val leftUri = getResourcesUrl(context, if (batteryParams.left!!.isConnected) "earphone_left_inear" else "earphone_left_no_inear")
-                            val rightUri = getResourcesUrl(context, if (batteryParams.right!!.isConnected) "earphone_right_inear" else "earphone_right_no_inear")
-                            if (leftUri != null && rightUri != null && caseUri != null)
-                                showPodsBatteryToast(context, leftUri, rightUri, caseUri, 20, batteryParams)
+                            "chen.action.hyperpods.updatepodsnotification" -> {
+                                val params = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
+                                MiuiStrongToastUtil.updateCaseBatteryState(params)
+                                createPodsNotification(intent.getParcelableExtra("device", BluetoothDevice::class.java), context, params)
+                            }
+                            "chen.action.hyperpods.cancelpodsnotification" ->
+                                intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let { cancelNotification(it, context) }
+                            "chen.action.hyperpods.podconnecting" ->
+                                intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let { showConnectedToast(it, context) }
                         }
-                        "chen.action.hyperpods.updatepodsnotification" -> {
-                            val params = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
-                            createPodsNotification(intent.getParcelableExtra("device", BluetoothDevice::class.java), context, params)
-                        }
-                        "chen.action.hyperpods.cancelpodsnotification" ->
-                            intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let { cancelNotification(it, context) }
-                        "chen.action.hyperpods.podconnecting" ->
-                            intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let { showConnectedToast(it, context) }
+                    } catch (error: Exception) {
+                        Log.e("Art_Chen", "Unable to handle headset notification", error)
                     }
                 }
             }
@@ -409,7 +435,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 addAction("chen.action.hyperpods.cancelpodsnotification")
                 addAction("chen.action.hyperpods.podconnecting")
             }
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             receiverRegistered = true
             Log.i("Art_Chen", "HyperPods toast receiver registered directly (split-island-v2)")
         }
@@ -448,76 +474,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                     mThiz = this.instance
                     // update case video first
                     val context = XposedHelpers.getObjectField(this.instance, "mContext") as Context
-                    if (receiverRegistered) return@after
-                    val file = File(context.filesDir, "my_internal_files")
-                    if (file.exists()) {
-                        val file2 = File(file, "airpods_gen3_case.mp4")
-                        if (file2.exists()) {
-                            if (Base64.encode(file2.readBytes(), 0) != CASE_MP4_BASE64)
-                                file2.delete()
-                        }
-                    }
-
-                    val broadcastReceiver = object : BroadcastReceiver() {
-                        override fun onReceive(p0: Context?, p1: Intent?) {
-                            if (p1?.action == "chen.action.hyperpods.sendstrongtoast") {
-                                val batteryParams = p1.getParcelableExtra("batteryParams", BatteryParams::class.java)!!
-                                val caseBatt = batteryParams.case!!.battery
-                                val caseCharging = batteryParams.case!!.isCharging
-                                val lowBatt = 20
-
-                                val caseUri = getCaseMp4Uri(context)
-                                if (!batteryParams.left!!.isConnected && !batteryParams.right!!.isConnected && batteryParams.case!!.isConnected && caseUri != null) {
-                                    batteryParams.case?.let {
-                                        showCaseBatteryToast(context, caseBatt, caseCharging, caseUri, lowBatt)
-                                    }
-                                    return
-                                }
-                                val leftUri =
-                                    if (batteryParams.left!!.isConnected)
-                                        getResourcesUrl(context, "earphone_left_inear")
-                                    else
-                                        getResourcesUrl(context, "earphone_left_no_inear")
-                                val rightUri =
-                                    if (batteryParams.right!!.isConnected)
-                                        getResourcesUrl(context, "earphone_right_inear")
-                                    else
-                                        getResourcesUrl(context, "earphone_right_no_inear")
-
-
-                                if (leftUri != null && rightUri != null && caseUri != null) {
-                                    showPodsBatteryToast(
-                                        context,
-                                        leftUri,
-                                        rightUri,
-                                        caseUri,
-                                        lowBatt,
-                                        batteryParams
-                                    )
-
-                                }
-                            } else if (p1?.action == "chen.action.hyperpods.updatepodsnotification") {
-                                val batteryParams = p1.getParcelableExtra<BatteryParams>("batteryParams", BatteryParams::class.java)
-                                val device = p1.getParcelableExtra("device", BluetoothDevice::class.java)
-                                createPodsNotification(device, context, batteryParams!!)
-                            } else if (p1?.action == "chen.action.hyperpods.cancelpodsnotification") {
-                                val device = p1.getParcelableExtra("device", BluetoothDevice::class.java) as BluetoothDevice
-                                cancelNotification(device, context)
-                            } else if (p1?.action == "chen.action.hyperpods.podconnecting") {
-                                val device = p1.getParcelableExtra("device", BluetoothDevice::class.java) as BluetoothDevice
-//                                XposedHelpers.callMethod(mThiz, "showConnectingToast", device.name, true, "00000000")
-                                showConnectedToast(device, context)
-                            }
-                        }
-
-                    }
-
-                    val intentFilter = IntentFilter("chen.action.hyperpods.sendstrongtoast")
-                    intentFilter.addAction("chen.action.hyperpods.updatepodsnotification")
-                    intentFilter.addAction("chen.action.hyperpods.cancelpodsnotification")
-                    intentFilter.addAction("chen.action.hyperpods.podconnecting")
-                    context.registerReceiver(broadcastReceiver, intentFilter,
-                        Context.RECEIVER_NOT_EXPORTED)
+                    registerHyperPodsReceiver(context)
                 }
             }
         }

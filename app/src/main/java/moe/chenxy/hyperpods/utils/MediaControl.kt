@@ -19,9 +19,8 @@ import kotlinx.coroutines.launch
 @SuppressLint("StaticFieldLeak")
 object MediaControl {
     var mContext: Context? = null
-    private val audioManager: AudioManager? by lazy {
-        mContext?.getSystemService(AudioManager::class.java)
-    }
+    private val audioManager: AudioManager?
+        get() = mContext?.getSystemService(AudioManager::class.java)
 
     val isPlaying: Boolean?
         get() = audioManager?.isMusicActive

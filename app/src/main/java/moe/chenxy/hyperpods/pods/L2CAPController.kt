@@ -1,11 +1,8 @@
 package moe.chenxy.hyperpods.pods
 
 import android.annotation.SuppressLint
-import android.app.StatusBarManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothSocket
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -31,8 +28,8 @@ import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPodsInstance
 import moe.chenxy.hyperpods.utils.MediaControl
+import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.SystemApisUtils
-import moe.chenxy.hyperpods.utils.SystemApisUtils.setIconVisibility
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.cancelPodsNotificationByMiuiBt
 import moe.chenxy.hyperpods.utils.data.BatteryParams
@@ -50,21 +47,21 @@ object L2CAPController {
     private const val TAG = "HyperPods-L2CAPController"
 
     // Basic Object
-    lateinit var socket: BluetoothSocket
+    private var socket: BluetoothSocket? = null
     private var mContext: Context? = null
     lateinit var mDevice: BluetoothDevice
-    private val audioManager: AudioManager? by lazy {
-        mContext?.getSystemService(AudioManager::class.java)
-    }
+    private val audioManager: AudioManager?
+        get() = mContext?.getSystemService(AudioManager::class.java)
     private lateinit var mPrefsBridge: YukiHookPrefsBridge
 
     private var aacpManager: AACPManager? = null
     private var connectionJob: Job? = null
+    private var sessionId = 0L
 
 //    private lateinit var mAirPodsInstance: AirPodsInstance
 
     private var scanToken: ScanToken? = null
-    var routes: List<MediaRoute2Info> = listOf()
+    @Volatile var routes: List<MediaRoute2Info> = listOf()
 
     private lateinit var mediaRouter: MediaRouter2
 
@@ -73,31 +70,40 @@ object L2CAPController {
     private var lastCaseConnected = false
     @Volatile private var batteryStateValid = false
     private var earDetectionStateValid = false
-    private var disconnectedAudio = true /* default to true to connect audio first time always */
+    private var speakerSwitchJob: Job? = null
+    private var switchedToSpeaker = false
+    private var pendingAudioRoute: MediaRoute2Info? = null
+    private var routeRetryJob: Job? = null
+    private var routeRetryCount = 0
     private var pausedAudio = false
     private var lastTempBatt = 0
     lateinit var currentEarDetectionParams: EarDetectionParams
     lateinit var currentBatteryParams: BatteryParams
     private var currentAnc: Int = 1
-    lateinit var currentPodsInfo: AACPManager.Companion.AirPodsInformation
+    var currentPodsInfo: AACPManager.Companion.AirPodsInformation? = null
 
     // Function toggle
     private var earDetection = true
-    private var disconnectAudio = true
+    private var autoSwitchToSpeaker = true
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(p0: Context?, p1: Intent?) {
-            if (p1?.action == HyperPodsAction.ACTION_GET_PODS_MAC) {
+            val context = p0 ?: return
+            val intent = p1 ?: return
+            val sender = if (intent.action == HyperPodsAction.ACTION_GET_PODS_MAC)
+                HyperPodsBroadcasts.SYSTEM_UI else BuildConfig.APPLICATION_ID
+            if (!HyperPodsBroadcasts.isTrusted(context, this, sender)) return
+            if (intent.action == HyperPodsAction.ACTION_GET_PODS_MAC) {
+                if (mContext == null || aacpManager == null) return
                 Intent(HyperPodsAction.ACTION_PODS_MAC_RECEIVED).apply {
-                    Log.i(TAG, "${p1.action} ,mac ${mDevice.address}")
-                    this.`package` = "com.android.systemui"
                     this.putExtra("mac", mDevice.address)
+                    this.putExtra("request_id", intent.getStringExtra("request_id"))
                     this.addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-                    p0?.sendBroadcast(this)
+                    HyperPodsBroadcasts.send(context, this, HyperPodsBroadcasts.SYSTEM_UI)
                     return
                 }
             }
-            handleUIEvent(p1!!)
+            handleUIEvent(intent)
         }
     }
 
@@ -110,7 +116,7 @@ object L2CAPController {
             this.putExtra("status", status)
             this.`package` = BuildConfig.APPLICATION_ID
             this.addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            mContext?.sendBroadcast(this)
+            HyperPodsBroadcasts.send(mContext, this)
         }
     }
 
@@ -119,7 +125,7 @@ object L2CAPController {
             this.putExtra("status", status)
             this.`package` = BuildConfig.APPLICATION_ID
             this.addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            mContext?.sendBroadcast(this)
+            HyperPodsBroadcasts.send(mContext, this)
         }
     }
 
@@ -128,11 +134,13 @@ object L2CAPController {
             this.putExtra("status", status)
             this.`package` = BuildConfig.APPLICATION_ID
             this.addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-            mContext?.sendBroadcast(this)
+            HyperPodsBroadcasts.send(mContext, this)
         }
     }
 
+    @Synchronized
     fun handleUIEvent(intent: Intent) {
+        if (mContext == null) return
         when (intent.action) {
             HyperPodsAction.ACTION_PODS_UI_INIT -> {
                 Log.i(TAG, "UI Init")
@@ -144,21 +152,29 @@ object L2CAPController {
                     changeUIBatteryStatus(currentBatteryParams)
 
                 changeUIAncStatus(currentAnc)
-                Intent(HyperPodsAction.ACTION_PODS_CONNECTED).apply {
-                    if (this@L2CAPController::currentPodsInfo.isInitialized)
-                        this.putExtra("device_info", currentPodsInfo)
-                    this.putExtra("device_name", mDevice.name)
-                    mContext?.sendBroadcast(this)
-                }
+                if (aacpManager != null) sendConnectedStatus()
             }
             HyperPodsAction.ACTION_ANC_SELECT -> {
                 val status = intent.getIntExtra("status", 0)
                 setANCMode(status)
             }
+            HyperPodsAction.ACTION_PODS_RENAME -> {
+                val name = intent.getStringExtra("name")?.trim() ?: return
+                if (name.isEmpty() || name.toByteArray().size > 255) return
+                if (aacpManager?.sendRename(name) == true) {
+                    runCatching { mDevice.setAlias(name) }
+                        .onFailure { Log.w(TAG, "Unable to update Bluetooth alias") }
+                    currentPodsInfo = currentPodsInfo?.copy(name = name)
+                    sendConnectedStatus()
+                    MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice)
+                }
+            }
 
             HyperPodsAction.ACTION_EAR_DETECTION_SWITCH_CHANGED -> {
-                earDetection = intent.getBooleanExtra("ear_detection", true)
-                disconnectAudio = intent.getBooleanExtra("disconnect_audio", true)
+                updateEarDetectionSettings(
+                    intent.getBooleanExtra("ear_detection", true),
+                    intent.getBooleanExtra("disconnect_audio", true)
+                )
             }
             HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED -> {
                 intent.getStringExtra("key")?.let { handleUISettingsChanged(it) }
@@ -166,7 +182,17 @@ object L2CAPController {
         }
     }
 
+    private fun sendConnectedStatus() {
+        Intent(HyperPodsAction.ACTION_PODS_CONNECTED).apply {
+            putExtra("device_info", currentPodsInfo)
+            putExtra("device_name", mDevice.alias ?: mDevice.name)
+            HyperPodsBroadcasts.send(mContext, this)
+        }
+    }
+
+    @Synchronized
     private fun handleInEarStatusChanged(status: List<Byte>) {
+        if (status.size != 2 || status.any { it.toInt() !in 0..3 }) return
         if (earDetectionStateValid && ::currentEarDetectionParams.isInitialized) {
             if (currentEarDetectionParams.left == status[0] && currentEarDetectionParams.right == status[1]) {
                 Log.d(TAG, "receive same in ear status, ignored")
@@ -175,6 +201,7 @@ object L2CAPController {
         }
         currentEarDetectionParams = EarDetectionParams(status[0], status[1])
         earDetectionStateValid = true
+        routeRetryCount = 0
         changeUIInEarStatus(currentEarDetectionParams)
 
         if (batteryStateValid && ::currentBatteryParams.isInitialized) {
@@ -190,47 +217,123 @@ object L2CAPController {
             }
         }
 
-        if (!earDetection) return
+        updateAudioForEarState()
+    }
 
+    // Called under the controller lock, also used when either setting changes.
+    private fun updateAudioForEarState() {
+        if (!earDetection) {
+            pausedAudio = false
+            restoreHeadphoneRoute()
+            return
+        }
+        if (!autoSwitchToSpeaker) restoreHeadphoneRoute()
+        if (!earDetectionStateValid || mContext == null) return
+
+        val status = listOf(currentEarDetectionParams.left, currentEarDetectionParams.right)
         val leftInEar = status[0] == EarDetectionStatus.IN_EAR
         val rightInEar = status[1] == EarDetectionStatus.IN_EAR
-        val inEar = if (status.find { it == EarDetectionStatus.IN_CASE || it == 0x3.toByte() } != null) {
-            // one is in case
-            leftInEar || rightInEar
-        } else {
-            leftInEar && rightInEar
-        }
+        val inEar = isReadyToPlay()
 
         Log.d(TAG, "handleInEarStatusChanged left $leftInEar right $rightInEar res $inEar")
 
-        // Check if need disconnect Audio and switch to speaker
-        if (disconnectAudio) {
-            if (!leftInEar && !rightInEar && !disconnectedAudio) {
-                disconnectedAudio = true
-                disconnectAudio(mContext!!, mDevice)
-            } else if ((leftInEar || rightInEar) && disconnectedAudio) {
-                connectAudio(mContext!!, mDevice)
-                disconnectedAudio = false
-            }
-        } else if (disconnectedAudio){
-            connectAudio(mContext!!, mDevice)
-            disconnectedAudio = false
-        }
-
         val audioIsPlaying = audioManager?.isMusicActive == true
-
-        if (inEar) {
-            if (pausedAudio && !audioIsPlaying) {
-                MediaControl.sendPlay()
-                pausedAudio = false
-            }
-        } else if (!disconnectedAudio && audioIsPlaying && !pausedAudio){
+        // Remember pauses made by us even when both earbuds are removed.
+        if (!inEar && audioIsPlaying && !pausedAudio) {
             MediaControl.sendPause()
             pausedAudio = true
+        }
+
+        if (autoSwitchToSpeaker && !leftInEar && !rightInEar) {
+            scheduleSpeakerRoute()
+        } else {
+            restoreHeadphoneRoute()
+        }
+
+        if (inEar) resumePausedAudio()
+    }
+
+    private fun isReadyToPlay(): Boolean {
+        val left = currentEarDetectionParams.left
+        val right = currentEarDetectionParams.right
+        return if (isInCaseStatus(left) || isInCaseStatus(right)) {
+            left == EarDetectionStatus.IN_EAR || right == EarDetectionStatus.IN_EAR
+        } else {
+            left == EarDetectionStatus.IN_EAR && right == EarDetectionStatus.IN_EAR
+        }
+    }
+
+    @Synchronized
+    private fun resumePausedAudio() {
+        if (!pausedAudio || !earDetection || !earDetectionStateValid || mContext == null) return
+        if (!isReadyToPlay()) return
+        // transferTo is asynchronous: do not resume onto the phone speaker while
+        // waiting for the selected route to become this headset again.
+        if (mediaRouter.systemController.selectedRoutes.none {
+            it.type == MediaRoute2Info.TYPE_BLUETOOTH_A2DP && it.name == mDevice.name
+        }) return
+        if (audioManager?.isMusicActive != true) MediaControl.sendPlay()
+        pausedAudio = false
+    }
+
+    private fun wantsHeadphoneRoute(): Boolean = !earDetection || !autoSwitchToSpeaker ||
+        (earDetectionStateValid && (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR ||
+            currentEarDetectionParams.right == EarDetectionStatus.IN_EAR))
+
+    @Synchronized
+    private fun handleAudioRouteChanged() {
+        if (mContext == null) return
+        val selected = mediaRouter.systemController.selectedRoutes
+        pendingAudioRoute?.let { pending ->
+            if (selected.any { it.id == pending.id }) {
+                pendingAudioRoute = null
+                routeRetryCount = 0
+                routeRetryJob?.cancel()
+                routeRetryJob = null
+                if (pending.type == MediaRoute2Info.TYPE_BLUETOOTH_A2DP) switchedToSpeaker = false
+            }
+        }
+        if (wantsHeadphoneRoute()) restoreHeadphoneRoute()
+        else if (earDetectionStateValid && pendingAudioRoute == null) scheduleSpeakerRoute()
+        resumePausedAudio()
+    }
+
+    @Synchronized
+    private fun handleAudioRouteFailure(route: MediaRoute2Info) {
+        if (mContext == null || pendingAudioRoute?.id != route.id) return
+        pendingAudioRoute = null
+        Log.w(TAG, "Audio route transfer failed (type ${route.type})")
+        if (route.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER) {
+            switchedToSpeaker = false
+            resumePausedAudio()
+        } else if (wantsHeadphoneRoute() && routeRetryCount < 2) {
+            val thisSession = sessionId
+            val waitMs = 500L * ++routeRetryCount
+            routeRetryJob?.cancel()
+            routeRetryJob = CoroutineScope(Dispatchers.Default).launch {
+                delay(waitMs)
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId == thisSession && wantsHeadphoneRoute()) restoreHeadphoneRoute()
+                }
+            }
+        } else {
+            routeRetryCount = 3
+        }
+    }
+
+    private fun requestAudioRoute(route: MediaRoute2Info) {
+        if (pendingAudioRoute != null) return
+        pendingAudioRoute = route
+        try {
+            mediaRouter.transferTo(route)
+        } catch (_: RuntimeException) {
+            handleAudioRouteFailure(route)
         }
     }
 
     @OptIn(ExperimentalStdlibApi::class)
+    @Synchronized
     fun handleBatteryChanged(packet: ByteArray) {
         val batteries = AirPodsNotifications.BatteryNotification.getBattery()
         val leftInCase = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
@@ -352,12 +455,10 @@ object L2CAPController {
                 // TODO: Implement launch Xiaoai & enable custom hold action
             }
 
-            HyperPodsPrefsKey.EAR_DETECTION -> {
-                earDetection = mPrefsBridge.getBoolean(key, true)
-            }
-
+            HyperPodsPrefsKey.EAR_DETECTION,
             HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER -> {
-                disconnectAudio = mPrefsBridge.getBoolean(key, true)
+                // The UI saves both switches together. Reload them together too.
+                updateFeatureToggle()
             }
 
             HyperPodsPrefsKey.SINGLE_POD_ANC -> {
@@ -404,14 +505,40 @@ object L2CAPController {
     }
 
     private fun updateFeatureToggle() {
-        earDetection = mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION, true)
-        disconnectAudio = mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)
+        updateEarDetectionSettings(
+            mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION, true),
+            mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)
+        )
+    }
+
+    @Synchronized
+    private fun updateEarDetectionSettings(enabled: Boolean, switchToSpeaker: Boolean) {
+        earDetection = enabled
+        autoSwitchToSpeaker = switchToSpeaker
+        routeRetryCount = 0
+        updateAudioForEarState()
     }
 
     private val routeCallback = object : MediaRouter2.RouteCallback() {
         override fun onRoutesUpdated(routes: List<MediaRoute2Info>) {
             Log.v(TAG, "routes updated: $routes")
             this@L2CAPController.routes = routes
+            synchronized(this@L2CAPController) {
+                if (mContext != null && wantsHeadphoneRoute()) restoreHeadphoneRoute()
+            }
+        }
+    }
+    private val controllerCallback = object : MediaRouter2.ControllerCallback() {
+        override fun onControllerUpdated(controller: MediaRouter2.RoutingController) {
+            handleAudioRouteChanged()
+        }
+    }
+    private val transferCallback = object : MediaRouter2.TransferCallback() {
+        override fun onTransfer(oldController: MediaRouter2.RoutingController, newController: MediaRouter2.RoutingController) {
+            handleAudioRouteChanged()
+        }
+        override fun onTransferFailure(route: MediaRoute2Info) {
+            handleAudioRouteFailure(route)
         }
     }
     private fun startRoutesScan() {
@@ -423,12 +550,16 @@ object L2CAPController {
 
         val preferredFeature = listOf(MediaRoute2Info.FEATURE_LIVE_AUDIO, MediaRoute2Info.FEATURE_LIVE_VIDEO)
         mediaRouter.registerRouteCallback(executor, routeCallback, RouteDiscoveryPreference.Builder(preferredFeature, true).build())
+        mediaRouter.registerControllerCallback(executor, controllerCallback)
+        mediaRouter.registerTransferCallback(executor, transferCallback)
         scanToken = mediaRouter.requestScan(MediaRouter2.ScanRequest.Builder().build())
     }
 
     private fun stopRoutesScan() {
         scanToken?.let { mediaRouter.cancelScanRequest(it) }
         mediaRouter.unregisterRouteCallback(routeCallback)
+        mediaRouter.unregisterControllerCallback(controllerCallback)
+        mediaRouter.unregisterTransferCallback(transferCallback)
         scanToken = null
     }
 
@@ -461,13 +592,8 @@ object L2CAPController {
         }
 
         override fun onDeviceInformationReceived(deviceInformation: AACPManager.Companion.AirPodsInformation) {
-            Log.i(TAG, "Device Information: $deviceInformation")
             currentPodsInfo = deviceInformation
-            Intent(HyperPodsAction.ACTION_PODS_CONNECTED).apply {
-                this.putExtra("device_info", deviceInformation)
-                this.putExtra("device_name", mDevice.name)
-                mContext?.sendBroadcast(this)
-            }
+            sendConnectedStatus()
         }
 
         override fun onHeadTrackingReceived(headTracking: ByteArray) {
@@ -510,9 +636,11 @@ object L2CAPController {
         }
     }
 
+    @Synchronized
     fun connectPod(context: Context, device: BluetoothDevice, prefsBridge: YukiHookPrefsBridge) {
         if (connectionJob?.isActive == true && mContext != null && mDevice == device) return
         if (mContext != null) disconnectedPod(context, mDevice)
+        val thisSession = ++sessionId
         mContext = context
         mDevice = device
         mPrefsBridge = prefsBridge
@@ -520,6 +648,8 @@ object L2CAPController {
         earDetectionStateValid = false
         mShowedConnectedToast = false
         lastCaseConnected = false
+        currentPodsInfo = null
+        currentAnc = 0
         AirPodsNotifications.BatteryNotification.reset()
         currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
 
@@ -531,6 +661,7 @@ object L2CAPController {
             this.addAction(HyperPodsAction.ACTION_EAR_DETECTION_SWITCH_CHANGED)
             this.addAction(HyperPodsAction.ACTION_GET_PODS_MAC)
             this.addAction(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+            this.addAction(HyperPodsAction.ACTION_PODS_RENAME)
         }, Context.RECEIVER_EXPORTED)
 
         MediaControl.mContext = mContext
@@ -588,92 +719,125 @@ object L2CAPController {
         }
 
         connectionJob = CoroutineScope(Dispatchers.IO).launch {
-            delay(500)
-            val connectingSocket = try {
-                getBtSocket()
-            } catch (e: Exception) {
-                Log.e(TAG, "failed to create AirPods socket", e)
-                return@launch
-            }
             try {
-                ensureActive()
-                socket = connectingSocket
-                Log.d(TAG, "connecting AirPods!")
-                connectingSocket.connect()
-                ensureActive()
-            } catch (e: CancellationException) {
-                runCatching { connectingSocket.close() }
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "failed to connect to AirPods socket; stop retrying", e)
-                runCatching { connectingSocket.close() }
-                return@launch
-            }
+                delay(500)
+                val connectingSocket = try {
+                    getBtSocket()
+                } catch (e: Exception) {
+                    Log.e(TAG, "failed to create AirPods socket", e)
+                    return@launch
+                }
+                try {
+                    synchronized(this@L2CAPController) {
+                        ensureActive()
+                        if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                        socket = connectingSocket
+                    }
+                    Log.d(TAG, "connecting AirPods!")
+                    connectingSocket.connect()
+                    ensureActive()
+                } catch (e: CancellationException) {
+                    runCatching { connectingSocket.close() }
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "failed to connect to AirPods socket; stop retrying", e)
+                    runCatching { connectingSocket.close() }
+                    return@launch
+                }
 
 
-            Log.d(TAG, "connected!")
-            val connectedSocket = connectingSocket
-            val manager = AACPManager(connectedSocket)
-            aacpManager = manager
-            var statusRequestJob: Job? = null
-            try {
-                manager.setPacketCallback(packetCallback)
-                // Expose the controls as soon as AAP connects, even if the case
-                // goes away before the first usable battery report arrives.
-                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device)
-                manager.sendDataPacket(manager.createHandshakePacket())
-                manager.sendPacket(manager.createHandshakePacket())
-                delay(200)
-                manager.sendSetFeatureFlagsPacket()
-                delay(200)
-                manager.sendNotificationRequest()
-                statusRequestJob = launch {
-                    // Retry only the status subscription, not the native socket.
-                    // This job belongs to the connection and stops on disconnect.
-                    for (waitMs in listOf(1000L, 2000L, 4000L)) {
-                        delay(waitMs)
-                        val earsReady = batteryStateValid &&
-                            currentBatteryParams.left?.rawStatus != BatteryStatus.NEED_AGAIN &&
-                            currentBatteryParams.right?.rawStatus != BatteryStatus.NEED_AGAIN
-                        if (earsReady || !connectedSocket.isConnected) break
-                        Log.i(TAG, "Battery not ready; requesting initial status again")
-                        manager.sendNotificationRequest()
+                Log.d(TAG, "connected!")
+                val connectedSocket = connectingSocket
+                val manager = AACPManager(connectedSocket)
+                var statusRequestJob: Job? = null
+                try {
+                    synchronized(this@L2CAPController) {
+                        ensureActive()
+                        if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                        aacpManager = manager
+                        manager.setPacketCallback(packetCallback)
+                        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device)
+                        sendConnectedStatus()
+                    }
+                    manager.sendDataPacket(manager.createHandshakePacket())
+                    manager.sendPacket(manager.createHandshakePacket())
+                    delay(200)
+                    manager.sendSetFeatureFlagsPacket()
+                    delay(200)
+                    manager.sendNotificationRequest()
+                    statusRequestJob = launch {
+                        // Retry only the status subscription, not the native socket.
+                        // This job belongs to the connection and stops on disconnect.
+                        for (waitMs in listOf(1000L, 2000L, 4000L)) {
+                            delay(waitMs)
+                            val earsReady = synchronized(this@L2CAPController) {
+                                sessionId != thisSession || (batteryStateValid &&
+                                currentBatteryParams.left?.rawStatus != BatteryStatus.NEED_AGAIN &&
+                                currentBatteryParams.right?.rawStatus != BatteryStatus.NEED_AGAIN)
+                            }
+                            if (earsReady || !connectedSocket.isConnected) break
+                            Log.i(TAG, "Battery not ready; requesting initial status again")
+                            manager.sendNotificationRequest()
+                        }
+                    }
+                    // Begin receiving immediately after subscribing; no extra delay.
+                    while (connectedSocket.isConnected) {
+                        val buffer = ByteArray(1024)
+                        val bytesRead = connectedSocket.inputStream.read(buffer)
+                        ensureActive()
+                        if (bytesRead == -1) break
+                        if (bytesRead > 0) synchronized(this@L2CAPController) {
+                            ensureActive()
+                            if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                            manager.receivePacket(buffer.copyOfRange(0, bytesRead))
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "AirPods status session ended", e)
+                } finally {
+                    statusRequestJob?.cancel()
+                    runCatching { connectedSocket.close() }
+                    synchronized(this@L2CAPController) {
+                        if (aacpManager === manager) aacpManager = null
                     }
                 }
-                // Begin receiving immediately after subscribing; no extra delay.
-                while (connectedSocket.isConnected) {
-                    val buffer = ByteArray(1024)
-                    val bytesRead = connectedSocket.inputStream.read(buffer)
-                    ensureActive()
-                    if (bytesRead == -1) break
-                    if (bytesRead > 0) manager.receivePacket(buffer.copyOfRange(0, bytesRead))
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "AirPods status session ended", e)
             } finally {
-                statusRequestJob?.cancel()
-                runCatching { connectedSocket.close() }
-                if (aacpManager === manager) aacpManager = null
+                finishSession(thisSession, context, device)
             }
         }
     }
 
+    @Synchronized
+    private fun finishSession(expectedSession: Long, context: Context, device: BluetoothDevice) {
+        // Old coroutine completion must not tear down a newer connection.
+        if (sessionId == expectedSession) disconnectedPod(context, device)
+    }
+
+    @Synchronized
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
+        if (::mDevice.isInitialized && device != mDevice) return
+        ++sessionId
+        speakerSwitchJob?.cancel()
+        speakerSwitchJob = null
+        switchedToSpeaker = false
+        pendingAudioRoute = null
+        routeRetryJob?.cancel()
+        routeRetryJob = null
+        routeRetryCount = 0
         connectionJob?.cancel()
         connectionJob = null
-        if (::socket.isInitialized) {
-            runCatching { socket.close() }
-        }
+        socket?.let { runCatching { it.close() } }
+        socket = null
 
         mContext?.let {
-            stopRoutesScan()
-            cancelPodsNotificationByMiuiBt(context, device)
+            runCatching { stopRoutesScan() }
+            cancelPodsNotificationByMiuiBt(it, device)
             Intent(HyperPodsAction.ACTION_PODS_DISCONNECTED).apply {
-                context.sendBroadcast(this)
+                HyperPodsBroadcasts.send(it, this)
             }
-            it.unregisterReceiver(broadcastReceiver)
+            runCatching { it.unregisterReceiver(broadcastReceiver) }
         }
 
         mShowedConnectedToast = false
@@ -681,7 +845,9 @@ object L2CAPController {
         batteryStateValid = false
         earDetectionStateValid = false
         pausedAudio = false
-//        disconnectedAudio = false
+        currentAnc = 0
+        currentPodsInfo = null
+        routes = emptyList()
         mContext = null
         MediaControl.mContext = null
         aacpManager = null
@@ -689,15 +855,12 @@ object L2CAPController {
 
     fun sendPacket(packet: String) {
         val fromHex = packet.split(" ").map { it.toInt(16).toByte() }
-        socket.outputStream?.write(fromHex.toByteArray())
-        socket.outputStream?.flush()
+        sendPacket(fromHex.toByteArray())
     }
 
+    @Synchronized
     fun sendPacket(packet: ByteArray) {
-        if (this::socket.isInitialized && socket.isConnected && socket.outputStream != null) {
-            socket.outputStream?.write(packet)
-            socket.outputStream?.flush()
-        }
+        aacpManager?.sendPacket(packet)
     }
 
     fun setANCMode(mode: Int) {
@@ -711,77 +874,38 @@ object L2CAPController {
         }
     }
 
-    fun disconnectAudio(context: Context, device: BluetoothDevice?) {
-        val bluetoothAdapter = context.getSystemService(BluetoothManager::class.java).adapter
-
-        MediaControl.sendPause()
-
-        bluetoothAdapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.HEADSET) {
-                    try {
-                        val method = proxy.javaClass.getMethod("disconnect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
-                        bluetoothAdapter.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
-                    }
-                }
-            }
-
-            override fun onServiceDisconnected(profile: Int) { }
-        }, BluetoothProfile.HEADSET)
-
-        CoroutineScope(Dispatchers.Default).launch {
-            // Wait pause done
+    private fun scheduleSpeakerRoute() {
+        if (switchedToSpeaker || speakerSwitchJob?.isActive == true) return
+        speakerSwitchJob = CoroutineScope(Dispatchers.Default).launch {
+            // Keep the existing pause delay, but never let it outlive a wear
+            // change, a disabled setting, or the current Bluetooth session.
             delay(500)
-            for (route in routes) {
-                // try switch to speaker
-                if (route.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER) {
-                    Log.d(TAG, "found speaker route $route")
-                    mediaRouter.transferTo(route)
+            synchronized(this@L2CAPController) {
+                ensureActive()
+                speakerSwitchJob = null
+                if (mContext == null || !earDetection || !autoSwitchToSpeaker) return@synchronized
+                if (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR ||
+                    currentEarDetectionParams.right == EarDetectionStatus.IN_EAR) return@synchronized
+                routes.firstOrNull { it.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER }?.let {
+                    // Only change the media route. HFP/A2DP must stay connected.
+                    switchedToSpeaker = true
+                    requestAudioRoute(it)
                 }
             }
         }
-
-        setRegularBatteryLevel(lastTempBatt)
     }
 
-    fun connectAudio(context: Context, device: BluetoothDevice?) {
-        val bluetoothAdapter = context.getSystemService(BluetoothManager::class.java).adapter
-
-        bluetoothAdapter?.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.HEADSET) {
-                    try {
-                        val method = proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                        method.invoke(proxy, device)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
-                        bluetoothAdapter.closeProfileProxy(BluetoothProfile.HEADSET, proxy)
-                    }
-                }
-            }
-
-            override fun onServiceDisconnected(profile: Int) { }
-        }, BluetoothProfile.HEADSET)
-
-
-        for (route in routes) {
-            // try switch back
-            if (route.type == MediaRoute2Info.TYPE_BLUETOOTH_A2DP && route.name == device!!.name) {
-                Log.d(TAG, "found bt route $route")
-                mediaRouter.transferTo(route)
-            }
+    private fun restoreHeadphoneRoute() {
+        speakerSwitchJob?.cancel()
+        speakerSwitchJob = null
+        // Initial wear reports must not reconnect profiles or take over a route
+        // selected by the user. Only undo a speaker switch made by this module.
+        if (!switchedToSpeaker || mContext == null || pendingAudioRoute != null || routeRetryCount >= 3) return
+        routes.firstOrNull {
+            it.type == MediaRoute2Info.TYPE_BLUETOOTH_A2DP && it.name == mDevice.name
+        }?.let {
+            requestAudioRoute(it)
         }
-
-        // Restore icon
-        val statusBarManager =
-            context.getSystemService("statusbar") as StatusBarManager
-        statusBarManager.setIconVisibility("wireless_headset", true)
-        setRegularBatteryLevel(lastTempBatt)
     }
 
     fun setLoudSoundReduction(enabled: Boolean) {

@@ -81,6 +81,7 @@ fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName
         },
         rightAction = {
             IconButton(
+                enabled = text.trim().isNotEmpty() && text.trim().toByteArray().size <= 255,
                 onClick = {
                     showBottomSheet.value = false
                     if (text != deviceName) {

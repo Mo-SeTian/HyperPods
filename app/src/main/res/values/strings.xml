@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">HyperPods AAP</string>
+    <string name="app_name" translatable="false">HyperPods AAP</string>
     <string name="pod_info">Pod Info</string>
     <string name="about_hyperpods">About HyperPods</string>
     <string name="about">About</string>
@@ -35,6 +35,7 @@
     <string name="right_pod">Right</string>
     <string name="set_noise_mode">Noise Control</string>
     <string name="set_voice_assist">Voice Assist</string>
+    <string name="voice_assist_unsupported">Voice Assist (not supported yet)</string>
     <string name="case_charging_sound_title">Case Charging Sound</string>
     <string name="product_name">Product Name</string>
     <string name="model_name">Model</string>

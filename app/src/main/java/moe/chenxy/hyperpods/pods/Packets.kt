@@ -92,6 +92,7 @@ class AirPodsNotifications {
         var status: List<Byte> = listOf(0x01, 0x01)
 
         fun setStatus(data: ByteArray) {
+            if (!isEarDetectionData(data)) return
             status = listOf(data[6], data[7])
         }
 
@@ -216,6 +217,7 @@ class AirPodsNotifications {
         }
 
         fun setData(data: ByteArray) {
+            if (!isConversationalAwarenessData(data)) return
             status = data[9]
         }
     }

@@ -117,7 +117,7 @@ fun PressAndHoldSettingPage(
     )
     var settingModeIndex by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
-    var listeningModeConfigByte = remember { mutableStateOf(context.prefs().getInt(HyperPodsPrefsKey.LISTENING_MODE_BYTE, 0).toByte()) }
+    var listeningModeConfigByte = remember { mutableStateOf(context.prefs().getInt(HyperPodsPrefsKey.LISTENING_MODE_BYTE, 6).toByte()) }
 
     fun getLongPressMode(isLeft: Boolean): (Int) -> Unit {
         return if (isLeft) onLongPressModeLeftChange else onLongPressModeRightChange
@@ -130,12 +130,12 @@ fun PressAndHoldSettingPage(
         modifier = cardModifier
     ) {
         SuperArrow(stringResource(R.string.left_pod),
-            rightText = settingMode[longPressModeLeft], onClick = {
+            rightText = settingMode[0], onClick = {
                 settingPodIndex = 0
                 showBottomSheet.value = true
             }
         )
-        SuperArrow(stringResource(R.string.right_pod), rightText = settingMode[longPressModeRight], onClick = {
+        SuperArrow(stringResource(R.string.right_pod), rightText = settingMode[0], onClick = {
             settingPodIndex = 1
             showBottomSheet.value = true
         })
@@ -161,6 +161,9 @@ fun PressAndHoldSettingPage(
         rightAction = {
             IconButton(
                 onClick = {
+                    if (listeningModeConfigByte.value.toInt() and 0x0f != 0) {
+                        onListeningModeChange(listeningModeConfigByte.value)
+                    }
                     showBottomSheet.value = false
                 },
             ) {
@@ -222,16 +225,13 @@ fun PressAndHoldSettingPage(
                 }
             )
             BasicComponent(
-                title = stringResource(R.string.set_voice_assist),
-                onClick = {
-                    settingModeIndex = 1
-                },
+                title = stringResource(R.string.voice_assist_unsupported),
+                onClick = {},
                 rightActions = {
                     Checkbox(
-                        checked = settingModeIndex == 1,
-                        onCheckedChange = {
-                            settingModeIndex = 1
-                        },
+                        checked = false,
+                        enabled = false,
+                        onCheckedChange = {},
                         colors = checkBoxColors
                     )
                 }

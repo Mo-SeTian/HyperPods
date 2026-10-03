@@ -68,7 +68,7 @@ fun PodBattery(level: Int, icon: Painter, isCharging: Boolean) {
         modifier = Modifier.padding(5.dp)
     ) {
         CircularProgressIndicator(
-            progress = if (level == 0) null else level / 100f,
+            progress = if (level !in 0..100) null else level / 100f,
             colors = ProgressIndicatorDefaults.ProgressIndicatorColors(
                 foregroundColor = if (isCharging)
                         Color(0xFF34C759)
@@ -85,7 +85,7 @@ fun PodBattery(level: Int, icon: Painter, isCharging: Boolean) {
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = "Battery Type Icon", tint = MiuixTheme.colorScheme.onSurface, modifier = Modifier.padding(end = 5.dp).height(12.dp).offset(y = 1.dp))
-            Text("${if (level > 0) level else "-" } %", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("${if (level in 0..100) level else "-" } %", fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -152,9 +152,8 @@ fun Case(podBatteryParams: PodBatteryParams?, darkMode: Boolean, modifier: Modif
 fun PodStatus(batteryParams: BatteryParams, earDetectionParams: EarDetectionParams, modifier: Modifier = Modifier, model: AirPodsBase = AirPodsPro3()) {
     val currentDarkMode = isSystemInDarkTheme()
 
-    val anyPodsInCase = earDetectionParams.left == EarDetectionStatus.IN_CASE
-            || earDetectionParams.right == EarDetectionStatus.IN_CASE
-    val shouldShowCase = batteryParams.case?.isConnected == true
+    val anyPodsInCase = batteryParams.left?.isInCase == true || batteryParams.right?.isInCase == true
+    val shouldShowCase = batteryParams.case?.isConnected == true && anyPodsInCase
     val targetWeight = if (shouldShowCase) 1f else 4f
     val targetCaseWeight = if (shouldShowCase) 1f else 0.01f
     val animatedWeight by animateFloatAsState(

@@ -16,6 +16,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import kotlinx.serialization.json.Json
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.SystemApisUtils.isHyperOS
@@ -30,6 +32,26 @@ import androidx.core.graphics.toColorInt
 
 @SuppressLint("WrongConstant")
 object MiuiStrongToastUtil {
+    private var caseToastJob: Job? = null
+    private var latestBattery: BatteryParams? = null
+
+    fun updateCaseBatteryState(params: BatteryParams) {
+        latestBattery = params
+        if (!caseBatteryVisible(params)) {
+            caseToastJob?.cancel()
+            caseToastJob = null
+        }
+    }
+
+    fun cancelCaseBatteryToast() {
+        caseToastJob?.cancel()
+        caseToastJob = null
+        latestBattery = null
+    }
+
+    private fun caseBatteryVisible(params: BatteryParams): Boolean =
+        params.case?.isConnected == true &&
+            (params.left?.isInCase == true || params.right?.isInCase == true)
     var lastPodsTimestamp = -1L
     val colorGreen = "#FF34C759".toColorInt()
     val colorRed = "#FFFF3B30".toColorInt()
@@ -100,6 +122,7 @@ object MiuiStrongToastUtil {
         lowBatteryThreshold: Int = 20,
         batteryParams: BatteryParams
     ) {
+        updateCaseBatteryState(batteryParams)
         if (!isHyperOS) {
             return
         }
@@ -107,8 +130,6 @@ object MiuiStrongToastUtil {
         val leftCharging = batteryParams.left!!.isCharging
         val right = batteryParams.right!!.battery
         val rightCharging = batteryParams.right!!.isCharging
-        val case = batteryParams.case!!.battery
-        val caseCharging = batteryParams.case!!.isCharging
 
         val leftText =
             if (batteryParams.left!!.isConnected) TextParams("$left %", if (leftCharging) colorGreen else if (left <= lowBatteryThreshold) colorRed else Color.WHITE, turnAnim = true) else null
@@ -134,14 +155,15 @@ object MiuiStrongToastUtil {
                 "setStatus", Int::class.javaPrimitiveType, String::class.java, Bundle::class.java
             ).invoke(service, 1, "strong_toast_action", bundle)
             lastPodsTimestamp = System.currentTimeMillis()
-            if (batteryParams.case!!.isConnected &&
-                (batteryParams.left!!.isInCase || batteryParams.right!!.isInCase)) {
-                CoroutineScope(Dispatchers.Main).launch {
+            caseToastJob?.cancel()
+            if (caseBatteryVisible(batteryParams)) {
+                caseToastJob = CoroutineScope(Dispatchers.Main).launch {
                     delay(4000)
+                    val current = latestBattery?.takeIf { caseBatteryVisible(it) } ?: return@launch
                     showCaseBatteryToast(
                         context,
-                        case,
-                        caseCharging,
+                        current.case!!.battery,
+                        current.case!!.isCharging,
                         caseMp4Uri,
                         lowBatteryThreshold
                     )
@@ -162,7 +184,7 @@ object MiuiStrongToastUtil {
 
         intent.`package` = "com.xiaomi.bluetooth"
 
-        context?.sendBroadcast(intent)
+        HyperPodsBroadcasts.send(context, intent, HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
     }
 
     fun showPodsNotificationByMiuiBt(
@@ -177,7 +199,7 @@ object MiuiStrongToastUtil {
 
         intent.`package` = "com.xiaomi.bluetooth"
 
-        context?.sendBroadcast(intent)
+        HyperPodsBroadcasts.send(context, intent, HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
     }
 
     fun cancelPodsNotificationByMiuiBt(
@@ -190,14 +212,14 @@ object MiuiStrongToastUtil {
 
         intent.`package` = "com.xiaomi.bluetooth"
 
-        context.sendBroadcast(intent)
+        HyperPodsBroadcasts.send(context, intent, HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
     }
 
     fun showPodConnectingByMiuiBt(context: Context, device: BluetoothDevice) {
         val intent = Intent("chen.action.hyperpods.podconnecting")
         intent.putExtra("device", device)
         intent.`package` = "com.xiaomi.bluetooth"
-        context.sendBroadcast(intent)
+        HyperPodsBroadcasts.send(context, intent, HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
     }
 
     object Category {

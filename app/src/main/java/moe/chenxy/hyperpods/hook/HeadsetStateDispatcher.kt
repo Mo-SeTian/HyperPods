@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.StatusBarManager
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHeadset
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Handler
@@ -24,6 +25,8 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
         ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a"),
         ParcelUuid.fromString("2a72e02b-7b99-778f-014d-ad0b7221ec74")
     )
+    private var waitingForUuids: BluetoothDevice? = null
+    private var uuidReceiverRegistered = false
 
     @SuppressLint("PrivateApi")
     private fun getBooleanProp(prop: String, def: Boolean): Boolean {
@@ -32,6 +35,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
 
     external fun nativeGetHookResult(): Boolean
 
+    @SuppressLint("MissingPermission")
     override fun onHook() {
         // Load Native hook
         System.loadLibrary("hyperpods_hook")
@@ -50,33 +54,73 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
                         return@after
                     }
                     handler.post {
-                        Log.d(
-                            "Art_Chen",
-                            "A2DP Connection State: $currState, isAirPod ${isPods(device)}"
-                        )
-                        val context = this.instance as ContextWrapper
-                        if (!isPods(device)) return@post
-
-                        val statusBarManager =
-                            context.getSystemService("statusbar") as StatusBarManager
-                        if (currState == BluetoothHeadset.STATE_CONNECTED) {
-                            // Show Wireless Pods icon
-                            statusBarManager.setIconVisibility("wireless_headset", true)
-
-                            val hookRes = nativeGetHookResult()
-                            if (!hookRes) {
-                                Toast.makeText(
-                                    appContext,
-                                    "HyperPods: hook failed, this version of HyperPods will not work!",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                        try {
+                            Log.d(
+                                "Art_Chen",
+                                "A2DP Connection State: $currState, isAirPod ${isPods(device)}"
+                            )
+                            val context = this.instance as ContextWrapper
+                            if (currState == BluetoothProfile.STATE_DISCONNECTING || currState == BluetoothProfile.STATE_DISCONNECTED) {
+                                if (waitingForUuids == device) waitingForUuids = null
+                                // UUIDs may be absent again during teardown.
+                                L2CAPController.disconnectedPod(context, device)
+                            }
+                            if (!isPods(device)) {
+                                // UUID discovery can finish after the A2DP event.
+                                // Inspect its result once instead of dropping this connection.
+                                if (currState == BluetoothProfile.STATE_CONNECTED && device.uuids == null) {
+                                    if (!uuidReceiverRegistered) {
+                                        context.registerReceiver(object : android.content.BroadcastReceiver() {
+                                            override fun onReceive(receiverContext: Context?, intent: android.content.Intent?) {
+                                                if (intent?.action != BluetoothDevice.ACTION_UUID) return
+                                                val resolved = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) ?: return
+                                                if (resolved != waitingForUuids) return
+                                                try {
+                                                    if (!isPods(resolved)) {
+                                                        waitingForUuids = null
+                                                        return
+                                                    }
+                                                    val state = XposedHelpers.callMethod(context, "getConnectionState", resolved) as Int
+                                                    if (state == BluetoothProfile.STATE_CONNECTED && nativeGetHookResult()) {
+                                                        waitingForUuids = null
+                                                        showPodConnectingByMiuiBt(context, resolved)
+                                                        L2CAPController.connectPod(context, resolved, prefs)
+                                                    }
+                                                } catch (error: Exception) {
+                                                    Log.e("Art_Chen", "Unable to complete headset UUID discovery", error)
+                                                }
+                                            }
+                                        }, android.content.IntentFilter(BluetoothDevice.ACTION_UUID), Context.RECEIVER_EXPORTED)
+                                        uuidReceiverRegistered = true
+                                    }
+                                    waitingForUuids = device
+                                    device.fetchUuidsWithSdp()
+                                }
                                 return@post
                             }
-                            showPodConnectingByMiuiBt(context, device)
-                            L2CAPController.connectPod(context, device, prefs)
-                        } else if (currState == BluetoothHeadset.STATE_DISCONNECTING || currState == BluetoothHeadset.STATE_DISCONNECTED) {
-                            statusBarManager.setIconVisibility("wireless_headset", false)
-                            L2CAPController.disconnectedPod(context, device)
+
+                            val statusBarManager =
+                                context.getSystemService("statusbar") as StatusBarManager
+                            if (currState == BluetoothHeadset.STATE_CONNECTED) {
+                                // Show Wireless Pods icon
+                                statusBarManager.setIconVisibility("wireless_headset", true)
+
+                                val hookRes = nativeGetHookResult()
+                                if (!hookRes) {
+                                    Toast.makeText(
+                                        appContext,
+                                        "HyperPods: hook failed, this version of HyperPods will not work!",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    return@post
+                                }
+                                showPodConnectingByMiuiBt(context, device)
+                                L2CAPController.connectPod(context, device, prefs)
+                            } else if (currState == BluetoothHeadset.STATE_DISCONNECTING || currState == BluetoothHeadset.STATE_DISCONNECTED) {
+                                statusBarManager.setIconVisibility("wireless_headset", false)
+                            }
+                        } catch (error: Exception) {
+                            Log.e("Art_Chen", "Unable to handle headset connection state", error)
                         }
                     }
                 }
@@ -86,7 +130,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
 
     @SuppressLint("MissingPermission")
     fun isPods(device: BluetoothDevice): Boolean {
-        for (uuid in device.uuids) {
+        for (uuid in device.uuids ?: return false) {
             if (airPodsUUIDs.contains(uuid)) {
                 return true
             }

@@ -35,6 +35,12 @@ jobs:
           test -n "$SIGNING_KEY"
           printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/hyperpods-release.jks"
 
+      - name: Run unit tests and Android lint
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug
+
+      - name: Check native scan boundaries
+        run: bash app/src/test/cpp/run_tests.sh
+
       - name: Build signed release
         if: github.event_name != 'pull_request'
         env:

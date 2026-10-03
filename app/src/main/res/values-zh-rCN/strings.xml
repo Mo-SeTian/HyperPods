@@ -35,6 +35,7 @@
     <string name="right_pod">"右"</string>
     <string name="set_noise_mode">噪声控制</string>
     <string name="set_voice_assist">呼出小爱同学</string>
+    <string name="voice_assist_unsupported">语音助手（暂不支持）</string>
     <string name="case_charging_sound_title">启用充电盒声音</string>
     <string name="product_name">型号名称</string>
     <string name="model_name">型号</string>

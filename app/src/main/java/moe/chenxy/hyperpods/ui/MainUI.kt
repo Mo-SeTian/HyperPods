@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.util.Log
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +14,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -42,8 +42,6 @@ import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -54,6 +52,7 @@ import moe.chenxy.hyperpods.MainActivity
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
@@ -71,10 +70,7 @@ import top.yukonga.miuix.kmp.icon.icons.useful.Info
 import top.yukonga.miuix.kmp.icon.icons.useful.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-@Volatile
-var restoreAncJob: Job? = null
-
-var currentPodsInfo: AACPManager.Companion.AirPodsInformation? = null
+var currentPodsInfo by mutableStateOf<AACPManager.Companion.AirPodsInformation?>(null)
 
 fun setBoolPrefsAndSync(context: Context, prefKey: String, value: Boolean) {
     context.prefs().edit {
@@ -86,7 +82,7 @@ fun setBoolPrefsAndSync(context: Context, prefKey: String, value: Boolean) {
 fun syncToController(context: Context, prefKey: String) {
     Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED).apply {
         this.putExtra("key", prefKey)
-        context.sendBroadcast(this)
+        HyperPodsBroadcasts.send(context, this, HyperPodsBroadcasts.BLUETOOTH)
     }
 }
 
@@ -146,49 +142,51 @@ fun MainUI() {
     val ancMode = remember { mutableStateOf(NoiseControlMode.OFF) }
     val realAncMode = remember { mutableStateOf(NoiseControlMode.OFF) }
     val microphoneMode = remember { mutableStateOf(0) }
-    val init = remember { mutableStateOf(false) }
+    var restoreAncJob by remember { mutableStateOf<Job?>(null) }
 
-    val broadcastReceiver = object : BroadcastReceiver() {
-        override fun onReceive(p0: Context?, p1: Intent?) {
-            when (p1?.action) {
-                HyperPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                    restoreAncJob?.cancel()
-                    ancMode.value =
-                        NoiseControlMode.entries.toTypedArray()[p1.getIntExtra("status", 1) - 1]
-                    realAncMode.value =
-                        NoiseControlMode.entries.toTypedArray()[p1.getIntExtra("status", 1) - 1]
-                }
+    DisposableEffect(context) {
+        val broadcastReceiver = object : BroadcastReceiver() {
+            override fun onReceive(p0: Context?, p1: Intent?) {
+                if (!HyperPodsBroadcasts.isTrusted(context, this, HyperPodsBroadcasts.BLUETOOTH)) return
+                when (p1?.action) {
+                    HyperPodsAction.ACTION_PODS_ANC_CHANGED -> {
+                        val status = p1.getIntExtra("status", 0)
+                        if (status !in 1..NoiseControlMode.entries.size) return
+                        restoreAncJob?.cancel()
+                        ancMode.value =
+                            NoiseControlMode.entries[status - 1]
+                        realAncMode.value =
+                            NoiseControlMode.entries[status - 1]
+                    }
 
-                HyperPodsAction.ACTION_EAR_DETECTION_STATUS_CHANGED -> {
-                    earDetectionParams.value =
-                        p1.getParcelableExtra("status", EarDetectionParams::class.java)!!
-                }
+                    HyperPodsAction.ACTION_EAR_DETECTION_STATUS_CHANGED -> {
+                        earDetectionParams.value =
+                            p1.getParcelableExtra("status", EarDetectionParams::class.java) ?: return
+                    }
 
-                HyperPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
-                    batteryParams.value = p1.getParcelableExtra("status", BatteryParams::class.java)!!
-                }
+                    HyperPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
+                        batteryParams.value = p1.getParcelableExtra("status", BatteryParams::class.java) ?: return
+                    }
 
-                HyperPodsAction.ACTION_PODS_CONNECTED -> {
-                    val deviceInfo = p1.getParcelableExtra("device_info", AACPManager.Companion.AirPodsInformation::class.java)
-                    val deviceName = p1.getStringExtra("device_name")
-                    mainTitle.value = deviceInfo?.name ?: (deviceName ?: "")
-                    canShowDetailPage.value = true
-                    Log.i("Art_Chen", "pod connected deviceName: ${mainTitle.value}")
-                    currentPodsInfo = deviceInfo
-                }
+                    HyperPodsAction.ACTION_PODS_CONNECTED -> {
+                        val deviceInfo = p1.getParcelableExtra("device_info", AACPManager.Companion.AirPodsInformation::class.java)
+                        val deviceName = p1.getStringExtra("device_name")
+                        mainTitle.value = deviceInfo?.name ?: (deviceName ?: "")
+                        canShowDetailPage.value = true
+                        currentPodsInfo = deviceInfo
+                    }
 
-                HyperPodsAction.ACTION_PODS_DISCONNECTED -> {
-                    mainTitle.value = ""
-                    canShowDetailPage.value = false
-                    if (p0 is MainActivity) {
-                        p0.finish()
+                    HyperPodsAction.ACTION_PODS_DISCONNECTED -> {
+                        mainTitle.value = ""
+                        canShowDetailPage.value = false
+                        if (p0 is MainActivity) {
+                            p0.finish()
+                        }
                     }
                 }
             }
         }
-    }
 
-    if (!init.value) {
         context.registerReceiver(broadcastReceiver, IntentFilter().apply {
             this.addAction(HyperPodsAction.ACTION_PODS_ANC_CHANGED)
             this.addAction(HyperPodsAction.ACTION_EAR_DETECTION_STATUS_CHANGED)
@@ -197,8 +195,12 @@ fun MainUI() {
             this.addAction(HyperPodsAction.ACTION_PODS_DISCONNECTED)
         }, Context.RECEIVER_EXPORTED)
 
-        context.sendBroadcast(Intent(HyperPodsAction.ACTION_PODS_UI_INIT))
-        init.value = true
+        HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_UI_INIT), HyperPodsBroadcasts.BLUETOOTH)
+        onDispose {
+            context.unregisterReceiver(broadcastReceiver)
+            restoreAncJob?.cancel()
+            currentPodsInfo = null
+        }
     }
 
     fun setAncMode(mode: NoiseControlMode) {
@@ -207,9 +209,9 @@ fun MainUI() {
         }
         Intent(HyperPodsAction.ACTION_ANC_SELECT).apply {
             this.putExtra("status", mode.ordinal + 1)
-            context.sendBroadcast(this)
+            HyperPodsBroadcasts.send(context, this, HyperPodsBroadcasts.BLUETOOTH)
         }
-        restoreAncJob = CoroutineScope(Dispatchers.Default).launch {
+        restoreAncJob = coroutineScope.launch {
             ancMode.value = mode
             // Wait the AirPods return the new ANC status, if timeout then restore the ui to old ANC mode
             delay(3000)
@@ -226,7 +228,8 @@ fun MainUI() {
     }
 
     fun renameAirPods(it: String) {
-        Log.i("Art_Chen", "Try rename to $it")
+        HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_RENAME)
+            .putExtra("name", it), HyperPodsBroadcasts.BLUETOOTH)
     }
 
     fun onMicrophoneModeChange(it: Int) {

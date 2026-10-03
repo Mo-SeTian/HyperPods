@@ -387,17 +387,13 @@ class AACPManager(val socket: BluetoothSocket) {
     }
 
     fun parseProximityKeysResponse(data: ByteArray): Map<ProximityKeyType, ByteArray> {
-        Log.d(
-            TAG,
-            "Parsing Proximity Keys Response: ${data.joinToString(" ") { "%02X".format(it) }}"
-        )
-        if (data.size < 4) {
+        if (data.size < 7) {
             throw IllegalArgumentException("Data array too short to parse Proximity Keys Response")
         }
         if (data[4] != Opcodes.PROXIMITY_KEYS_RSP) {
             throw IllegalArgumentException("Data array does not start with PROXIMITY_KEYS_RSP opcode")
         }
-        val keyCount = data[6].toInt()
+        val keyCount = data[6].toInt() and 0xff
         val keys = mutableMapOf<ProximityKeyType, ByteArray>()
         var offset = 7
         for (i in 0 until keyCount) {
@@ -406,7 +402,7 @@ class AACPManager(val socket: BluetoothSocket) {
                 throw IllegalArgumentException("Data array too short to parse Proximity Keys Response")
             }
             val keyType = data[offset]
-            val keyLength = data[offset + 2].toInt()
+            val keyLength = data[offset + 2].toInt() and 0xff
             Log.d(TAG, "Key Type: ${keyType.toString(16)}, Key Length: $keyLength")
             offset += 4
             if (offset + keyLength > data.size) {
@@ -416,12 +412,6 @@ class AACPManager(val socket: BluetoothSocket) {
             System.arraycopy(data, offset, key, 0, keyLength)
             keys[ProximityKeyType.fromByte(keyType)] = key
             offset += keyLength
-            Log.d(
-                TAG,
-                "Parsed Proximity Key: Type: ${keyType}, Length: $keyLength, Key: ${
-                    key.joinToString(" ") { "%02X".format(it) }
-                }"
-            )
         }
         return keys
     }
@@ -439,29 +429,26 @@ class AACPManager(val socket: BluetoothSocket) {
 
     @OptIn(ExperimentalStdlibApi::class)
     fun receivePacket(packet: ByteArray) {
-        if (!packet.toHexString().startsWith("04000400")) {
-            Log.w(
-                TAG,
-                "Received packet does not start with expected header: ${
-                    packet.joinToString(" ") {
-                        "%02X".format(it)
-                    }
-                }"
-            )
+        if (packet.size < 6 || !packet.copyOfRange(0, 4).contentEquals(HEADER_BYTES)) {
+            Log.w(TAG, "Ignoring invalid AACP header (${packet.size} bytes)")
             return
         }
-        if (packet.size < 6) {
-            Log.w(
-                TAG,
-                "Received packet too short: ${packet.joinToString(" ") { "%02X".format(it) }}"
-            )
-            return
+        try {
+            receiveValidatedPacket(packet)
+        } catch (_: IllegalArgumentException) {
+            Log.w(TAG, "Ignoring malformed AACP opcode ${packet[4]} (${packet.size} bytes)")
+        } catch (_: IndexOutOfBoundsException) {
+            Log.w(TAG, "Ignoring truncated AACP opcode ${packet[4]} (${packet.size} bytes)")
         }
+    }
 
+    @OptIn(ExperimentalStdlibApi::class)
+    private fun receiveValidatedPacket(packet: ByteArray) {
         val opcode = packet[4]
 
         when (opcode) {
             Opcodes.BATTERY_INFO -> {
+                require(packet.size == 22)
                 callback?.onBatteryInfoReceived(packet)
             }
 
@@ -509,10 +496,12 @@ class AACPManager(val socket: BluetoothSocket) {
             }
 
             Opcodes.EAR_DETECTION -> {
+                require(packet.size == 8)
                 callback?.onEarDetectionReceived(packet)
             }
 
             Opcodes.CONVERSATION_AWARENESS -> {
+                require(packet.size == 10)
                 callback?.onConversationAwarenessReceived(packet)
             }
 
@@ -532,10 +521,12 @@ class AACPManager(val socket: BluetoothSocket) {
             }
 
             Opcodes.PROXIMITY_KEYS_RSP -> {
+                require(packet.size >= 7)
                 callback?.onProximityKeysReceived(packet)
             }
 
             Opcodes.STEM_PRESS -> {
+                require(packet.size == 8)
                 callback?.onStemPressReceived(packet)
             }
 
@@ -556,6 +547,7 @@ class AACPManager(val socket: BluetoothSocket) {
             }
 
             Opcodes.SMART_ROUTING_RESP -> {
+                require(packet.size >= 12)
                 val packetString = packet.decodeToString()
                 val sender = packet.sliceArray(6..11).reversedArray().joinToString(":") { "%02X".format(it) }
 
@@ -577,7 +569,7 @@ class AACPManager(val socket: BluetoothSocket) {
                 } else if ("Android" in packetString) {
                     connectedDevices.find { it.mac == sender }?.type = "Android"
                 }
-                Log.d(TAG, "Smart Routing Response from $sender: $packetString, type: ${connectedDevices.find { it.mac == sender }?.type}")
+                Log.d(TAG, "Smart Routing Response received")
                 if (packetString.contains("SetOwnershipToFalse")) {
                     callback?.onOwnershipToFalseRequest(sender, packetString.contains("ReverseBannerTapped"))
                 }
@@ -789,6 +781,7 @@ class AACPManager(val socket: BluetoothSocket) {
     fun createRenamePacket(name: String): ByteArray {
         val nameBytes = name.toByteArray()
         val size = nameBytes.size
+        require(name.isNotBlank() && size in 1..255) { "Name must contain 1 to 255 UTF-8 bytes" }
         val packet = ByteArray(5 + size)
         packet[0] = Opcodes.RENAME
         packet[1] = 0x00
@@ -802,11 +795,10 @@ class AACPManager(val socket: BluetoothSocket) {
     fun sendMediaInformationNewDevice(selfMacAddress: String, targetMacAddress: String): Boolean {
         if (selfMacAddress.length != 17 || !selfMacAddress.matches(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")) || targetMacAddress.length != 17 || !targetMacAddress.matches(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"))) {
             // throw IllegalArgumentException("MAC address must be 6 bytes")
-            Log.w(TAG, "Invalid MAC address format, got: selfMacAddress=$selfMacAddress, targetMacAddress=$targetMacAddress")
+            Log.w(TAG, "Invalid MAC address format")
             return false
         }
-        Log.d(TAG, "SELFMAC: ${selfMacAddress}, TARGETMAC: $targetMacAddress")
-        Log.d(TAG, "Sending Media Information packet to $targetMacAddress")
+        Log.d(TAG, "Sending Media Information packet")
         return sendDataPacket(createMediaInformationNewDevicePacket(selfMacAddress, targetMacAddress))
     }
 
@@ -844,13 +836,13 @@ class AACPManager(val socket: BluetoothSocket) {
     fun sendHijackRequest(selfMacAddress: String): Boolean {
         if (selfMacAddress.length != 17 || !selfMacAddress.matches(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"))) {
             // throw IllegalArgumentException("MAC address must be 6 bytes")
-            Log.w(TAG, "Invalid MAC address format, got: selfMacAddress=$selfMacAddress")
+            Log.w(TAG, "Invalid MAC address format")
             return false
         }
         var success = false
         for (connectedDevice in connectedDevices) {
             if (connectedDevice.mac != selfMacAddress) {
-                Log.d(TAG, "Sending Hijack Request packet to ${connectedDevice.mac}")
+                Log.d(TAG, "Sending Hijack Request packet")
                 success = sendDataPacket(createHijackRequestPacket(connectedDevice.mac)) || success
             }
         }
@@ -887,16 +879,15 @@ class AACPManager(val socket: BluetoothSocket) {
     fun sendMediaInformataion(selfMacAddress: String, streamingState: Boolean = false): Boolean {
         if (selfMacAddress.length != 17 || !selfMacAddress.matches(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"))) {
             // throw IllegalArgumentException("MAC address must be 6 bytes")
-            Log.d(TAG, "Invalid MAC address format, got: selfMacAddress=$selfMacAddress")
+            Log.d(TAG, "Invalid MAC address format")
             return false
         }
-        Log.d(TAG, "SELFMAC: $selfMacAddress")
         val targetMac = connectedDevices.find { it.mac != selfMacAddress }?.mac
         if (targetMac == null) {
             Log.w(TAG, "Cannot send Media Information packet: No connected device found")
             return false
         }
-        Log.d(TAG, "Sending Media Information packet to $targetMac")
+        Log.d(TAG, "Sending Media Information packet")
         return sendDataPacket(
             createMediaInformationPacket(
                 selfMacAddress,
@@ -948,7 +939,7 @@ class AACPManager(val socket: BluetoothSocket) {
     fun sendSmartRoutingShowUI(selfMacAddress: String): Boolean {
         if (selfMacAddress.length != 17 || !selfMacAddress.matches(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"))) {
             // throw IllegalArgumentException("MAC address must be 6 bytes")
-            Log.w(TAG, "Invalid MAC address format, got: selfMacAddress=$selfMacAddress")
+            Log.w(TAG, "Invalid MAC address format")
             return false
         }
 
@@ -957,7 +948,7 @@ class AACPManager(val socket: BluetoothSocket) {
             Log.w(TAG, "Cannot send Smart Routing Show UI packet: No connected device found")
             return false
         }
-        Log.d(TAG, "Sending Smart Routing Show UI packet to $targetMac")
+        Log.d(TAG, "Sending Smart Routing Show UI packet")
         return sendDataPacket(createSmartRoutingShowUIPacket(targetMac))
     }
 
@@ -993,7 +984,7 @@ class AACPManager(val socket: BluetoothSocket) {
         var success = false
         for (connectedDevice in connectedDevices) {
             if (connectedDevice.mac != selfMacAddress) {
-                Log.d(TAG, "Sending Hijack Reversed packet to ${connectedDevice.mac}")
+                Log.d(TAG, "Sending Hijack Reversed packet")
                 success = sendDataPacket(createHijackReversedPacket(connectedDevice.mac)) || success
             }
         }
@@ -1026,10 +1017,10 @@ class AACPManager(val socket: BluetoothSocket) {
     fun sendAddTiPiDevice(selfMacAddress: String, targetMacAddress: String): Boolean {
         if (selfMacAddress.length != 17 || !selfMacAddress.matches(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")) || targetMacAddress.length != 17 || !targetMacAddress.matches(Regex("([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"))) {
             // throw IllegalArgumentException("MAC address must be 6 bytes")
-            Log.w(TAG, "Invalid MAC address format, got: selfMacAddress=$selfMacAddress, targetMacAddress=$targetMacAddress")
+            Log.w(TAG, "Invalid MAC address format")
             return false
         }
-        Log.d(TAG, "Sending Add TiPi Device packet to $targetMacAddress")
+        Log.d(TAG, "Sending Add TiPi Device packet")
         return sendDataPacket(createAddTiPiDevicePacket(selfMacAddress, targetMacAddress))
     }
 
@@ -1091,6 +1082,7 @@ class AACPManager(val socket: BluetoothSocket) {
                     System.arraycopy(data, 4, newData, 0, data.size - 4)
                     return fromByteArray(newData)
                 }
+                require(data.size >= 7) { "ControlCommand payload requires 7 bytes" }
                 if (data[0] != Opcodes.CONTROL_COMMAND) {
                     throw IllegalArgumentException("Data array does not start with CONTROL_COMMAND opcode")
                 }
@@ -1126,9 +1118,11 @@ class AACPManager(val socket: BluetoothSocket) {
     @OptIn(ExperimentalStdlibApi::class)
     fun sendPacket(packet: ByteArray): Boolean {
         try {
-            Log.d(TAG, "Sending packet: ${packet.joinToString(" ") { "%02X".format(it) }}")
+            if (packet.isEmpty()) return false
+            Log.d(TAG, "Sending packet (${packet.size} bytes)")
 
-            if (packet[4] == Opcodes.CONTROL_COMMAND) {
+            if (packet.size >= 6 && packet.take(4).toByteArray().contentEquals(HEADER_BYTES) &&
+                packet[4] == Opcodes.CONTROL_COMMAND) {
                 val controlCommand = ControlCommand.fromByteArray(packet)
                 Log.d(
                     TAG,
@@ -1143,8 +1137,11 @@ class AACPManager(val socket: BluetoothSocket) {
             }
 
             if (socket.isConnected) {
-                socket.outputStream?.write(packet)
-                socket.outputStream?.flush()
+                synchronized(socket) {
+                    val output = socket.outputStream ?: return false
+                    output.write(packet)
+                    output.flush()
+                }
                 return true
             } else {
                 Log.d(TAG, "Can't send packet: Socket not initialized or connected")
@@ -1187,8 +1184,7 @@ class AACPManager(val socket: BluetoothSocket) {
     }
 
     fun parseAudioSourceResponse(data: ByteArray): Pair<String, AudioSourceType> {
-        Log.d(TAG, "Parsing Audio Source Response: ${data.joinToString(" ") { "%02X".format(it) }}")
-        if (data.size < 9) {
+        if (data.size < 13) {
             throw IllegalArgumentException("Data array too short to parse Audio Source Response")
         }
         if (data[4] != Opcodes.AUDIO_SOURCE) {
@@ -1203,17 +1199,13 @@ class AACPManager(val socket: BluetoothSocket) {
     }
 
     fun parseConnectedDevicesResponse(data: ByteArray): List<ConnectedDevice> {
-        Log.d(
-            TAG,
-            "Parsing Connected Devices Response: ${data.joinToString(" ") { "%02X".format(it) }}"
-        )
-        if (data.size < 8) {
+        if (data.size < 9) {
             throw IllegalArgumentException("Data array too short to parse Connected Devices Response")
         }
         if (data[4] != Opcodes.CONNECTED_DEVICES) {
             throw IllegalArgumentException("Data array does not start with CONNECTED_DEVICES opcode")
         }
-        val deviceCount = data[8].toInt()
+        val deviceCount = data[8].toInt() and 0xff
         val devices = mutableListOf<ConnectedDevice>()
 
         var offset = 9
@@ -1256,6 +1248,7 @@ class AACPManager(val socket: BluetoothSocket) {
     }
 
     fun parseInformationPacket(packet: ByteArray): AirPodsInformation {
+        require(packet.size >= 7) { "Information packet requires a payload" }
         val data = packet.sliceArray(6 until packet.size)
 
         var index = 0
@@ -1273,7 +1266,8 @@ class AACPManager(val socket: BluetoothSocket) {
             strings.add(str)
         }
 
-        strings.removeAt(0) // I'm too lazy to adjust, just removing the first empty string
+        require(strings.isNotEmpty()) { "Information packet contains no strings" }
+        strings.removeAt(0)
 
         return AirPodsInformation(
             name = strings.getOrNull(0) ?: "",

@@ -25,7 +25,7 @@ android {
         applicationId = "moe.chenxy.hyperpods"
         minSdk = 35
         targetSdk = 36
-        versionCode = 7
+        versionCode = 8
         versionName = "3.0.0-AAP-W-HyperOS4"
         externalNativeBuild {
             cmake {
@@ -73,6 +73,9 @@ android {
         buildConfig = true
     }
 
+    // Wear-state tests exercise scheduling only, not Android service behavior.
+    testOptions.unitTests.isReturnDefaultValues = true
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -105,6 +108,7 @@ configurations.configureEach {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("org.mockito:mockito-core:5.20.0")
     implementation(libs.coreKtx)
     compileOnly(libs.xposedApi)
     implementation(libs.yukihookApi)
