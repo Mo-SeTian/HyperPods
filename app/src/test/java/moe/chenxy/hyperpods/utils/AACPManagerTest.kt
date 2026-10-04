@@ -16,6 +16,23 @@ class AACPManagerTest {
         this[4] = opcode
     }
 
+    @Test fun variableLengthBatteryReportsReachTheController() {
+        for (count in 1..3) {
+            val report = packet(4, 7 + 5 * count).apply { this[6] = count.toByte() }
+            manager.receivePacket(report)
+            verify(callback).onBatteryInfoReceived(report)
+        }
+        verifyNoMoreInteractions(callback)
+    }
+
+    @Test fun batteryCountMustMatchTheCompleteFrame() {
+        for (count in listOf(0, 2, 3, 4, 255)) {
+            manager.receivePacket(packet(4, 12).apply { this[6] = count.toByte() })
+        }
+        manager.receivePacket(packet(4, 6))
+        verifyNoInteractions(callback)
+    }
+
     @Test fun truncatedControlPacketsAreRejectedBeforeCopyingTheirValue() {
         for (size in 6..10) {
             assertThrows(IllegalArgumentException::class.java) {

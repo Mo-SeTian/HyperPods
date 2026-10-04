@@ -44,7 +44,8 @@ object BatteryStatus {
 data class Battery(val component: Int, val level: Int, val status: Int) : Parcelable {
     val isAvailable: Boolean
         get() = level in 0..100 &&
-            (status == BatteryStatus.CHARGING || status == BatteryStatus.NOT_CHARGING)
+            (status == BatteryStatus.CHARGING || status == BatteryStatus.NOT_CHARGING ||
+                    status == BatteryStatus.NEED_AGAIN)
 
     fun getComponentName(): String? {
         return when (component) {
@@ -164,18 +165,20 @@ class AirPodsNotifications {
         }
 
         fun isBatteryData(data: ByteArray): Boolean {
-            if (data.size != 22) {
-                return false
-            }
-
-            return data.joinToString("") { "%02x".format(it) }.startsWith("040004000400")
+            if (data.size < 7 || !data.copyOfRange(0, 6).contentEquals(byteArrayOf(4, 0, 4, 0, 4, 0))) return false
+            val count = data[6].toInt() and 0xff
+            return count in 1..3 && data.size == 7 + 5 * count
         }
+
+        // A pending record can display its last reading, but still needs a fresh report.
+        val needsRefresh: Boolean
+            get() = listOf(first, second).any { it.status == BatteryStatus.NEED_AGAIN }
 
         fun setBattery(data: ByteArray): Boolean {
             if (!isBatteryData(data)) return false
             // Records may arrive in either ear order. Never reuse the other
             // ear's cached level when a record is disconnected or not ready.
-            for (offset in listOf(7, 12, 17)) {
+            for (offset in 7 until data.size step 5) {
                 val component = data[offset].toInt() and 0xff
                 val previous = when (component) {
                     BatteryComponent.LEFT -> first

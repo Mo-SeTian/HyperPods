@@ -6,6 +6,7 @@
     <string name="loud_sound_unavailable">This version does not support this feature yet</string>
     <string name="allow_off_title">Allow Off listening mode</string>
     <string name="allow_off_summary">Allow turning off noise control. Loud sound protection is not active in Off mode.</string>
+    <string name="off_mode_enable_on_select">Selecting Off first enables the headset’s Off option. Loud sound protection is inactive in this mode.</string>
     <string name="long_press_shared">Noise control cycle (both earbuds)</string>
     <string name="long_press_shared_summary">Choose at least two modes. This cycle is shared by both earbuds.</string>
 </resources>

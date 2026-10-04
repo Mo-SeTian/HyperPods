@@ -429,7 +429,9 @@ class AACPManager(val socket: BluetoothSocket) {
 
         when (opcode) {
             Opcodes.BATTERY_INFO -> {
-                require(packet.size == 22)
+                require(packet.size >= 7)
+                val count = packet[6].toInt() and 0xff
+                require(count in 1..3 && packet.size == 7 + 5 * count)
                 callback?.onBatteryInfoReceived(packet)
             }
 

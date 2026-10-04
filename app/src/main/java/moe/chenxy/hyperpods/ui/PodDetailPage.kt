@@ -132,7 +132,9 @@ fun PodDetailPage(
                     if (PodsSettings.supports(PodsSettings.NOISE_MODE, model)) {
                         DashboardSection(stringResource(R.string.dashboard_noise))
                         DashboardNoise(ancMode, onAncModeChange,
-                            if (ready(PodsSettings.NOISE_MODE)) allowedModes else emptySet())
+                            if (ready(PodsSettings.NOISE_MODE) && Key.ALLOW_OFF_OPTION !in pendingSettings) allowedModes + 1 else emptySet())
+                        if (1 !in allowedModes) Text(stringResource(R.string.off_mode_enable_on_select),
+                            fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         if (ancMode == null) Text(stringResource(R.string.settings_reading), fontSize = 13.sp)
                         Box(Modifier.padding(top = 12.dp)) { DashboardDivider() }
                     }

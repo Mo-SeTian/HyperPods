@@ -88,6 +88,7 @@ object L2CAPController {
     var currentPodsInfo: AACPManager.Companion.AirPodsInformation? = null
     private data class PendingSetting(val value: Int, val timeout: Job)
     private val pendingSettings = mutableMapOf<String, PendingSetting>()
+    private var pendingOffSelection = false
     private var pendingRename: String? = null
     private var renameTimeout: Job? = null
     private var conversationTimeout: Job? = null
@@ -240,12 +241,18 @@ object L2CAPController {
     private fun sendSettingsState() {
         Intent(HyperPodsAction.ACTION_PODS_SETTINGS_STATE).apply {
             putExtra("settings", Bundle().apply { confirmedSettings().forEach { (key, value) -> putInt(key, value) } })
-            putStringArrayListExtra("pending", ArrayList(pendingSettings.keys + listOfNotNull(pendingRename?.let { PodsSettings.RENAME })))
+            putStringArrayListExtra("pending", ArrayList(pendingSettings.keys +
+                    listOfNotNull(pendingRename?.let { PodsSettings.RENAME }, PodsSettings.NOISE_MODE.takeIf { pendingOffSelection })))
             HyperPodsBroadcasts.send(mContext, this)
         }
     }
 
     private fun sendSettingResult(key: String, success: Boolean, pending: Boolean = false) {
+        if (key == HyperPodsPrefsKey.ALLOW_OFF_OPTION && pendingOffSelection && !pending) {
+            pendingOffSelection = false
+            if (success) sendSetting(PodsSettings.NOISE_MODE, 1)
+            else sendSettingResult(PodsSettings.NOISE_MODE, false)
+        }
         Intent(HyperPodsAction.ACTION_PODS_SETTING_RESULT).apply {
             putExtra("key", key)
             putExtra("success", success)
@@ -291,6 +298,8 @@ object L2CAPController {
         }
         currentEarDetectionParams = EarDetectionParams(status[0], status[1])
         earDetectionStateValid = true
+        if (!batteryStateValid || AirPodsNotifications.BatteryNotification.needsRefresh)
+            aacpManager?.sendNotificationRequest()
         routeRetryCount = 0
         changeUIInEarStatus(currentEarDetectionParams)
 
@@ -830,15 +839,13 @@ object L2CAPController {
                     statusRequestJob = launch {
                         // Retry only the status subscription, not the native socket.
                         // This job belongs to the connection and stops on disconnect.
-                        for (waitMs in listOf(1000L, 2000L, 4000L)) {
+                        for (waitMs in listOf(1000L, 2000L, 4000L, 8000L, 15000L)) {
                             delay(waitMs)
-                            val earsReady = synchronized(this@L2CAPController) {
-                                sessionId != thisSession || (batteryStateValid &&
-                                currentBatteryParams.left?.rawStatus != BatteryStatus.NEED_AGAIN &&
-                                currentBatteryParams.right?.rawStatus != BatteryStatus.NEED_AGAIN)
+                            val ready = synchronized(this@L2CAPController) {
+                                sessionId != thisSession || initialStatusReady()
                             }
-                            if (earsReady || !connectedSocket.isConnected) break
-                            Log.i(TAG, "Battery not ready; requesting initial status again")
+                            if (ready || !connectedSocket.isConnected) break
+                            Log.i(TAG, "Initial headset status incomplete; requesting status again")
                             manager.sendNotificationRequest()
                         }
                     }
@@ -883,6 +890,7 @@ object L2CAPController {
         ++sessionId
         pendingSettings.values.forEach { it.timeout.cancel() }
         pendingSettings.clear()
+        pendingOffSelection = false
         pendingRename = null
         renameTimeout?.cancel()
         renameTimeout = null
@@ -934,9 +942,29 @@ object L2CAPController {
         aacpManager?.sendPacket(packet)
     }
 
+    @Synchronized
     fun setANCMode(mode: Int) {
         Log.d(TAG, "setANCMode: $mode")
+        if (pendingOffSelection) return
+        val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
+        if (mode == 1 && PodsSettings.supports(HyperPodsPrefsKey.ALLOW_OFF_OPTION, model) &&
+            confirmedSettings()[HyperPodsPrefsKey.ALLOW_OFF_OPTION] != 1) {
+            if (pendingSettings.containsKey(PodsSettings.NOISE_MODE) ||
+                pendingSettings.containsKey(HyperPodsPrefsKey.ALLOW_OFF_OPTION)) return
+            // Only an explicit Off click enables this firmware option. Wait for
+            // its acknowledgement before issuing the listening-mode command.
+            pendingOffSelection = true
+            sendSetting(HyperPodsPrefsKey.ALLOW_OFF_OPTION, 1)
+            return
+        }
         sendSetting(PodsSettings.NOISE_MODE, mode)
+    }
+
+    private fun initialStatusReady(): Boolean {
+        val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
+        return batteryStateValid && !AirPodsNotifications.BatteryNotification.needsRefresh &&
+                earDetectionStateValid && currentPodsInfo != null &&
+                (!PodsSettings.supports(PodsSettings.NOISE_MODE, model) || PodsSettings.NOISE_MODE in confirmedSettings())
     }
 
     private fun scheduleSpeakerRoute() {

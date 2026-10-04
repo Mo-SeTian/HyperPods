@@ -2,7 +2,7 @@
 
 当前设置界面采用浅色/深色薄荷主题，左右耳机独立显示电量，耳机仓在线且电量有效时显示。最新设置逻辑修复及实机验收边界见 [LibrePods 功能对照与修复记录](docs/LibrePods功能对照审查.md)。
 
-当前构建 `versionCode = 9`：修正耳机改名协议、同步耳机确认值、设置失败/超时反馈、机型能力与 Off 限制、对话音量恢复、入耳检测子开关保存和音频路由身份匹配；长按循环明确为双耳共用，滑块松手提交。降低高音量目前禁用，独立 ATT 控制尚未实现。
+当前构建 `versionCode = 10`：在上一版设置确认与路由修复基础上，修正音乐小岛共存时双耳内容对齐、首页关闭模式的确认流程，以及快速取出耳机时的部分电量报文与初始化恢复。降低高音量目前禁用，独立 ATT 控制尚未实现。
 
 ## 1. 文档目的
 
@@ -18,7 +18,7 @@ Fork 信息：
 - 上游仓库：<https://github.com/Art-Chen/HyperPods>
 - 当前 Fork：<https://github.com/Mo-SeTian/HyperPods>
 - HyperOS 4 分支：`os4-dev`
-- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 6`
+- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 10`
 
 ## 2. 测试环境
 
@@ -350,7 +350,7 @@ zipalign -c -P 16 -v 4 HyperPods.apk
 ### 10.1 版本
 
 ```kotlin
-versionCode = 9
+versionCode = 10
 versionName = "3.0.0-AAP-W-HyperOS4"
 ```
 

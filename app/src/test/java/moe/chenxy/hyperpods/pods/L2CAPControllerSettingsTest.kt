@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import kotlinx.coroutines.Job
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import org.junit.After
@@ -30,6 +31,9 @@ class L2CAPControllerSettingsTest {
     private fun pending() = field("pendingSettings").get(controller) as Map<*, *>
 
     @Before fun setUp() {
+        AirPodsNotifications.BatteryNotification.reset()
+        field("batteryStateValid").set(controller, false)
+        field("earDetectionStateValid").set(controller, false)
         broadcasts = mockStatic(BroadcastOptions::class.java)
         broadcasts.`when`<BroadcastOptions> { BroadcastOptions.makeBasic() }
             .thenReturn(mock(BroadcastOptions::class.java, RETURNS_SELF))
@@ -60,6 +64,107 @@ class L2CAPControllerSettingsTest {
 
     private fun receive(identifier: Byte, value: Byte) = synchronized(controller) {
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, identifier, value, 0, 0, 0))
+    }
+
+    @Test fun selectingOffEnablesTheOptionAndWaitsForConfirmationBeforeChangingMode() {
+        receive(0x0d, 4)
+        receive(0x34, 2)
+        controller.setANCMode(1)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x34, 1, 0, 0, 0), output.toByteArray())
+        assertTrue(field("pendingOffSelection").getBoolean(controller))
+        receive(0x34, 2) // A stale state report is not an acknowledgement.
+        assertEquals(11, output.size())
+        receive(0x34, 1)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x34, 1, 0, 0, 0,
+            4, 0, 4, 0, 9, 0, 0x0d, 1, 0, 0, 0), output.toByteArray())
+        assertFalse(field("pendingOffSelection").getBoolean(controller))
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        assertEquals(4.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE)!!.value[0])
+        receive(0x0d, 1)
+        assertTrue(pending().isEmpty())
+    }
+
+    @Test fun alreadyEnabledOffDoesNotRewriteTheOption() {
+        receive(0x34, 1)
+        controller.setANCMode(1)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x0d, 1, 0, 0, 0), output.toByteArray())
+    }
+
+    @Test fun failedOptionWriteCancelsOffSelectionWithoutSendingMode() {
+        receive(0x0d, 4)
+        `when`(socket.isConnected).thenReturn(false)
+        controller.setANCMode(1)
+        assertFalse(field("pendingOffSelection").getBoolean(controller))
+        assertEquals(0, output.size())
+        assertTrue(pending().isEmpty())
+    }
+
+    @Test fun offOptionTimeoutNeverSendsOffAndAllowsAnotherClick() {
+        controller.setANCMode(1)
+        field("mContext").set(controller, null)
+        val deadline = System.nanoTime() + 4_000_000_000L
+        while (synchronized(controller) { pending().isNotEmpty() } && System.nanoTime() < deadline) Thread.sleep(20)
+        assertFalse(field("pendingOffSelection").getBoolean(controller))
+        assertEquals(11, output.size())
+        field("mContext").set(controller, ContextWrapper(null))
+        controller.setANCMode(1)
+        assertTrue(field("pendingOffSelection").getBoolean(controller))
+        assertEquals(22, output.size())
+    }
+
+    private fun initialReady(): Boolean = type.getDeclaredMethod("initialStatusReady")
+        .apply { isAccessible = true }.invoke(controller) as Boolean
+
+    @Test fun batteryAloneDoesNotStopRecoveryBeforeInformationAndSettingsArrive() {
+        field("batteryStateValid").set(controller, true)
+        assertFalse(initialReady())
+        field("earDetectionStateValid").set(controller, true)
+        assertFalse(initialReady())
+        receive(0x0d, 4)
+        assertTrue(initialReady())
+        controller.currentPodsInfo = null
+        assertFalse(initialReady())
+    }
+
+    @Test fun cachedPendingBatteryStillRequestsRefreshButSingleEarCanFinishInitialization() {
+        field("batteryStateValid").set(controller, true)
+        field("earDetectionStateValid").set(controller, true)
+        receive(0x0d, 4)
+        val report = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 80, 2, 0)
+        AirPodsNotifications.BatteryNotification.setBattery(report)
+        assertTrue(initialReady())
+        AirPodsNotifications.BatteryNotification.setBattery(report.copyOf().apply { this[10] = 3 })
+        assertFalse(initialReady())
+        AirPodsNotifications.BatteryNotification.setBattery(report)
+        assertTrue(initialReady())
+    }
+
+    @Test fun partialBatteryReportsUpdateTheControllerAcrossFastRemoval() {
+        // Service broadcasts and hidden AdapterService mirroring are outside this JVM test.
+        field("mContext").set(controller, null)
+        val left = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 82, 2, 0)
+        val right = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 2, 1, 65, 2, 0)
+        manager.receivePacket(left)
+        assertEquals(82, controller.currentBatteryParams.left!!.battery)
+        assertTrue(controller.currentBatteryParams.left!!.isConnected)
+        manager.receivePacket(right)
+        assertEquals(65, controller.currentBatteryParams.right!!.battery)
+        assertEquals(82, controller.currentBatteryParams.left!!.battery)
+        manager.receivePacket(left.copyOf().apply { this[10] = 3 })
+        assertTrue(controller.currentBatteryParams.left!!.isConnected)
+        assertEquals(82, controller.currentBatteryParams.left!!.battery)
+        manager.receivePacket(left.copyOf().apply { this[10] = 4 })
+        assertFalse(controller.currentBatteryParams.left!!.isConnected)
+    }
+
+    @Test fun disconnectAbandonsTheOffPrerequisiteAndCannotSendALateModeCommand() {
+        controller.setANCMode(1)
+        field("mContext").set(controller, null)
+        controller.disconnectedPod(ContextWrapper(null), device)
+        receive(0x34, 1)
+        assertFalse(field("pendingOffSelection").getBoolean(controller))
+        assertTrue(pending().isEmpty())
+        assertEquals(11, output.size())
     }
 
     @Test fun microphoneRequestIsNotConfirmedUntilMatchingReplyArrives() {

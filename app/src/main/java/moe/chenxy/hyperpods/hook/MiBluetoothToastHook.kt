@@ -185,11 +185,10 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 "${context.resources.getString(miheadset_notification_Box)}：${batteryParams.case!!.battery} %" +
                         "${if (batteryParams.case!!.isCharging) " ⚡" else ""}\n"
             else ""
-            val leftEar = if (batteryParams.left!!.isConnected) "${context.resources.getString(miheadset_notification_LeftEar)}：${batteryParams.left!!.battery} %" +
-                    (if (batteryParams.left!!.isCharging) " ⚡" else "") else ""
-            val leftToRight = if (batteryParams.left!!.isConnected && batteryParams.right!!.isConnected) " | " else ""
-            val rightEar = if (batteryParams.right!!.isConnected) "$leftToRight${context.resources.getString(miheadset_notification_RightEar)}：${batteryParams.right!!.battery} %" +
-                    (if (batteryParams.right!!.isCharging) " ⚡" else "") else ""
+            val leftEar = "${context.resources.getString(miheadset_notification_LeftEar)}：${PodsIslandData.batteryText(batteryParams.left)}" +
+                    (if (batteryParams.left?.isCharging == true) " ⚡" else "")
+            val rightEar = " | ${context.resources.getString(miheadset_notification_RightEar)}：${PodsIslandData.batteryText(batteryParams.right)}" +
+                    (if (batteryParams.right?.isCharging == true) " ⚡" else "")
 
             val content: String = caseBattStr + leftEar + rightEar
             return Notification.Builder(context, "BTHeadset$address").setSmallIcon(
@@ -291,11 +290,12 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 "${context.resources.getString(miheadset_notification_Box)}：${batteryParams.case!!.battery} %" +
                         "${if (batteryParams.case!!.isCharging) " ⚡" else ""}\n"
             else ""
-            val leftEar = if (batteryParams.left!!.isConnected) "${context.resources.getString(miheadset_notification_LeftEar)}：${batteryParams.left!!.battery} %" +
-                    (if (batteryParams.left!!.isCharging) " ⚡" else "") else ""
-            val leftToRight = if (batteryParams.left!!.isConnected && batteryParams.right!!.isConnected) " | " else ""
-            val rightEar = if (batteryParams.right!!.isConnected) "$leftToRight${context.resources.getString(miheadset_notification_RightEar)}：${batteryParams.right!!.battery} %" +
-                    (if (batteryParams.right!!.isCharging) " ⚡" else "") else ""
+            // An empty focus title is invalid while the initial AACP report is
+            // pending. Keep a settings entry with unknown readings, not 0%.
+            val leftEar = "${context.resources.getString(miheadset_notification_LeftEar)}：${PodsIslandData.batteryText(batteryParams.left)}" +
+                    (if (batteryParams.left?.isCharging == true) " ⚡" else "")
+            val rightEar = " | ${context.resources.getString(miheadset_notification_RightEar)}：${PodsIslandData.batteryText(batteryParams.right)}" +
+                    (if (batteryParams.right?.isCharging == true) " ⚡" else "")
             val actionObject = JSONObject()
             actionObject.put("action", "miui.focus.action_disconnect")
 

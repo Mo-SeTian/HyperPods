@@ -1,11 +1,19 @@
 package moe.chenxy.hyperpods.utils
 
+import android.view.Gravity
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import org.junit.Assert.*
 import org.junit.Test
 
 class PodsIslandDataTest {
+    @Test fun modulesAnchorTowardTheCameraWhenMusicAddsExtraLeftSpace() {
+        val vertical = Gravity.CENTER_VERTICAL
+        assertEquals(Gravity.END or vertical, PodsIslandData.contentGravity(PodsIslandData.LEFT_ICON, Gravity.START or vertical))
+        assertEquals(Gravity.START or vertical, PodsIslandData.contentGravity(PodsIslandData.RIGHT_ICON, Gravity.END or vertical))
+        assertNull(PodsIslandData.contentGravity("other.app.icon", Gravity.START))
+        assertNull(PodsIslandData.contentGravity(null, Gravity.END))
+    }
     @Test fun distinctEarLevelsUseSupportedLeftAndRightModules() {
         val island = PodsIslandData.build(BatteryParams(
             left = PodBatteryParams(85, isConnected = true),
