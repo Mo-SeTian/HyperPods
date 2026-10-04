@@ -48,7 +48,7 @@ class AACPManager(val socket: BluetoothSocket) {
             const val EAR_DETECTION: Byte = 0x06
             const val CONVERSATION_AWARENESS: Byte = 0x4B
             const val INFORMATION: Byte = 0x1D
-            const val RENAME: Byte = 0x1E
+            const val RENAME: Byte = 0x1A
             const val HEADTRACKING: Byte = 0x17
             const val PROXIMITY_KEYS_REQ: Byte = 0x30
             const val PROXIMITY_KEYS_RSP: Byte = 0x31
@@ -253,16 +253,13 @@ class AACPManager(val socket: BluetoothSocket) {
         value: ByteArray
     ) {
         val existingStatus = getControlCommandStatus(identifier)
-        if (existingStatus == value) {
-            controlCommandStatusList.remove(existingStatus)
-        }
         if (existingStatus != null) {
             controlCommandStatusList.remove(existingStatus)
         }
+        controlCommandStatusList.add(ControlCommandStatus(identifier, value.copyOf()))
         controlCommandListeners[identifier]?.forEach { listener ->
             listener.onControlCommandReceived(ControlCommand(identifier.value, value))
         }
-        controlCommandStatusList.add(ControlCommandStatus(identifier, value))
 
         if (identifier == ControlCommandIdentifiers.OWNS_CONNECTION) {
             owns = value.isNotEmpty() && value[0] == 0x01.toByte()
@@ -348,20 +345,12 @@ class AACPManager(val socket: BluetoothSocket) {
 
     fun sendControlCommand(identifier: Byte, value: ByteArray): Boolean {
         val controlPacket = createControlCommandPacket(identifier, value)
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            value
-        )
         return sendDataPacket(controlPacket)
     }
 
     @OptIn(ExperimentalStdlibApi::class)
     fun sendControlCommand(identifier: Byte, value: Byte): Boolean {
         val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value))
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            byteArrayOf(value)
-        )
         return sendDataPacket(controlPacket)
     }
 
@@ -370,19 +359,11 @@ class AACPManager(val socket: BluetoothSocket) {
             identifier,
             if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
         )
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
-        )
         return sendDataPacket(controlPacket)
     }
 
     fun sendControlCommand(identifier: Byte, value: Int): Boolean {
         val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value.toByte()))
-        setControlCommandStatusValue(
-            ControlCommandIdentifiers.fromByte(identifier) ?: return false,
-            byteArrayOf(value.toByte())
-        )
         return sendDataPacket(controlPacket)
     }
 
@@ -477,17 +458,6 @@ class AACPManager(val socket: BluetoothSocket) {
 
                 val controlCommandIdentifier =
                     ControlCommandIdentifiers.fromByte(controlCommand.identifier)
-                if (controlCommandIdentifier != null) {
-                    controlCommandListeners[controlCommandIdentifier]?.forEach { listener ->
-                        listener.onControlCommandReceived(controlCommand)
-                    }
-                } else {
-                    Log.w(
-                        TAG,
-                        "Unknown control command identifier: ${controlCommand.identifier.toHexString()}"
-                    )
-                }
-
                 if (controlCommandIdentifier == ControlCommandIdentifiers.OWNS_CONNECTION) {
                     callback?.onOwnershipChangeReceived(owns)
                 }
@@ -642,6 +612,8 @@ class AACPManager(val socket: BluetoothSocket) {
         return opcode + data
     }
 
+    fun sendHandshake(): Boolean = sendPacket(createHandshakePacket())
+
     fun createHandshakePacket(): ByteArray {
         return byteArrayOf(
             0x00, 0x00, 0x04, 0x00,
@@ -781,13 +753,14 @@ class AACPManager(val socket: BluetoothSocket) {
     fun createRenamePacket(name: String): ByteArray {
         val nameBytes = name.toByteArray()
         val size = nameBytes.size
-        require(name.isNotBlank() && size in 1..255) { "Name must contain 1 to 255 UTF-8 bytes" }
+        require(name.isNotBlank() && '\u0000' !in name && size in 1..255) { "Name must contain 1 to 255 UTF-8 bytes without NUL" }
         val packet = ByteArray(5 + size)
         packet[0] = Opcodes.RENAME
         packet[1] = 0x00
-        packet[2] = size.toByte()
-        packet[3] = 0x00
-        System.arraycopy(nameBytes, 0, packet, 4, size)
+        packet[2] = 0x01
+        packet[3] = size.toByte()
+        packet[4] = 0x00
+        System.arraycopy(nameBytes, 0, packet, 5, size)
 
         return packet
     }
@@ -1120,21 +1093,6 @@ class AACPManager(val socket: BluetoothSocket) {
         try {
             if (packet.isEmpty()) return false
             Log.d(TAG, "Sending packet (${packet.size} bytes)")
-
-            if (packet.size >= 6 && packet.take(4).toByteArray().contentEquals(HEADER_BYTES) &&
-                packet[4] == Opcodes.CONTROL_COMMAND) {
-                val controlCommand = ControlCommand.fromByteArray(packet)
-                Log.d(
-                    TAG,
-                    "Control command: ${controlCommand.identifier.toHexString()} - ${
-                        controlCommand.value.joinToString(" ") { "%02X".format(it) }
-                    }"
-                )
-                setControlCommandStatusValue(
-                    ControlCommandIdentifiers.fromByte(controlCommand.identifier) ?: return false,
-                    controlCommand.value
-                )
-            }
 
             if (socket.isConnected) {
                 synchronized(socket) {

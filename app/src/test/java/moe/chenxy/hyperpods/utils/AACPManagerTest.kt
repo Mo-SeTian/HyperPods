@@ -63,14 +63,58 @@ class AACPManagerTest {
         }
     }
 
-    @Test fun renameUsesUtf8ByteLengthAndIncludesTheNullTerminator() {
+    @Test fun renameMatchesTheIndependentAsciiProtocolFrame() {
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 0x1a, 0, 1, 4, 0, 0x44, 0x65, 0x6d, 0x6f),
+            manager.createDataPacket(manager.createRenamePacket("Demo")))
+    }
+
+    @Test fun handshakeWritesOneRawConnectFrameWithoutMessageWrapping() {
+        val socket = mock(BluetoothSocket::class.java)
+        val output = ByteArrayOutputStream()
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(output)
+        assertTrue(AACPManager(socket).sendHandshake())
+        assertArrayEquals(byteArrayOf(0, 0, 4, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0), output.toByteArray())
+    }
+
+    @Test fun renameUsesUtf8ByteLengthAfterTheFixedField() {
         val name = "测试耳机"
         val result = manager.createRenamePacket(name)
-        assertEquals(name.toByteArray().size, result[2].toInt())
-        assertEquals(0, result.last().toInt())
-        assertArrayEquals(name.toByteArray(), result.copyOfRange(4, result.size - 1))
+        assertEquals(1, result[2].toInt())
+        assertEquals(name.toByteArray().size, result[3].toInt() and 0xff)
+        assertEquals(0, result[4].toInt())
+        assertArrayEquals(name.toByteArray(), result.copyOfRange(5, result.size))
         assertThrows(IllegalArgumentException::class.java) { manager.createRenamePacket(" ") }
         assertThrows(IllegalArgumentException::class.java) { manager.createRenamePacket("a".repeat(256)) }
+        assertThrows(IllegalArgumentException::class.java) { manager.createRenamePacket("A\u0000B") }
+        assertEquals(255, manager.createRenamePacket("a".repeat(255))[3].toInt() and 0xff)
+        assertEquals(4, manager.createRenamePacket("🎧")[3].toInt() and 0xff)
+    }
+
+    @Test fun sendingNeverPollutesConfirmedSettingsEvenWhenTheWriteSucceeds() {
+        val socket = mock(BluetoothSocket::class.java)
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
+        val sender = AACPManager(socket)
+        assertTrue(sender.sendControlCommand(0x26, true))
+        assertTrue(sender.sendControlCommand(0x26, 2))
+        assertTrue(sender.sendControlCommand(0x26, 1.toByte()))
+        assertTrue(sender.sendControlCommand(0x26, byteArrayOf(2)))
+        assertTrue(sender.controlCommandStatusList.isEmpty())
+    }
+
+    @Test fun failedWritePreservesTheLastReceivedSetting() {
+        manager.receivePacket(packet(0x09, 11).apply { this[6] = 0x26; this[7] = 2 })
+        assertFalse(manager.sendControlCommand(0x26, true))
+        assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG)!!.value[0])
+    }
+
+    @Test fun receivedControlCommandNotifiesListenerExactlyOnce() {
+        val listener = mock(AACPManager.ControlCommandListener::class.java)
+        manager.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE, listener)
+        manager.receivePacket(packet(0x09, 11).apply { this[6] = 1; this[7] = 2 })
+        verify(listener, times(1)).onControlCommandReceived(AACPManager.ControlCommand(1, byteArrayOf(2)))
+        assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
     }
 
     @Test fun shortOutboundRawCommandsAreWrittenWithoutIndexingAnOpcode() {

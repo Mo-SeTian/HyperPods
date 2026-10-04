@@ -1,0 +1,26 @@
+<resources>
+    <string name="dashboard_left">左耳</string>
+    <string name="dashboard_right">右耳</string>
+    <string name="dashboard_case">耳机仓</string>
+    <string name="dashboard_unavailable">未获取</string>
+    <string name="dashboard_charging">充电中</string>
+    <string name="dashboard_wearing">佩戴中</string>
+    <string name="dashboard_in_case">在仓内</string>
+    <string name="dashboard_out_of_ear">未佩戴</string>
+    <string name="dashboard_transparency">通透</string>
+    <string name="dashboard_connected">已连接</string>
+    <string name="dashboard_listening">智能聆听</string>
+    <string name="dashboard_operation">佩戴与操作</string>
+    <string name="dashboard_more">更多控制</string>
+    <string name="dashboard_more_summary">按压操作 · 麦克风 · 扬声器切换</string>
+    <string name="dashboard_device_info">设备信息</string>
+    <string name="dashboard_info_pending">正在获取设备信息</string>
+    <string name="dashboard_back">返回</string>
+    <string name="dashboard_headphones">耳机</string>
+    <string name="dashboard_about">关于</string>
+    <string name="dashboard_noise">噪声控制</string>
+    <string name="dashboard_conversation_summary">说话时降低音量</string>
+    <string name="dashboard_detection_summary">摘下暂停，戴上继续</string>
+    <string name="dashboard_detection_title">自动入耳检测</string>
+    <string name="dashboard_conversation_title">对话感知</string>
+</resources>

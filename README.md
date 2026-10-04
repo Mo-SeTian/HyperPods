@@ -1,5 +1,9 @@
 # HyperPods HyperOS 4 适配修改说明
 
+当前设置界面采用浅色/深色薄荷主题，左右耳机独立显示电量，耳机仓在线且电量有效时显示。最新设置逻辑修复及实机验收边界见 [LibrePods 功能对照与修复记录](docs/LibrePods功能对照审查.md)。
+
+当前构建 `versionCode = 9`：修正耳机改名协议、同步耳机确认值、设置失败/超时反馈、机型能力与 Off 限制、对话音量恢复、入耳检测子开关保存和音频路由身份匹配；长按循环明确为双耳共用，滑块松手提交。降低高音量目前禁用，独立 ATT 控制尚未实现。
+
 ## 1. 文档目的
 
 本文档记录从上游 `Art-Chen/HyperPods` 的 `os3-dev` 分支适配到 Android 17 / HyperOS 4 的完整修改，重点解释：
@@ -346,7 +350,7 @@ zipalign -c -P 16 -v 4 HyperPods.apk
 ### 10.1 版本
 
 ```kotlin
-versionCode = 6
+versionCode = 9
 versionName = "3.0.0-AAP-W-HyperOS4"
 ```
 

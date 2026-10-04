@@ -1,6 +1,12 @@
 package moe.chenxy.hyperpods.ui.components
 
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -10,7 +16,6 @@ import androidx.compose.ui.res.stringResource
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPodsModels.getModelByModelNumber
-import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -19,17 +24,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun InfoItem(title: String, summary: String, onClick: (() -> Unit)? = null) {
-    BasicComponent(
-        title = title,
-        titleColor = BasicComponentColors(
-            color = MiuixTheme.colorScheme.onSurface,
-            disabledColor = MiuixTheme.colorScheme.onSurface
-        ),
-        rightActions = {
-            Text(summary, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = MiuixTheme.textStyles.body2.fontSize)
-        },
-        onClick = onClick,
-    )
+    val modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    Column(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Text(title, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(summary, fontSize = 16.sp, modifier = Modifier.padding(top = 6.dp))
+    }
 }
 
 @Composable

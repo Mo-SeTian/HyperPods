@@ -1,0 +1,287 @@
+# HyperPods / LibrePods 功能对照审查
+
+审查日期：2026-10-04（第二轮，合并版）。HyperPods 基线：`os4-dev`，`839eda23ed7436103ff17aa1537bf55f57ff1f9c`，并包含当前工作区尚未提交的设置界面重绘。
+
+本报告合并上轮 5 项问题与逐项设置审查的新发现，并记录随后落实的修复。问题章节及原代码行号保留修复前的审查证据；当前实现状态以“修复落实”一节为准，不能把历史问题描述当作新版本仍存在的故障。
+
+## 修复落实（2026-10-04，versionCode 9）
+
+| 问题/优化 | 当前处理 | 验证依据 |
+| --- | --- | --- |
+| 改名 | 改为 `0x1A` 和 main/Linux 的完整负载格式；UTF-8 长度、非空、NUL 校验；等待设备信息中出现目标名称才更新 alias，6 秒未确认提示失败 | 完整 ASCII 帧、中文、emoji、255 字节边界及 NUL 拒绝测试 |
+| 降低高音量 | 删除将 ATT 指令写入 AACP 的路径；入口明确禁用，控制器拒绝请求 | 控制器测试确认没有任何 AACP 写入；独立 ATT 功能仍未实现 |
+| 对话感知 | 状态 1/2/3 将正在播放的媒体音量降到原值的约 20%；6/7/8/9、关闭、断连、30 秒通知丢失时恢复 | 重复通知不叠加降低；用户手动改音量后保留其选择；无播放时不修改 |
+| 真实设置同步 | 只由接收包更新已确认值；界面接收设置快照，不再从全局偏好推断耳机配置；请求失败/3 秒未确认可重试 | 真实广播处理器→mock socket→接收解析→确认/超时/断连测试；麦克风 0/2/1 映射测试 |
+| 能力过滤 | UI 和控制器共用机型能力检查；未知机型等待信息，不默认 Pro 3 能力 | 普通 AirPods、Pro 1、Pro 2、AirPods 4 ANC、未知型号的规则测试 |
+| Off 模式 | 提供“允许关闭聆听模式”开关；需要该配置的机型只有收到允许值后才能选 Off；循环模式也遵守限制 | 允许、禁止、未知配置及无效循环掩码测试 |
+| 音频路由 | 优先通过硬件地址选择，记录稳定路由 ID；没有地址时仅接受唯一名称匹配，不猜测同名设备；路由异常/3 秒超时进入有限重试 | 改名后 ID 保持、同名歧义拒绝及既有恢复/重试测试 |
+| 入耳检测子开关 | 总开关保存时保留用户的扬声器偏好；运行时由总开关决定子策略是否执行；直接广播新策略，避免异步偏好落盘竞态 | 新增真实广播处理器的总/子开关测试，保留快速摘戴、单耳、旧会话清理回归 |
+| 握手 | 建连只发送一次合法原始握手，不再额外包装消息头 | 独立 16 字节协议帧发送测试及建连调用复核 |
+| 长按交互 | 改成“双耳共用循环”单入口；每次打开从确认值建立草稿；取消不会留存；至少选两种可用模式 | 共用掩码与模式限制单测；界面按确认值重新建立草稿 |
+| 滑块与未知状态 | 拖动只更新草稿，松手提交一次；初次连接降噪/佩戴状态显示未知或等待同步 | 编译、Lint 与状态规则检查 |
+
+未接入完整 ATT 功能；语音助手和耳机仓提示音也未扩展为新功能。这里修复的是错误发送与“假可用”入口，不能宣称这些额外功能已实现。
+
+改名确认依赖耳机设备信息回传；部分固件若不重新上报，会显示“未确认”，而不是提前宣告成功。需要实机重连检查耳机名称是否持久化，必要时再判断 Android 名称缓存问题。
+
+对话恢复只恢复模块修改且用户未再修改的音量；30 秒未收到后续对话通知会恢复，避免通知丢失后长期低音量。这是明确的恢复策略，并非从参考项目整体移植。
+
+版本名称仍为 `3.0.0-AAP-W-HyperOS4`，版本号递增到 9，便于识别和覆盖升级。正式签名仍由既有 GitHub Actions 仓库密钥提供；本地无正式签名参数时的 release 构建仅用于编译验证，不应与正式签名包混淆。
+
+修复后的验证结果：59 个单元测试通过（0 失败/错误）；原生边界测试通过；`lintDebug` 为 0 errors、103 warnings、2 hints；`assembleRelease` 成功。release Manifest 不包含 debug 预览 Activity。已有 Lint 提示以及因旧入口删除留下的未使用资源提示仍保留，不影响构建。
+
+测试覆盖本机逻辑与 mock Android 服务，不能证明 HyperOS 4 的跨进程送达、耳机固件接受、隐藏路由地址访问和实际音量效果。实机重点回归：改名并重连、固定左右麦克风并重进页面、允许/禁止 Off、说话/手动调音量/断连、关入耳检测后重进再打开、改名后的摘戴恢复、首次电量和超级岛。
+
+## 修复前的对照范围与结论边界
+
+对照 [LibrePods 仓库](https://github.com/librepods-org/librepods) 的两个固定版本：
+
+- `main`：`0e682d2f36d5ffab636375f5e01d63ad2647f2b3`，用于核对现有 AACP/ATT 实现。
+- `android/rewrite`：`9baa1513daea318e87d888746d759c1dd8bbaae4`，用于核对更新后的状态模型、界面能力筛选及对话音量处理。
+
+本轮通过远程分支查询再次确认两个分支仍指向上述提交。对照包含 Android 设置、AACP/ATT、媒体控制，以及 Linux 重命名实现；不是只看 README 的功能列表。
+
+LibrePods 的重写分支也有未完成实现，例如 ATT 写特征函数直接返回 `false`；重命名负载也与 main/Linux 不同。不能把它当作完全正确、可直接复制的实现。本次未引入其源代码；只核对协议与调用链。
+
+以下“确定”表示源代码足以证明实现缺口，不表示已在连接真实耳机时复现。模拟器验证的是界面，不是 HyperOS 4 Hook、真实蓝牙或耳机固件。
+
+## 结论速览
+
+| 编号 | 优先级 | 问题 | 证据边界 |
+| --- | --- | --- | --- |
+| 6（新增） | P1 | 改名命令编号和负载布局错误，本地别名更新掩盖耳机端失败 | 用户报告不可用；与 main Android、Linux 和详细协议文档交叉对照确认不一致 |
+| 1（上轮） | P1 | 降低高音量的 ATT 命令写进 AACP 通道 | 确定没有正确实现 ATT 控制，不只是显示问题 |
+| 2（上轮） | P1 | 对话感知缺少手机端降音量/恢复 | 手机端缺口确定；耳机固件内部效果仍需实测 |
+| 3（上轮，补充） | P2 | 设置不回读真实配置，麦克风重进页面显示自动 | 确定；其他开关也缺失败反馈 |
+| 4（上轮） | P2 | 未按耳机能力过滤设置 | 确定；不支持的型号也显示可操作入口 |
+| 7（新增） | P2 | 未处理“允许关闭聆听模式” | 缺口确定；在固件禁止 Off 时触发不可切换 |
+| 8（新增） | P2 | 用设备名称匹配音频路由 | 条件性风险；别名/路由名不同或同名设备时可能无法恢复或匹配错误 |
+| 9（新增） | P2 | 关闭入耳检测会覆盖自动切扬声器偏好 | 确定；同次会话与重进页面的结果不同 |
+| 5（上轮） | P2 | 建连多发一条错误包装的握手帧 | 帧结构差异确定；对稳定性的具体影响待实机验证 |
+
+另有长按设置交互、滑块发送频率及测试覆盖的优化项，见后文。未将“LibrePods 有、本项目没提供”的所有高级功能都记为故障。
+
+## 当前设置项逐项核对
+
+“命令对应”只代表代码中存在相应发送链，不代表已在每种耳机/固件上测试通过。除降噪模式外，多数耳机设置共用问题 3 的状态回读缺口。
+
+| 设置/展示项 | 当前实现与 LibrePods 对照 | 当前结论 |
+| --- | --- | --- |
+| 改名 | 当前 `0x1E`；main/Linux 用 `0x1A`，负载也不同 | 当前耳机端改名实现有明确错误，见 6 |
+| 降噪/通透/自适应/关闭 | `LISTENING_MODE(0x0D)`，值 1/2/3/4；收到返回值更新 UI，3 秒超时回退 | 基本指令一致；机型过滤和 Off 前置条件缺失，见 4、7 |
+| 个性化音量 | `ADAPTIVE_VOLUME_CONFIG(0x26)`，开/关为 1/2 | 指令对应；本地开关不能证明真实启用，需能力判断和回读 |
+| 对话感知 | `CONVERSATION_DETECT_CONFIG(0x28)`，开/关为 1/2；收到对话事件仅记录 | 耳机配置有发送，手机端音量闭环未完成，见 2 |
+| 降低高音量 | ATT 特征 `0x001B` 被写入 AACP socket | 不可视为可用功能，见 1 |
+| 自适应降噪强度 | `AUTO_ANC_STRENGTH(0x2E)`，`100 - slider × 100` | 方向与 LibrePods 的 `100 - value` 一致；缺回读且连续拖动发送过密 |
+| 滑动调音量 | `VOLUME_SWIPE_MODE(0x25)`，开/关为 1/2 | 指令对应；仅支持的机型应显示，真实状态未同步 |
+| 自动入耳检测 | 本机监听佩戴事件，通过媒体按键暂停/恢复；并非简单写耳机开关 | 有实际处理；与扬声器设置和路由身份相关的问题见 8、9 |
+| 自动切换扬声器 | 双耳取下延迟切媒体路由，戴回恢复模块切走的路由 | 有实现，且保留蓝牙连接的策略合理；不要为了对齐 LibrePods 改回断开 HFP/A2DP |
+| 麦克风自动/左/右 | UI 索引 0/1/2 → 协议值 0/2/1 | 映射正确，不应直接改成同序；重进页面误显示自动，见 3 |
+| 单耳降噪 | `ONE_BUD_ANC_MODE(0x1B)`，开/关为 1/2 | 指令对应；缺能力检查与真实值回读。这里是 AACP 命令 ID，不是降低高音量的 ATT 句柄 |
+| 长按噪声循环 | `LISTENING_MODE_CONFIGS(0x1A)`，Off/ANC/通透/自适应分别是位 1/2/4/8 | 位掩码对应；左右入口共用一份全局循环配置，不能独立指定两套循环 |
+| 左右长按语音助手 | UI 明确禁用，控制器对应处理为 TODO | 未实现，当前不应列为可用功能 |
+| 耳机仓充电声音 | UI 和处理分支均被注释 | 无有效入口、未实现；不要把参数仍存在误当成可用 |
+| 左右耳机/耳机仓电量 | 分别使用对应电量；首页仓电量在仓有效且电量 0–100 时显示 | 本地 UI 符合最新首页要求；实时可用性由耳机是否上报决定，不是固定显示缓存电量 |
+| 设备信息 | 读取 AACP 信息包；页面只读展示 | 有实现；没有完整信息时应保持未知，不应由默认机型推断功能 |
+| 关于页 | 作者、源码和捐赠链接 | 不涉及耳机控制；未发现额外隐藏的可用设置链 |
+
+首页的仓电量展示条件与超级岛此前“在仓才显示仓电量”的需求是两个独立场景，不能把新首页要求自动应用到所有通知布局。
+
+## 1. [P1 / 确定] 降低高音量命令发往错误通道
+
+本地位置：`app/src/main/java/moe/chenxy/hyperpods/pods/L2CAPController.kt:438`、`:911`。
+
+界面开关调用 `setLoudSoundReduction()`，发送 `52 1B 00 01/00`。该函数经 `sendPacket()` 最终写入 `aacpManager` 的 socket；当前项目没有独立 ATT 连接。
+
+这里的 `0x52` 是 ATT Write Command，`0x001B` 是特征句柄，并不是 AACP 控制命令。LibrePods 在独立的 ATT socket 上读写该特征，ATT 与 AACP 分别连接不同 PSM（31 与 4097）。因此当前开关会改变界面和本地偏好，但没有正确实现相应 ATT 写入。
+
+对照：[main ATTManager](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/bluetooth/ATTManager.kt#L28)、[独立 ATT 连接](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/services/AirPodsService.kt#L2659)。
+
+建议：未实现 ATT 前将该开关标为不可用，或者单独实现可选 ATT 连接、读写结果确认与能力检查。ATT 失败不能连带关闭 AACP/蓝牙。必须实机确认系统环境是否满足 ATT 访问条件，不要直接搬用重写分支的未完成函数。
+
+验证目标：切换时数据只写入 ATT 通道；成功后回读句柄值；连接失败时明确显示不可用，降噪及 AACP 电量仍正常。
+
+## 2. [P1 / 确定] 对话感知缺少 Android 端降音量与恢复处理
+
+本地位置：`app/src/main/java/moe/chenxy/hyperpods/pods/L2CAPController.kt:580`。
+
+当前实现能够发送启用命令、解析通知，但回调只更新通知状态和打印日志。未保存原媒体音量，也未调用 Android 音量调整或会话结束后的恢复逻辑。因此设置说明中的“说话时降低音量”没有对应的 Android 端实现。耳机固件是否另行降低内部增益需要实机验证，不能用开关能点击证明整体功能完成。
+
+LibrePods 的重写分支在状态 1 保存原音量并调低，状态 2/3 调整目标音量，状态 6/7/8/9 恢复；旧分支也有开始/结束说话处理。
+
+对照：[rewrite 对话状态处理](https://github.com/librepods-org/librepods/blob/9baa1513daea318e87d888746d759c1dd8bbaae4/android/app/src/main/kotlin/me/kavishdevar/librepods/services/LibrePodsService.kt#L772)、[main MediaController](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/utils/MediaController.kt#L314)。
+
+建议：实现独立、可取消的对话音量状态机。重复开始通知不能再次保存已降低的音量；关闭功能、断开连接、丢失会话时应恢复模块实际修改过的音量。用户在对话中主动改变音量时，需要明确恢复策略。
+
+验证目标：开始→继续→结束、重复开始、断连及手动调音量均有测试；无音量逐次下降或异常恢复。
+
+## 3. [P2 / 确定] 设置界面不是耳机真实配置的可信镜像
+
+本地位置：`app/src/main/java/moe/chenxy/hyperpods/ui/MainUI.kt:124`、`:136`；`pods/L2CAPController.kt:405`、`:585`。
+
+个性化音量、对话感知等开关从本地偏好初始化，耳机回传的控制命令只将降噪模式同步到界面。其他设置不会随耳机真实值更新。`getIdentifierValue()` 有定义但没有使用，`initAllCustomSettings()` 也没有调用方。
+
+明确可复现的例子：选择固定左/右麦克风后，关闭再打开页面，`microphoneMode` 每次初始化为 0（自动），甚至没有读取已保存的 `MICROPHONE_MODE`。耳机可能仍保持固定麦克风，界面却显示自动。
+
+当在 Apple 设备上更改耳机配置，或切换另一副耳机时，本地偏好同样可能与真实状态不同。另外 UI 的部分默认值为 `false`，控制器读取默认值却为 `true`；目前未调用全量初始化，不能直接通过补调用修复，否则可能意外覆盖耳机配置。
+
+对照：[rewrite 接收配置后更新 controlStates](https://github.com/librepods-org/librepods/blob/9baa1513daea318e87d888746d759c1dd8bbaae4/android/app/src/main/kotlin/me/kavishdevar/librepods/bluetooth/aacp/AACPManager.kt#L289)、[麦克风界面读取真实值](https://github.com/librepods-org/librepods/blob/9baa1513daea318e87d888746d759c1dd8bbaae4/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/screens/apple/MicrophoneSettingsScreen.kt#L34)。
+
+建议：先约定耳机真实配置与模块偏好各自的职责。耳机侧功能优先回读；模块侧的入耳暂停/扬声器策略保留本地偏好。未收到真实设置值时显示加载或未知。麦克风应按协议值映射到界面索引，不能直接混用左右索引。
+
+本轮补充：`AACPManager.kt:349` 起的发送函数会在 socket 写入前更新 `controlCommandStatusList`，`sendPacket()` 还可能再次写入。因此以后即使直接把这个列表接到 UI，也不能称其为“已确认状态”：它混合了请求值和耳机返回值。应分开记录待提交值、耳机确认值与发送失败，避免失败请求污染真实状态。当前普通设置的控制器调用还忽略发送返回值，UI 会直接保留新开关值。
+
+验证目标：重进页面不误显示自动；从另一设备更改配置后收到通知能更新开关；设置发送失败或连接尚未建立时不把乐观状态当作成功。
+
+## 4. [P2 / 确定] 未按机型能力筛选功能入口
+
+本地位置：`app/src/main/java/moe/chenxy/hyperpods/utils/AirPods.kt:51`、`ui/PodDetailPage.kt:112`。
+
+项目已经有 `capabilities`，例如 AirPods 1/2 没有降噪和自适应音频能力，但详情页仍显示四种噪声模式、个性化音量、对话感知和相关高级开关。重绘保留了原来的功能行为，未擅自改变这一策略。
+
+影响：不支持的耳机也能点击控制，可能没有响应、超时回退，或者留下与真实设备无关的偏好。未知机型还会使用 AirPods Pro 3 的默认展示，不应据此推断功能支持。
+
+对照：[rewrite AudioSettings 的能力判断](https://github.com/librepods-org/librepods/blob/9baa1513daea318e87d888746d759c1dd8bbaae4/android/app/src/main/kotlin/me/kavishdevar/librepods/presentation/components/apple/AudioSettings.kt#L34)。
+
+建议：依据确认的机型能力隐藏或禁用功能，控制器端也拒绝不支持的命令。未知机型先保留基本连接与电量显示，不假定其支持所有 Pro 功能。
+
+验证目标：至少覆盖普通 AirPods、Pro 1、Pro 2/3、未知机型；不支持功能没有可点击的成功假象。
+
+## 5. [P2 / 兼容风险] 建连时发送额外的非标准握手帧
+
+本地位置：`app/src/main/java/moe/chenxy/hyperpods/pods/L2CAPController.kt:762`；`utils/AACPManager.kt:329`、`:645`。
+
+`createHandshakePacket()` 已返回完整的 16 字节连接帧。建连先调用 `sendDataPacket()`，在前面额外添加 `04 00 04 00`，然后再调用 `sendPacket()` 发送正确原始帧。第一帧是 20 字节的包装帧，不等同于重复发送合法握手。
+
+对照：[main 的握手发送](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/services/AirPodsService.kt#L2743)。
+
+现有正确帧可能使连接正常，所以不能断言这是之前蓝牙重启或连接慢的原因。但向协议端发送无依据的帧增加了固件兼容风险，应有明确理由才能保留。
+
+建议：只发送合法原始握手；如实机需要重试，重试同一原始帧，并限定次数。先补发送序列回归测试，再实机对比首次电量获取时间和连接稳定性。
+
+## 6. [P1 / 新增] 重命名数据包不匹配实际参考实现
+
+本地位置：`utils/AACPManager.kt:51`、`:781`；`pods/L2CAPController.kt:161`；`ui/components/RenamePage.kt:87`；`app/src/test/java/moe/chenxy/hyperpods/utils/AACPManagerTest.kt:66`。上述主代码路径均相对 `app/src/main/java/moe/chenxy/hyperpods/`。
+
+用户已经报告“改名字不可用”。完整调用链并非缺失：确认按钮 → `MainUI.renameAirPods()` → 定向广播 → 控制器 `ACTION_PODS_RENAME` → `sendRename()` → AACP socket。接收端还有非空、UTF-8 长度校验，并非按下按钮完全没有处理。
+
+主要错误发生在发送数据包：
+
+1. 当前将 `RENAME` 定义为 `0x1E`；LibrePods main 的 Android 和 Linux 实现均为 `0x1A`。
+2. 当前负载为 `[长度] 00 [名称 UTF-8] 00`；main Android/Linux 为 `01 [长度] 00 [名称 UTF-8]`。除了命令号，还少了固定字段、长度位置不对；不能只改一个常量。
+3. `sendPacket()` 返回 `true` 仅表示 socket 写入未抛异常，不表示耳机接受命令；控制器却随即 `setAlias(name)` 并更新 `currentPodsInfo.name`，所以可能只改了本机别名。下次设备信息回传还可能把显示名覆盖回旧名称。
+4. UI 立即关闭改名窗口，无等待状态和明确失败反馈。`setAlias()` 的返回值也没有判断，仅捕获异常。
+
+用不含个人信息的名称 `Demo` 举例，按各实现推导出的完整数据包为：
+
+```text
+HyperPods 当前： 04 00 04 00 1E 00 04 00 44 65 6D 6F 00
+LibrePods main：04 00 04 00 1A 00 01 04 00 44 65 6D 6F
+```
+
+这不是实机抓包，而是源码逐字节对照。参考来源：[Android main 改名构包](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/bluetooth/AACPManager.kt#L788)、[Linux 改名构包](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/linux/airpods_packets.h#L178)、[详细协议文档](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/docs/AAP%20Definitions.md#renaming-airpods)。
+
+参考资料自身有矛盾，必须保留这个边界：LibrePods 的 `docs/opcodes.md` 仍写 `0x1E`，但其链接的 `rename.md` 不存在；上述两个实际构包实现与详细协议文档一致采用 `0x1A`。rewrite 的命令号同样是 `0x1A`，但零字节位置与 main 不同，并使用 `name.length` 而非 UTF-8 字节数。因此应优先以 main/Linux 的交叉证据建立测试，再以目标固件的实际接受结果确认，不能盲抄 rewrite。
+
+已有改名单测为什么没发现：测试只校验当前实现自己的长度位置、尾零及名称区间，没有对照完整已知协议帧，甚至没有断言操作码。这种测试通过只能证明构包与自身假设一致，不能证明耳机端能改名。
+
+建议：修正完整构包并加入独立协议样例测试；区分“发送成功”“本地别名更新”和“耳机名称确认”，确认可通过后续设备信息或重新连接后的名称读取完成，不臆造不存在的 ACK。中文、emoji 按 UTF-8 字节数校验；保持断连失败可见，不提前宣告成功。
+
+验证目标：ASCII、中文、emoji、边界长度及断开发送；改名后重连并读取耳机名称，不只看当前 UI 或系统别名。LibrePods README 另提醒 Android 名称缓存可能需要重新配对；这是正确发送后的显示兼容问题，不能代替修复错误协议，也不能据此让用户先删除配对。[官方项目说明](https://github.com/librepods-org/librepods#features)
+
+## 7. [P2 / 新增] Off 模式遗漏固件允许条件
+
+本地位置：`utils/AACPManager.kt:120` 仅声明 `ALLOW_OFF_OPTION(0x34)`；`pods/L2CAPController.kt:866` 直接发送噪声模式；`ui/components/PodsDashboard.kt:174` 一律显示四种模式。
+
+在需要允许 Off 的固件上，“关闭聆听模式”是单独的配置，不等于直接发送 `LISTENING_MODE = 1`。LibrePods 有相应设置并读取/写入 `ALLOW_OFF_OPTION`。本地没有其他使用该标识符的调用，也没有读取它决定 Off 是否可选。长按循环中也无此限制。
+
+影响：如果耳机端禁止 Off，界面仍让用户点“关闭”，之后可能超时回退或保持原模式。不能因此认定整个 ANC 控制失效，也不能认定所有固件都有该限制。
+
+对照：[LibrePods Off 设置](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/presentation/screens/AirPodsSettingsScreen.kt#L564)、[写入允许配置](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/presentation/viewmodel/AirPodsViewModel.kt#L563)。
+
+建议：先读取真实配置与机型能力；限制生效时禁用 Off 并说明原因，或提供明确的允许入口。不要在连接时静默开启 Off，也不要把个人保护相关配置当成连接修复手段。
+
+验证目标：允许/禁止 Off 两种耳机配置分别测试四模式和长按循环；不能无限发送不可接受的模式。
+
+## 8. [P2 / 新增，条件性风险] 改名可能破坏自动恢复耳机路由
+
+本地位置：`pods/L2CAPController.kt:164`、`:267`、`:898`。
+
+改名会更新蓝牙 alias，但路由恢复以及恢复播放的前置判断都用 `route.name == mDevice.name`。名称是展示字段，不是稳定设备身份。代码没有通过稳定路由 ID 或设备身份关联目标路由。
+
+触发条件：如果 HyperOS 返回的路由名使用新 alias，而 `BluetoothDevice.name` 仍是原始缓存名，两者不等时 `restoreHeadphoneRoute()` 找不到候选，或 `resumePausedAudio()` 一直提前返回。反过来，多台同名蓝牙设备也可能匹配错误。是否在当前系统实际出现名称分离仍需实机验证，不能将它直接认定为之前重连问题的原因。
+
+建议：将设备身份与路由 ID 建立明确关联，名称只用于显示。依据目标系统实际可取得的设备地址/路由元数据选择方案，不应假定某个隐藏字段始终可用。沿用“不主动断开 HFP/A2DP”的既有策略。
+
+验证目标：路由名、原始设备名、alias 相同和不同的情况；两台同名设备；改名后取下/戴回自动恢复，确认声音不会落到错误设备或手机扬声器。
+
+## 9. [P2 / 新增] 入耳检测总开关覆盖了用户的扬声器选择
+
+本地位置：`ui/MainUI.kt:214`、`:324`；`pods/L2CAPController.kt:507`。
+
+`onEarDetectionChanged(false)` 调用 `setEarDetection(false, false && autoSwitchToSpeaker.value)`，把 `EAR_DETECTION_SWITCH_SPEAKER` 持久化为 `false`，但没有更新内存中的 `autoSwitchToSpeaker`。
+
+可按源码确定的复现场景：
+
+1. 自动入耳检测和自动切扬声器都打开。
+2. 关闭入耳检测。此时扬声器偏好被覆盖成 `false`，内存仍为 `true`。
+3. 不退出就再打开入耳检测，原来的 `true` 会重新写回；但退出重进后再打开，读到的已是 `false`。
+
+结果取决于是否重进页面，用户没有明确关闭子选项却丢失了选择。这与耳机能力无关，是本机偏好与有效运行状态混在一起的问题。
+
+建议：保存用户对子选项的选择，控制器再按 `earDetection && userSwitchSpeakerPreference` 判断是否生效；或者明确规定总开关同时重置子选项，但 UI 与持久化必须一致。前者更能保持用户原有配置。
+
+验证目标：关闭总开关→同页重开、关闭总开关→重进页面→重开，子选项和实际路由策略保持一致；关闭总开关期间不得触发自动切扬声器。
+
+## 其他值得优化的设置逻辑
+
+### A. 长按页面区分“全局循环”与“单耳动作”
+
+位置：`ui/components/PressAndHoldSettingPage.kt:107–174`、`:218–237`；`pods/L2CAPController.kt:451–455`。
+
+- 左右入口虽然记录 `settingPodIndex`，实际提交只写同一个 `LISTENING_MODE_BYTE`。这是全局循环配置，不是两套独立的左/右循环；界面应说清楚，不能仅因有两个入口就承诺左右独立。
+- 左右动作回调没有被提交按钮调用；控制器对应分支为 TODO。语音助手当前已禁用，保持禁用是正确的。
+- 修改勾选后取消，只关闭弹窗；共用的 `listeningModeConfigByte` 不回滚。再次打开会显示未保存的值，随后确认还可能把之前取消的修改一并写入。应把弹窗草稿与已保存值分开，并在每次打开时重置草稿。
+- 当前允许只保留一个模式；LibrePods main/rewrite 要求至少两个。至少两个更符合“循环切换”的含义，但不能没有实机证据就断言固件一定拒绝一个模式。应明确交互规则并测试。
+
+对照：[main 至少两个模式的校验](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/presentation/viewmodel/AirPodsViewModel.kt#L747)。
+
+### B. 自适应音频滑块避免每一帧写配置和发广播
+
+位置：`ui/PodDetailPage.kt:211`；`ui/MainUI.kt:359–365`。
+
+每次 `onValueChange` 都写偏好、跨进程广播，接收端再写 socket。当前数值映射本身与 LibrePods 一致，没发现需要反转的错误；问题是高频重复发送和没有最终结果确认。
+
+LibrePods main 对这项用 150 ms 防抖。可选择拖动时只更新显示，松手发送最终值，或者有界节流并确保最后一次必达；这属于效率优化，不是已经证明的蓝牙崩溃原因。[参考滑块实现](https://github.com/librepods-org/librepods/blob/0e682d2f36d5ffab636375f5e01d63ad2647f2b3/android/app/src/main/java/me/kavishdevar/librepods/presentation/screens/AdaptiveStrengthScreen.kt#L93)
+
+### C. 未收到状态时不要显示确定结果，测试不要重复错误假设
+
+- 初次连接 `ancMode` 默认 Off，`EarDetectionParams` 默认在仓；如果先收到电量、后收到佩戴/降噪状态，页面可能短暂把未知显示为确定状态。宜区分“等待状态”和真正的 Off/在仓。
+- 改名单测必须对完整外部协议样例断言，不能再以当前实现的偏移量当标准答案；UTF-8 边界校验仍应保留。
+- `shortOutboundRawCommandsAreWrittenWithoutIndexingAnOpcode` 只证明短字节数组不会越界、可以写到 mock 流，不能证明 ATT 命令可以在 AACP 通道使用。
+- 除单个构包函数外，还应测试 UI→广播→控制器→耳机返回/超时→UI 的往返流程，以及断连失败、重新打开页面、另一副设备和外部设备改变配置。
+
+## 未作为缺陷处理的功能差异
+
+- 自定义语音助手目前在页面明确标为不支持；控制器 TODO 不等同于一个已完成的功能。本次没有把它改为可用。
+- 耳机仓提示音没有有效设置入口，代码也未完成；不要把被注释的代码视作可工作的功能。
+- LibrePods 包含助听、个性化通透、头部动作、跨设备、心率等功能。缺少这些并不自动构成本项目缺陷，不应在 UI 重绘中整体移植。
+- 休眠检测、按压速度/时长、通话手势、提示音音量等在参考项目中有额外配置路径；当前 HyperPods 没有相应设置入口，应作为可选新增功能，而不是已有开关失效。
+- 保留 HyperPods 已有“切音频路由而非反复断开 HFP/A2DP”的佩戴策略，不能直接照搬 LibrePods 中的断开/连接音频流程。
+- 超级岛、小米官方 AirPods 屏蔽、Android 17 原生 socket Hook 没有 LibrePods 的一一对应实现。仅凭该仓库不能证明这些 Hook 在 HyperOS 4 正确。
+
+## 审查阶段的验证与后续优先顺序
+
+本轮进行了代码调用链、指令标识/负载、回传更新路径、偏好读写及两个参考分支的静态复核。没有连接用户的 HyperOS 4 手机复现，也没有采集本轮改名日志，因此不宣称已验证耳机端接受结果。
+
+上轮 UI 工作的 35 个单元测试已通过；本轮未修改运行代码，也没有重新执行整套构建/测试。现有测试覆盖电量解析、广播校验、佩戴调度、包边界及超级岛数据，不覆盖真实 ATT、对话音量或所有设置回读。尤其改名测试自身遗漏了外部协议校验；测试通过不能替代功能可用性验证。
+
+优先修复与验收顺序：
+
+1. **改名协议与失败反馈**：先补正确完整帧测试，再验证耳机名称持久化；同步回归改名后的音频路由。
+2. **阻止假可用状态**：降低高音量在 ATT 未接通前明确不可用；按实际机型、固件条件限制选项，包括 Off。
+3. **统一耳机状态回读**：区分请求值、确认值、本地策略偏好；先修麦克风初始值及设置失败反馈，不能用全量写默认值代替读取。
+4. **对话音量与入耳策略**：完成对话音量闭环，修复总/子开关保存逻辑、路由身份匹配；验证手动音量、单耳、双耳、断连等情况。
+5. **建连与交互收尾**：删除无依据的包装握手、优化滑块发送和长按草稿；实机统计连接成功率、首次电量时间、摘戴/重连结果。
+
+以上顺序记录修复前的建议，当前落实结果见开头“修复落实”。超级岛、官方适配屏蔽和 native Hook 仍需 HyperOS 4 专项实机回归，不能用本次 LibrePods 设置对照替代。

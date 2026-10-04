@@ -41,15 +41,20 @@ import top.yukonga.miuix.kmp.extra.SuperDialog
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.icons.useful.Cancel
 import top.yukonga.miuix.kmp.icon.icons.useful.Confirm
+import top.yukonga.miuix.kmp.icon.icons.useful.Edit
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName: String) {
+fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName: String, compact: Boolean = false, pending: Boolean = false) {
     val showBottomSheet = remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     var text by remember { mutableStateOf(deviceName) }
 
-    Card(modifier = cardModifier) {
+    if (compact) {
+        IconButton(onClick = { text = deviceName; showBottomSheet.value = true }, enabled = !pending, modifier = cardModifier) {
+            Icon(MiuixIcons.Useful.Edit, contentDescription = stringResource(R.string.rename_title))
+        }
+    } else Card(modifier = cardModifier) {
         BasicComponent(
             title = stringResource(R.string.rename_title),
             titleColor = BasicComponentColors(
@@ -57,8 +62,9 @@ fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName
                 disabledColor = MiuixTheme.colorScheme.disabledOnPrimary
             ),
             onClick = {
+                text = deviceName
                 showBottomSheet.value = !showBottomSheet.value
-            }
+            }, enabled = !pending,
         )
     }
 
@@ -81,11 +87,11 @@ fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName
         },
         rightAction = {
             IconButton(
-                enabled = text.trim().isNotEmpty() && text.trim().toByteArray().size <= 255,
+                enabled = !pending && text.trim().isNotEmpty() && '\u0000' !in text && text.trim().toByteArray().size <= 255,
                 onClick = {
                     showBottomSheet.value = false
-                    if (text != deviceName) {
-                        onNameChange(text)
+                    if (text.trim() != deviceName) {
+                        onNameChange(text.trim())
                     }
                 },
             ) {

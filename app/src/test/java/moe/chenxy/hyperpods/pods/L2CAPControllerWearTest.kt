@@ -3,6 +3,7 @@ package moe.chenxy.hyperpods.pods
 import android.bluetooth.BluetoothDevice
 import android.app.BroadcastOptions
 import android.content.ContextWrapper
+import android.content.Intent
 import android.bluetooth.BluetoothSocket
 import android.media.MediaRoute2Info
 import android.media.MediaRouter2
@@ -13,6 +14,8 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.MockedStatic
 import org.mockito.Mockito.*
+import moe.chenxy.hyperpods.utils.data.HyperPodsAction
+import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
 
 /**
  * Run the real wear handler with no-op Android service stubs. These tests verify
@@ -53,6 +56,7 @@ class L2CAPControllerWearTest {
         field("pausedAudio").setBoolean(controller, false)
         field("pendingAudioRoute").set(controller, null)
         field("routeRetryCount").setInt(controller, 0)
+        field("headphoneRouteId").set(controller, null)
         settings(true, true)
     }
 
@@ -62,6 +66,8 @@ class L2CAPControllerWearTest {
         field("earDetectionStateValid").setBoolean(controller, false)
         (field("routeRetryJob").get(controller) as Job?)?.cancel()
         field("routeRetryJob").set(controller, null)
+        (field("routeTransferTimeout").get(controller) as Job?)?.cancel()
+        field("routeTransferTimeout").set(controller, null)
         broadcasts.close()
     }
 
@@ -102,6 +108,24 @@ class L2CAPControllerWearTest {
         assertTrue(pending.isCancelled)
         assertNull(pendingSwitch())
         assertFalse(field("pausedAudio").getBoolean(controller))
+    }
+
+    @Test fun policyBroadcastPreservesSpeakerChoiceWhenDetectionIsDisabled() = synchronized(controller) {
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+        `when`(intent.getStringExtra("key")).thenReturn(HyperPodsPrefsKey.EAR_DETECTION)
+        `when`(intent.hasExtra("ear_detection")).thenReturn(true)
+        `when`(intent.hasExtra("switch_speaker")).thenReturn(true)
+        `when`(intent.getBooleanExtra("ear_detection", true)).thenReturn(false)
+        `when`(intent.getBooleanExtra("switch_speaker", true)).thenReturn(true)
+        controller.handleUIEvent(intent)
+        assertFalse(field("earDetection").getBoolean(controller))
+        assertTrue(field("autoSwitchToSpeaker").getBoolean(controller))
+        assertNull(pendingSwitch())
+        `when`(intent.getBooleanExtra("ear_detection", true)).thenReturn(true)
+        controller.handleUIEvent(intent)
+        assertTrue(field("earDetection").getBoolean(controller))
+        assertTrue(field("autoSwitchToSpeaker").getBoolean(controller))
     }
 
     @Test fun repeatedQuickWearChangesDoNotReuseCancelledJobs() = synchronized(controller) {
@@ -180,6 +204,26 @@ class L2CAPControllerWearTest {
         `when`(this.name).thenReturn("Test headset")
     }
 
+    @Test fun cachedRouteIdentitySurvivesAliasAndDisplayNameChanges() = synchronized(controller) {
+        `when`(device.name).thenReturn("Test headset")
+        val headset = route("stable-headset-id", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val finder = type.getDeclaredMethod("findHeadphoneRoute", List::class.java).apply { isAccessible = true }
+        assertSame(headset, finder.invoke(controller, listOf(headset)))
+        `when`(device.alias).thenReturn("New name")
+        `when`(headset.name).thenReturn("New name")
+        assertSame(headset, finder.invoke(controller, listOf(headset)))
+        assertEquals("stable-headset-id", field("headphoneRouteId").get(controller))
+    }
+
+    @Test fun sameNamedRoutesAreNotGuessedWhenNoIdentityIsAvailable() = synchronized(controller) {
+        `when`(device.name).thenReturn("Test headset")
+        val first = route("first", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val second = route("second", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val finder = type.getDeclaredMethod("findHeadphoneRoute", List::class.java).apply { isAccessible = true }
+        assertNull(finder.invoke(controller, listOf(first, second)))
+        assertNull(field("headphoneRouteId").get(controller))
+    }
+
     @Test fun headphoneRestoreWaitsForSuccessfulTransferCallback() = synchronized(controller) {
         wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
         `when`(device.name).thenReturn("Test headset")
@@ -201,6 +245,25 @@ class L2CAPControllerWearTest {
         assertFalse(field("switchedToSpeaker").getBoolean(controller))
         assertNull(field("pendingAudioRoute").get(controller))
         verify(router, times(1)).transferTo(headset)
+    }
+
+    @Test fun synchronousRouteFailureDoesNotLeaveAnUnfinishablePendingTransfer() = synchronized(controller) {
+        wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+        `when`(device.name).thenReturn("Test headset")
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(speaker))
+        doThrow(IllegalArgumentException("Unavailable route")).`when`(router).transferTo(headset)
+        field("mediaRouter").set(controller, router)
+        field("switchedToSpeaker").setBoolean(controller, true)
+        controller.routes = listOf(speaker, headset)
+        invokeRouteChanged()
+        assertNull(field("pendingAudioRoute").get(controller))
+        assertEquals(1, field("routeRetryCount").getInt(controller))
+        assertTrue((field("routeRetryJob").get(controller) as Job).isActive)
     }
 
     @Test fun failedHeadphoneTransferKeepsOwnershipAndSchedulesBoundedRetry() = synchronized(controller) {

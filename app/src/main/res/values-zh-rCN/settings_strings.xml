@@ -1,0 +1,11 @@
+<resources>
+    <string name="settings_reading">等待耳机状态同步</string>
+    <string name="setting_pending">等待耳机确认…</string>
+    <string name="setting_applied">耳机名称已确认</string>
+    <string name="setting_failed">耳机未确认此次修改，请检查连接后重试。</string>
+    <string name="loud_sound_unavailable">当前版本暂不支持此功能</string>
+    <string name="allow_off_title">允许关闭聆听模式</string>
+    <string name="allow_off_summary">允许关闭噪声控制。关闭模式下不提供高音量保护。</string>
+    <string name="long_press_shared">长按噪声循环（双耳共用）</string>
+    <string name="long_press_shared_summary">至少选择两种模式，左右耳机共用此循环。</string>
+</resources>

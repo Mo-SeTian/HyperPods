@@ -27,20 +27,17 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.highcapable.yukihookapi.hook.factory.prefs
 import kotlinx.coroutines.delay
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.LongPressEnableMode
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AACPManager.Companion.ListeningMode
-import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -102,43 +99,34 @@ fun ListeningModeItem(title: String, image: Painter, tint: Color = LocalContentC
 
 @Composable
 fun PressAndHoldSettingPage(
-    longPressModeLeft: Int,
-    onLongPressModeLeftChange: (Int) -> Unit,
-    longPressModeRight: Int,
-    onLongPressModeRightChange: (Int) -> Unit,
     onListeningModeChange: (Byte) -> Unit,
     titleModifier: Modifier,
     cardModifier: Modifier,
+    confirmedMask: Int?,
+    allowedModes: Set<Int>,
+    enabled: Boolean,
 ) {
-    var settingPodIndex by remember { mutableIntStateOf(0) }
     val settingMode = listOf(
         stringResource(R.string.set_noise_mode),
         stringResource(R.string.set_voice_assist)
     )
     var settingModeIndex by remember { mutableIntStateOf(0) }
-    val context = LocalContext.current
-    var listeningModeConfigByte = remember { mutableStateOf(context.prefs().getInt(HyperPodsPrefsKey.LISTENING_MODE_BYTE, 6).toByte()) }
-
-    fun getLongPressMode(isLeft: Boolean): (Int) -> Unit {
-        return if (isLeft) onLongPressModeLeftChange else onLongPressModeRightChange
-    }
+    val allowedMask = allowedModes.fold(0) { mask, mode -> mask or (1 shl (mode - 1)) }
+    val listeningModeConfigByte = remember { mutableStateOf(0.toByte()) }
 
     val showBottomSheet = remember { mutableStateOf(false) }
 
-    SmallTitle(stringResource(R.string.press_and_hold_settings), modifier = titleModifier.padding(top = 12.dp))
+    SmallTitle(stringResource(R.string.long_press_shared), modifier = titleModifier.padding(top = 12.dp))
     Card(
         modifier = cardModifier
     ) {
-        SuperArrow(stringResource(R.string.left_pod),
-            rightText = settingMode[0], onClick = {
-                settingPodIndex = 0
+        SuperArrow(stringResource(R.string.set_noise_mode),
+            rightText = if (enabled) settingMode[0] else stringResource(R.string.settings_reading),
+            enabled = enabled, onClick = {
+                listeningModeConfigByte.value = ((confirmedMask ?: 0) and allowedMask).toByte()
                 showBottomSheet.value = true
             }
         )
-        SuperArrow(stringResource(R.string.right_pod), rightText = settingMode[0], onClick = {
-            settingPodIndex = 1
-            showBottomSheet.value = true
-        })
     }
 
 
@@ -160,8 +148,9 @@ fun PressAndHoldSettingPage(
         },
         rightAction = {
             IconButton(
+                enabled = enabled && Integer.bitCount(listeningModeConfigByte.value.toInt() and allowedMask) >= 2,
                 onClick = {
-                    if (listeningModeConfigByte.value.toInt() and 0x0f != 0) {
+                    if (Integer.bitCount(listeningModeConfigByte.value.toInt() and allowedMask) >= 2) {
                         onListeningModeChange(listeningModeConfigByte.value)
                     }
                     showBottomSheet.value = false
@@ -173,7 +162,7 @@ fun PressAndHoldSettingPage(
                 )
             }
         },
-        title = stringResource(R.string.press_and_hold_settings)
+        title = stringResource(R.string.long_press_shared)
     ) {
         val checkBoxColors = CheckboxColors(
             checkedForegroundColor = MiuixTheme.colorScheme.primary,
@@ -249,26 +238,26 @@ fun PressAndHoldSettingPage(
             Card(
                 modifier = Modifier.padding(0.dp)
             ) {
-                ListeningModeItem(
+                if (1 in allowedModes) ListeningModeItem(
                     check = ListeningMode.OFF.value,
                     title = stringResource(R.string.off),
                     image = painterResource(id = R.drawable.noise_cancellation),
                     tint = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray,
                     bytes = listeningModeConfigByte
                 )
-                ListeningModeItem(
+                if (2 in allowedModes) ListeningModeItem(
                     check = ListeningMode.NC.value,
                     title = stringResource(R.string.noise_cancellation_title),
                     image = painterResource(id = R.drawable.noise_cancellation),
                     bytes = listeningModeConfigByte
                 )
-                ListeningModeItem(
+                if (3 in allowedModes) ListeningModeItem(
                     check = ListeningMode.TRANSPARENCY.value,
                     title = stringResource(R.string.transparency_title),
                     image = painterResource(id = R.drawable.transparency),
                     bytes = listeningModeConfigByte
                 )
-                ListeningModeItem(
+                if (4 in allowedModes) ListeningModeItem(
                     check = ListeningMode.ADAPTIVE.value,
                     title = stringResource(R.string.adaptive_title),
                     image = painterResource(id = R.drawable.adaptive),
@@ -276,7 +265,7 @@ fun PressAndHoldSettingPage(
                 )
             }
         }
-        Text(stringResource(R.string.listen_mode_summary), modifier = Modifier.padding(16.dp).alpha(animateAlpha).graphicsLayer(scaleX = animateScale, scaleY = animateScale), color = MiuixTheme.colorScheme.secondary, fontSize = 12.sp)
+        Text(stringResource(R.string.long_press_shared_summary), modifier = Modifier.padding(16.dp).alpha(animateAlpha).graphicsLayer(scaleX = animateScale, scaleY = animateScale), color = MiuixTheme.colorScheme.secondary, fontSize = 12.sp)
 
         Spacer(modifier = Modifier.height(200.dp))
     }
@@ -286,12 +275,11 @@ fun PressAndHoldSettingPage(
 @Preview
 fun PressAndHoldSettingPagePreview() {
     PressAndHoldSettingPage(
-        longPressModeLeft = 0,
-        onLongPressModeLeftChange = {},
-        longPressModeRight = 0,
-        onLongPressModeRightChange = {},
         titleModifier = Modifier,
         cardModifier = Modifier,
-        onListeningModeChange = {}
+        onListeningModeChange = {},
+        confirmedMask = 6,
+        allowedModes = setOf(1, 2, 3, 4),
+        enabled = true,
     )
 }

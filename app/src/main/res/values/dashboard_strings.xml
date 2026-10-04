@@ -1,0 +1,26 @@
+<resources>
+    <string name="dashboard_left">Left</string>
+    <string name="dashboard_right">Right</string>
+    <string name="dashboard_case">Case</string>
+    <string name="dashboard_unavailable">Unavailable</string>
+    <string name="dashboard_charging">Charging</string>
+    <string name="dashboard_wearing">In ear</string>
+    <string name="dashboard_in_case">In case</string>
+    <string name="dashboard_out_of_ear">Out of ear</string>
+    <string name="dashboard_transparency">Transparency</string>
+    <string name="dashboard_connected">Connected</string>
+    <string name="dashboard_listening">Smart listening</string>
+    <string name="dashboard_operation">Wearing &amp; controls</string>
+    <string name="dashboard_more">More controls</string>
+    <string name="dashboard_more_summary">Press and hold · Microphone · Speaker switching</string>
+    <string name="dashboard_device_info">Device information</string>
+    <string name="dashboard_info_pending">Waiting for device information</string>
+    <string name="dashboard_back">Back</string>
+    <string name="dashboard_headphones">Headphones</string>
+    <string name="dashboard_about">About</string>
+    <string name="dashboard_noise">Noise control</string>
+    <string name="dashboard_conversation_summary">Lower media volume while speaking</string>
+    <string name="dashboard_detection_summary">Pause when removed, resume when worn</string>
+    <string name="dashboard_detection_title">Automatic ear detection</string>
+    <string name="dashboard_conversation_title">Conversation awareness</string>
+</resources>
