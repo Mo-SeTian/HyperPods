@@ -100,12 +100,27 @@ fun PodDetailPage(
     isActive: Boolean = true,
     settings: Map<String, Int> = emptyMap(),
     pendingSettings: Set<String> = emptySet(),
+    settingFeedback: Map<String, String> = emptyMap(),
+    conversationPhoneVolume: Boolean = true,
+    onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
     onSettingChange: (String, Int) -> Unit = { _, _ -> },
     diagnostics: Bundle? = null,
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
     fun ready(key: String) = PodsSettings.supports(key, model) && key in settings && key !in pendingSettings
+    @Composable
+    fun feedback(key: String, summary: Int): String {
+        if (key !in settings) return stringResource(R.string.settings_reading)
+        val status = when (settingFeedback[key]) {
+            "sent" -> if (key in pendingSettings) R.string.setting_pending else R.string.setting_sent
+            "write_failed" -> R.string.setting_write_failed
+            "timeout" -> R.string.setting_failed
+            "invalid" -> R.string.setting_invalid
+            else -> R.string.setting_reported
+        }
+        return stringResource(summary) + "\n" + stringResource(status)
+    }
     val allowedModes = PodsSettings.allowedNoiseModes(model, settings)
     var adaptiveDraft by remember(settings[Key.ADAPTIVE_AUDIO_LEVEL]) { mutableFloatStateOf(adaptiveAudioLevel) }
     var chimeDraft by remember(settings[Key.CHIME_VOLUME], Key.CHIME_VOLUME in pendingSettings) { mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat()) }
@@ -149,13 +164,13 @@ fun PodDetailPage(
                     }
                     if (PodsSettings.supports(Key.PERSONLIZED_VOLUME, model)) {
                         DashboardToggle(stringResource(R.string.personlized_volume_title),
-                            stringResource(if (Key.PERSONLIZED_VOLUME in settings) R.string.personlized_volume_summary else R.string.settings_reading),
+                            feedback(Key.PERSONLIZED_VOLUME, R.string.personlized_volume_summary),
                             personlizedVolume, onPersonlizedVolumeChange, enabled = ready(Key.PERSONLIZED_VOLUME))
                         DashboardDivider()
                     }
                     if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
                         DashboardToggle(stringResource(R.string.dashboard_conversation_title),
-                            stringResource(if (Key.CONVERSATION_AWARENESS in settings) R.string.dashboard_conversation_summary else R.string.settings_reading),
+                            feedback(Key.CONVERSATION_AWARENESS, R.string.dashboard_conversation_summary),
                             conversationAwareness, onConversationAwarenessChange, enabled = ready(Key.CONVERSATION_AWARENESS))
                         DashboardDivider()
                     }
@@ -227,6 +242,12 @@ fun PodDetailPage(
             Card(
                 modifier = cardModifier
             ) {
+                if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) SuperSwitch(
+                    title = stringResource(R.string.conversation_phone_volume_title),
+                    summary = stringResource(R.string.conversation_phone_volume_summary),
+                    checked = conversationPhoneVolume,
+                    onCheckedChange = onConversationPhoneVolumeChange,
+                )
                 if (PodsSettings.supports(Key.CHIME_VOLUME, model)) Column(Modifier.padding(16.dp)) {
                     Text(stringResource(R.string.control_chime_volume), fontWeight = FontWeight.Medium)
                     Text(if (ready(Key.CHIME_VOLUME)) "${chimeDraft.toInt()}%" else

@@ -18,6 +18,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <!-- Only the verified Bluetooth UID may store a fixed-field failure report. -->
+        <receiver android:name=".utils.DiagnosticsHistory" android:exported="true" />
         <!-- Set as Xposed Module -->
         <meta-data
             android:name="xposedmodule"

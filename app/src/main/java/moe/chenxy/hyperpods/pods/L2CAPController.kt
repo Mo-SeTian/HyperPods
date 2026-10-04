@@ -33,6 +33,7 @@ import moe.chenxy.hyperpods.utils.MediaControl
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.AirPodsModels
 import moe.chenxy.hyperpods.utils.ConversationVolume
+import moe.chenxy.hyperpods.utils.DiagnosticsHistory
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.SystemApisUtils
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil
@@ -64,6 +65,9 @@ object L2CAPController {
     private var connectionState = "disconnected"
     private var initialStatusRetries = 0
     private var lastStatusFailure = ""
+    private var lastRecordedFailure = ""
+    private var lastSettingKey = ""
+    private var lastSettingStatus = ""
 
 //    private lateinit var mAirPodsInstance: AirPodsInstance
 
@@ -95,6 +99,7 @@ object L2CAPController {
     private var pendingRename: String? = null
     private var renameTimeout: Job? = null
     private var conversationTimeout: Job? = null
+    private var conversationRestoreJob: Job? = null
     private var headphoneRouteId: String? = null
     private val conversationVolume = ConversationVolume(
         { audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0 },
@@ -105,6 +110,7 @@ object L2CAPController {
     // Function toggle
     private var earDetection = true
     private var autoSwitchToSpeaker = true
+    private var conversationPhoneVolume = true
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(p0: Context?, p1: Intent?) {
@@ -195,7 +201,7 @@ object L2CAPController {
                 if (name.isEmpty() || '\u0000' in name || name.toByteArray().size > 255 || pendingRename != null) return
                 findHeadphoneRoute(routes) // Capture stable identity before the display name changes.
                 if (aacpManager?.sendRename(name) != true) {
-                    sendSettingResult(PodsSettings.RENAME, false)
+                    sendSettingResult(PodsSettings.RENAME, false, status = "write_failed")
                     return
                 }
                 pendingRename = name
@@ -227,6 +233,8 @@ object L2CAPController {
                             updateEarDetectionSettings(intent.getBooleanExtra("ear_detection", true),
                                 intent.getBooleanExtra("switch_speaker", true))
                         } else updateFeatureToggle()
+                    } else if (it == HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME && intent.hasExtra("enabled")) {
+                        updateConversationPhoneVolume(intent.getBooleanExtra("enabled", true))
                     } else if (intent.hasExtra("value")) {
                         sendSetting(it, intent.getIntExtra("value", -1))
                     }
@@ -256,48 +264,87 @@ object L2CAPController {
             putExtra("settings", Bundle().apply { confirmedSettings().forEach { (key, value) -> putInt(key, value) } })
             putStringArrayListExtra("pending", ArrayList(pendingSettings.keys +
                     listOfNotNull(pendingRename?.let { PodsSettings.RENAME }, PodsSettings.NOISE_MODE.takeIf { pendingOffSelection })))
+            putStringArrayListExtra("unconfirmed", ArrayList(PodsSettings.identifiers.filterValues {
+                aacpManager?.isAwaitingReport(it) == true
+            }.keys))
             HyperPodsBroadcasts.send(mContext, this)
         }
         sendDiagnostics()
     }
 
+    private fun diagnosticsSnapshot(): Bundle = Bundle().apply {
+        putString("connection", connectionState)
+        putString("stage", aacpManager?.initializationStage?.name ?: "NONE")
+        putInt("received", aacpManager?.receivedPacketCount ?: 0)
+        putInt("retries", initialStatusRetries)
+        putBoolean("battery", batteryStateValid && !AirPodsNotifications.BatteryNotification.needsRefresh)
+        putBoolean("wear", earDetectionStateValid)
+        putBoolean("information", currentPodsInfo != null)
+        putBoolean("ready", connectionState == "connected" && initialStatusReady())
+        putString("failure", lastStatusFailure)
+        putLong("last_packet_at", aacpManager?.lastPacketAt ?: 0)
+        putLong("battery_at", aacpManager?.batteryReceivedAt ?: 0)
+        putLong("wear_at", aacpManager?.wearReceivedAt ?: 0)
+        putLong("information_at", aacpManager?.informationReceivedAt ?: 0)
+        putLong("settings_at", aacpManager?.settingsReceivedAt ?: 0)
+        putString("setting_key", lastSettingKey)
+        putString("setting_status", lastSettingStatus)
+    }
+
     private fun sendDiagnostics() {
+        val snapshot = diagnosticsSnapshot()
         Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS).apply {
-            putExtra("diagnostics", Bundle().apply {
-                putString("connection", connectionState)
-                putString("stage", aacpManager?.initializationStage?.name ?: "NONE")
-                putInt("received", aacpManager?.receivedPacketCount ?: 0)
-                putInt("retries", initialStatusRetries)
-                putBoolean("battery", batteryStateValid && !AirPodsNotifications.BatteryNotification.needsRefresh)
-                putBoolean("wear", earDetectionStateValid)
-                putBoolean("information", currentPodsInfo != null)
-                putBoolean("ready", initialStatusReady())
-                putString("failure", lastStatusFailure)
-            })
+            putExtra("diagnostics", snapshot)
+            HyperPodsBroadcasts.send(mContext, this)
+        }
+        if (lastStatusFailure.isEmpty()) lastRecordedFailure = ""
+        else if (lastStatusFailure != lastRecordedFailure) {
+            lastRecordedFailure = lastStatusFailure
+            recordFailure(snapshot, lastStatusFailure)
+        }
+    }
+
+    private fun recordFailure(snapshot: Bundle, failure: String) {
+        if (failure !in DiagnosticsHistory.failureCodes) return
+        val record = Bundle(snapshot).apply {
+            putString("failure", failure)
+            putLong("recorded_at", System.currentTimeMillis())
+        }
+        Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_RECORD).apply {
+            setClassName(BuildConfig.APPLICATION_ID, DiagnosticsHistory::class.java.name)
+            putExtra("diagnostics", record)
             HyperPodsBroadcasts.send(mContext, this)
         }
     }
 
-    private fun sendSettingResult(key: String, success: Boolean, pending: Boolean = false) {
-        if (key == HyperPodsPrefsKey.ALLOW_OFF_OPTION && pendingOffSelection && !pending) {
-            pendingOffSelection = false
-            if (success) sendSetting(PodsSettings.NOISE_MODE, 1)
-            else sendSettingResult(PodsSettings.NOISE_MODE, false)
-        }
+    private fun sendSettingResult(key: String, success: Boolean, pending: Boolean = false,
+        status: String = if (pending) "sent" else if (success) "confirmed" else "timeout") {
+        val continueOff = key == HyperPodsPrefsKey.ALLOW_OFF_OPTION && pendingOffSelection && !pending
+        lastSettingKey = key
+        lastSettingStatus = status
         Intent(HyperPodsAction.ACTION_PODS_SETTING_RESULT).apply {
             putExtra("key", key)
             putExtra("success", success)
             putExtra("pending", pending)
+            putExtra("status", status)
             HyperPodsBroadcasts.send(mContext, this)
         }
         sendSettingsState()
+        if (status == "write_failed" || status == "timeout")
+            recordFailure(diagnosticsSnapshot(), if (status == "write_failed") "setting_write_failed" else "setting_timeout")
+        // Publish the prerequisite first, so the following mode command remains the latest operation.
+        if (continueOff) {
+            pendingOffSelection = false
+            if (success) sendSetting(PodsSettings.NOISE_MODE, 1)
+            else sendSettingResult(PodsSettings.NOISE_MODE, false, status = status)
+        }
     }
 
     @Synchronized
     private fun sendSetting(key: String, value: Int) {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
         if (!PodsSettings.validValue(key, value, model, confirmedSettings()) || pendingSettings.containsKey(key)) {
-            sendSettingResult(key, false)
+            sendSettingResult(key, false, status = "invalid")
             return
         }
         val identifier = PodsSettings.identifiers[key] ?: return
@@ -308,13 +355,13 @@ object L2CAPController {
             manager.sendControlCommand(identifier.value, byteArrayOf(value.toByte(), second))
         } else manager?.sendControlCommand(identifier.value, value) == true
         if (!written) {
-            sendSettingResult(key, false)
+            sendSettingResult(key, false, status = "write_failed")
             return
         }
         if (key == HyperPodsPrefsKey.PERSONLIZED_VOLUME || key == HyperPodsPrefsKey.CONVERSATION_AWARENESS) {
             // These two toggles follow LibrePods: publish the local value without awaiting an echo.
             if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) resetConversationVolume()
-            sendSettingResult(key, true)
+            sendSettingResult(key, true, status = "sent")
             return
         }
         // Other settings still require a matching headset report.
@@ -587,6 +634,12 @@ object L2CAPController {
             mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION, true),
             mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)
         )
+        updateConversationPhoneVolume(mPrefsBridge.getBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, true))
+    }
+
+    private fun updateConversationPhoneVolume(enabled: Boolean) {
+        conversationPhoneVolume = enabled
+        if (!enabled) resetConversationVolume()
     }
 
     @Synchronized
@@ -658,9 +711,13 @@ object L2CAPController {
         override fun onConversationAwarenessReceived(conversationAwareness: ByteArray) {
             AirPodsNotifications.ConversationalAwarenessNotification.setData(conversationAwareness)
             val status = AirPodsNotifications.ConversationalAwarenessNotification.status.toInt()
-            if (confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
+            if (!conversationPhoneVolume || confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
             if (status !in 1..3 && status !in 6..9) return
-            runCatching { conversationVolume.onStatus(status) }
+            if (status in 1..3) {
+                conversationRestoreJob?.cancel()
+                conversationRestoreJob = null
+            }
+            runCatching { conversationVolume.onStatus(status, smoothRestore = true) }
                 .onFailure { Log.w(TAG, "Unable to adjust conversation volume") }
             conversationTimeout?.cancel()
             if (status in 1..3) {
@@ -672,7 +729,7 @@ object L2CAPController {
                         if (sessionId == generation) resetConversationVolume()
                     }
                 }
-            }
+            } else smoothlyRestoreConversationVolume()
         }
 
         override fun onControlCommandReceived(controlCommand: ByteArray) {
@@ -680,6 +737,8 @@ object L2CAPController {
             val key = PodsSettings.keyFor(command.identifier)
             val value = command.value.firstOrNull()?.toInt()?.and(0xff)
             if (key != null && value != null) {
+                if (key == lastSettingKey && lastSettingStatus == "sent" && !pendingSettings.containsKey(key))
+                    lastSettingStatus = "reported"
                 pendingSettings[key]?.takeIf { it.value == value }?.let {
                     pendingSettings.remove(key)
                     it.timeout.cancel()
@@ -768,6 +827,9 @@ object L2CAPController {
         connectionState = "connecting"
         initialStatusRetries = 0
         lastStatusFailure = ""
+        lastRecordedFailure = ""
+        lastSettingKey = ""
+        lastSettingStatus = ""
         AirPodsNotifications.BatteryNotification.reset()
         currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
 
@@ -1103,8 +1165,26 @@ object L2CAPController {
     private fun resetConversationVolume() {
         conversationTimeout?.cancel()
         conversationTimeout = null
+        conversationRestoreJob?.cancel()
+        conversationRestoreJob = null
         runCatching { conversationVolume.reset() }
             .onFailure { Log.w(TAG, "Unable to restore conversation volume") }
+    }
+
+    private fun smoothlyRestoreConversationVolume() {
+        if (conversationRestoreJob?.isActive == true) return
+        val generation = sessionId
+        conversationRestoreJob = CoroutineScope(Dispatchers.Default).launch {
+            while (true) {
+                delay(50)
+                val more = synchronized(this@L2CAPController) {
+                    ensureActive()
+                    sessionId == generation && runCatching { conversationVolume.restoreStep() }
+                        .onFailure { Log.w(TAG, "Unable to restore conversation volume") }.getOrDefault(false)
+                }
+                if (!more) return@launch
+            }
+        }
     }
 
     fun setRegularBatteryLevel(level: Int) {

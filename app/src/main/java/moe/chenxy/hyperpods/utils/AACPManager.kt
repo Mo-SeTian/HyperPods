@@ -35,7 +35,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  * This class is responsible for handling the L2CAP socket management,
  * constructing and parsing packets for communication with AirPods.
  */
-class AACPManager(val socket: BluetoothSocket) {
+class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = System::currentTimeMillis) {
     companion object {
         private const val TAG = "AACPManager"
 
@@ -248,6 +248,9 @@ class AACPManager(val socket: BluetoothSocket) {
         return controlCommandStatusList.find { it.identifier == identifier }
     }
 
+    private val localWrites = mutableSetOf<ControlCommandIdentifiers>()
+    fun isAwaitingReport(identifier: ControlCommandIdentifiers): Boolean = identifier in localWrites
+
     private fun setControlCommandStatusValue(
         identifier: ControlCommandIdentifiers,
         value: ByteArray
@@ -323,6 +326,16 @@ class AACPManager(val socket: BluetoothSocket) {
         private set
     var receivedPacketCount = 0
         private set
+    var lastPacketAt = 0L
+        private set
+    var batteryReceivedAt = 0L
+        private set
+    var wearReceivedAt = 0L
+        private set
+    var informationReceivedAt = 0L
+        private set
+    var settingsReceivedAt = 0L
+        private set
 
     /** Retry the missing protocol step on this socket, without reconnecting Bluetooth profiles. */
     fun requestInitialStatus(): Boolean = when (initializationStage) {
@@ -365,6 +378,7 @@ class AACPManager(val socket: BluetoothSocket) {
         val id = ControlCommandIdentifiers.fromByte(identifier)
         if (id == ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG ||
             id == ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG) {
+            localWrites.add(id)
             setControlCommandStatusValue(id, value)
         }
         return true
@@ -432,6 +446,7 @@ class AACPManager(val socket: BluetoothSocket) {
         // The connect acknowledgement has its own header, not the normal message header.
         if (packet.size >= 16 && packet.copyOfRange(0, 4).contentEquals(byteArrayOf(1, 0, 4, 0))) {
             receivedPacketCount++
+            lastPacketAt = now()
             initializationStage = InitializationStage.FEATURES
             Log.i(TAG, "Handshake acknowledged; configuring features")
             sendSetFeatureFlagsPacket()
@@ -444,6 +459,7 @@ class AACPManager(val socket: BluetoothSocket) {
         try {
             if (packet[4] == 0x2b.toByte() && packet[5] == 0.toByte()) {
                 receivedPacketCount++
+                lastPacketAt = now()
                 initializationStage = InitializationStage.STATUS
                 Log.i(TAG, "Features acknowledged; subscribing to headset status")
                 sendNotificationRequest()
@@ -451,6 +467,13 @@ class AACPManager(val socket: BluetoothSocket) {
             }
             receiveValidatedPacket(packet)
             receivedPacketCount++
+            lastPacketAt = now()
+            when (packet[4]) {
+                Opcodes.BATTERY_INFO -> batteryReceivedAt = lastPacketAt
+                Opcodes.EAR_DETECTION -> wearReceivedAt = lastPacketAt
+                Opcodes.INFORMATION -> informationReceivedAt = lastPacketAt
+                Opcodes.CONTROL_COMMAND -> settingsReceivedAt = lastPacketAt
+            }
             // Some firmware reports state without a separate feature acknowledgement.
             if (packet[4] in listOf(Opcodes.BATTERY_INFO, Opcodes.CONTROL_COMMAND,
                     Opcodes.INFORMATION, Opcodes.EAR_DETECTION)) {
@@ -477,8 +500,11 @@ class AACPManager(val socket: BluetoothSocket) {
 
             Opcodes.CONTROL_COMMAND -> {
                 val controlCommand = ControlCommand.fromByteArray(packet)
+                val identifier = ControlCommandIdentifiers.fromByte(controlCommand.identifier) ?: return
+                // Even a different reported value is authoritative, not a successful local write.
+                localWrites.remove(identifier)
                 setControlCommandStatusValue(
-                    ControlCommandIdentifiers.fromByte(controlCommand.identifier) ?: return,
+                    identifier,
                     controlCommand.value
                 )
                 Log.d(

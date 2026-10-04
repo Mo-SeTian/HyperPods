@@ -4,7 +4,9 @@ import android.app.BroadcastOptions
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.content.ContextWrapper
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import kotlinx.coroutines.Job
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.PodsSettings
@@ -34,6 +36,10 @@ class L2CAPControllerSettingsTest {
         AirPodsNotifications.BatteryNotification.reset()
         field("batteryStateValid").set(controller, false)
         field("earDetectionStateValid").set(controller, false)
+        field("conversationPhoneVolume").set(controller, true)
+        field("lastStatusFailure").set(controller, "")
+        field("lastSettingKey").set(controller, "")
+        field("lastSettingStatus").set(controller, "")
         broadcasts = mockStatic(BroadcastOptions::class.java)
         broadcasts.`when`<BroadcastOptions> { BroadcastOptions.makeBasic() }
             .thenReturn(mock(BroadcastOptions::class.java, RETURNS_SELF))
@@ -48,6 +54,7 @@ class L2CAPControllerSettingsTest {
     }
 
     @After fun tearDown() {
+        type.getDeclaredMethod("resetConversationVolume").apply { isAccessible = true }.invoke(controller)
         field("mContext").set(controller, null)
         controller.disconnectedPod(ContextWrapper(null), device)
         broadcasts.close()
@@ -79,6 +86,8 @@ class L2CAPControllerSettingsTest {
             4, 0, 4, 0, 9, 0, 0x0d, 1, 0, 0, 0), output.toByteArray())
         assertFalse(field("pendingOffSelection").getBoolean(controller))
         assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        assertEquals(PodsSettings.NOISE_MODE, field("lastSettingKey").get(controller))
+        assertEquals("sent", field("lastSettingStatus").get(controller))
         assertEquals(4.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE)!!.value[0])
         receive(0x0d, 1)
         assertTrue(pending().isEmpty())
@@ -240,6 +249,78 @@ class L2CAPControllerSettingsTest {
             assertEquals(2.toByte(), manager.getControlCommandStatus(id)!!.value[0])
         }
         assertEquals(0, output.size())
+    }
+
+    @Test fun settingFeedbackDistinguishesSentReportedConfirmedAndWriteFailure() {
+        request(Key.CONVERSATION_AWARENESS, 1)
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        receive(0x28, 2)
+        assertEquals("reported", field("lastSettingStatus").get(controller))
+        request(Key.MICROPHONE_MODE, 2)
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        receive(1, 2)
+        assertEquals("confirmed", field("lastSettingStatus").get(controller))
+        `when`(socket.isConnected).thenReturn(false)
+        request(Key.PERSONLIZED_VOLUME, 1)
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+    }
+
+    @Test fun disablingPhoneDuckingRestoresVolumeAndDoesNotDisableHeadsetConversationAwareness() = synchronized(controller) {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        var volume = 10
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.isMusicActive).thenReturn(true)
+        `when`(audio.getStreamVolume(AudioManager.STREAM_MUSIC)).thenAnswer { volume }
+        doAnswer { volume = it.getArgument(1); null }.`when`(audio).setStreamVolume(eq(AudioManager.STREAM_MUSIC), anyInt(), eq(0))
+        field("mContext").set(controller, context)
+        receive(0x28, 1)
+        val speech = byteArrayOf(4, 0, 4, 0, 0x4b, 0, 2, 0, 0, 1)
+        manager.receivePacket(speech)
+        assertEquals(2, volume)
+        val policy = mock(Intent::class.java)
+        `when`(policy.action).thenReturn(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+        `when`(policy.getStringExtra("key")).thenReturn(Key.CONVERSATION_PHONE_VOLUME)
+        `when`(policy.hasExtra("enabled")).thenReturn(true)
+        `when`(policy.getBooleanExtra("enabled", true)).thenReturn(false)
+        controller.handleUIEvent(policy)
+        assertEquals(10, volume)
+        assertNull(field("conversationTimeout").get(controller))
+        assertNull(field("conversationRestoreJob").get(controller))
+        manager.receivePacket(speech)
+        assertEquals(10, volume)
+        assertEquals(1.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG)!!.value[0])
+        assertEquals(0, output.size())
+        verify(socket, never()).connect()
+    }
+
+    @Test fun duplicateEndEventsReuseTheFadeAndNewSpeechCancelsIt() = synchronized(controller) {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        var volume = 10
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.isMusicActive).thenReturn(true)
+        `when`(audio.getStreamVolume(AudioManager.STREAM_MUSIC)).thenAnswer { volume }
+        doAnswer { volume = it.getArgument(1); null }.`when`(audio).setStreamVolume(eq(AudioManager.STREAM_MUSIC), anyInt(), eq(0))
+        field("mContext").set(controller, context)
+        receive(0x28, 1)
+        val speech = byteArrayOf(4, 0, 4, 0, 0x4b, 0, 2, 0, 0, 1)
+        val end = speech.copyOf().apply { this[9] = 6 }
+        manager.receivePacket(speech)
+        manager.receivePacket(end)
+        val fade = field("conversationRestoreJob").get(controller) as Job
+        assertTrue(fade.isActive)
+        manager.receivePacket(end)
+        assertSame(fade, field("conversationRestoreJob").get(controller))
+        manager.receivePacket(speech)
+        assertTrue(fade.isCancelled)
+        assertNull(field("conversationRestoreJob").get(controller))
+        assertEquals(2, volume)
+        manager.receivePacket(end)
+        val nextFade = field("conversationRestoreJob").get(controller) as Job
+        request(Key.CONVERSATION_AWARENESS, 2)
+        assertTrue(nextFade.isCancelled)
+        assertEquals(10, volume)
     }
 
     @Test fun writeFailureDoesNotQueueOrChangeConfirmedValue() {

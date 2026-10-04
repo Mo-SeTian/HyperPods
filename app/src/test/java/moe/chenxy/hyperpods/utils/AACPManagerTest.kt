@@ -16,6 +16,50 @@ class AACPManagerTest {
         this[4] = opcode
     }
 
+    @Test fun optimisticWritesAreSentButNotHeadsetReports() {
+        val socket = mock(BluetoothSocket::class.java)
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
+        val session = AACPManager(socket)
+        val identifier = AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG
+        session.receivePacket(packet(9, 11).apply { this[6] = identifier.value; this[7] = 2 })
+        assertFalse(session.isAwaitingReport(identifier))
+        session.sendControlCommand(identifier.value, 1)
+        assertTrue(session.isAwaitingReport(identifier))
+        // A different reported value corrects the UI, rather than confirming the requested value.
+        session.receivePacket(packet(9, 11).apply { this[6] = identifier.value; this[7] = 2 })
+        assertFalse(session.isAwaitingReport(identifier))
+        assertEquals(2.toByte(), session.getControlCommandStatus(identifier)!!.value[0])
+        `when`(socket.isConnected).thenReturn(false)
+        assertFalse(session.sendControlCommand(identifier.value, 1))
+        assertFalse(session.isAwaitingReport(identifier))
+    }
+
+    @Test fun onlyCompleteReceivedPacketsUpdateDiagnosticTimestamps() {
+        var now = 1000L
+        val session = AACPManager(mock(BluetoothSocket::class.java)) { now }
+        assertEquals(0L, session.lastPacketAt)
+        session.receivePacket(packet(9, 7))
+        assertEquals(0L, session.lastPacketAt)
+        session.receivePacket(packet(9, 11).apply { this[6] = 0x26; this[7] = 1 })
+        assertEquals(1000L, session.lastPacketAt)
+        assertEquals(1000L, session.settingsReceivedAt)
+        now = 2000
+        session.receivePacket(packet(4, 12).apply { this[6] = 1 })
+        assertEquals(2000L, session.batteryReceivedAt)
+        assertEquals(0L, session.wearReceivedAt)
+        now = 3000
+        session.receivePacket(packet(6, 8))
+        assertEquals(3000L, session.wearReceivedAt)
+        assertEquals(3000L, session.lastPacketAt)
+        assertEquals(1000L, session.settingsReceivedAt)
+        now = 4000
+        session.receivePacket(packet(4, 7))
+        session.receivePacket(packet(AACPManager.Companion.Opcodes.INFORMATION, 7))
+        assertEquals(3000L, session.lastPacketAt)
+        assertEquals(0L, session.informationReceivedAt)
+    }
+
     @Test fun variableLengthBatteryReportsReachTheController() {
         for (count in 1..3) {
             val report = packet(4, 7 + 5 * count).apply { this[6] = count.toByte() }

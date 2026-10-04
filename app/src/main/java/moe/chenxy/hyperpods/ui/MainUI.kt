@@ -120,6 +120,8 @@ fun MainUI() {
     val autoSwitchToSpeaker = remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)) }
     val settings = remember { mutableStateMapOf<String, Int>() }
     var pendingSettings by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val settingFeedback = remember { mutableStateMapOf<String, String>() }
+    var conversationPhoneVolume by remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, true)) }
     var diagnostics by remember { mutableStateOf<Bundle?>(null) }
     val personlizedVolume = remember { mutableStateOf(false) }
     val adaptiveAudioLevel = remember { mutableFloatStateOf(0.5f) }
@@ -167,6 +169,11 @@ fun MainUI() {
                         settings.clear()
                         bundle.keySet().filter { it in PodsSettings.identifiers }.forEach { settings[it] = bundle.getInt(it) }
                         pendingSettings = p1.getStringArrayListExtra("pending")?.toSet().orEmpty()
+                        val unconfirmed = p1.getStringArrayListExtra("unconfirmed")?.toSet().orEmpty()
+                        settings.keys.forEach { key ->
+                            if (settingFeedback[key] !in listOf("write_failed", "timeout", "invalid"))
+                                settingFeedback[key] = if (key in unconfirmed || key in pendingSettings) "sent" else "reported"
+                        }
                         personlizedVolume.value = settings[HyperPodsPrefsKey.PERSONLIZED_VOLUME] == 1
                         conversationAwareness.value = settings[HyperPodsPrefsKey.CONVERSATION_AWARENESS] == 1
                         adjustVolumeBySwiper.value = settings[HyperPodsPrefsKey.ADJUST_VOLUME_BY_SWIPER] == 1
@@ -177,10 +184,20 @@ fun MainUI() {
                     }
 
                     HyperPodsAction.ACTION_PODS_SETTING_RESULT -> {
+                        val key = p1.getStringExtra("key") ?: return
+                        val status = p1.getStringExtra("status") ?: return
+                        if (key in PodsSettings.identifiers || key == PodsSettings.RENAME) settingFeedback[key] = status
                         if (!p1.getBooleanExtra("pending", false)) {
                             val success = p1.getBooleanExtra("success", false)
-                            if (!success || p1.getStringExtra("key") == PodsSettings.RENAME) {
-                                Toast.makeText(context, if (success) R.string.setting_applied else R.string.setting_failed, Toast.LENGTH_LONG).show()
+                            if (!success || status == "confirmed" && key != HyperPodsPrefsKey.ALLOW_OFF_OPTION) {
+                                val message = when {
+                                    status == "write_failed" -> R.string.setting_write_failed
+                                    status == "invalid" -> R.string.setting_invalid
+                                    !success -> R.string.setting_failed
+                                    key == PodsSettings.RENAME -> R.string.setting_applied
+                                    else -> R.string.setting_confirmed
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             }
                         }
                     }
@@ -190,6 +207,7 @@ fun MainUI() {
                         canShowDetailPage.value = false
                         settings.clear()
                         pendingSettings = emptySet()
+                        settingFeedback.clear()
                         if (p0 is MainActivity && !p1.getBooleanExtra("initialization_failed", false)) {
                             p0.finish()
                         }
@@ -370,6 +388,14 @@ fun MainUI() {
             },
             noiseCancellationSingleAirPod = noiseCancellationSingleAirPod.value,
             settings = settings.toMap(), pendingSettings = pendingSettings,
+            settingFeedback = settingFeedback.toMap(),
+            conversationPhoneVolume = conversationPhoneVolume,
+            onConversationPhoneVolumeChange = {
+                conversationPhoneVolume = it
+                context.prefs().edit { putBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, it) }
+                HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+                    .putExtra("key", HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME).putExtra("enabled", it), HyperPodsBroadcasts.BLUETOOTH)
+            },
             onAllowOffChange = { sendBooleanSetting(context, HyperPodsPrefsKey.ALLOW_OFF_OPTION, it) },
             onSettingChange = { key, value -> sendPodsSetting(context, key, value) },
             diagnostics = diagnostics,
@@ -409,6 +435,9 @@ fun AppHorizontalPager(
     deviceName: String = "",
     settings: Map<String, Int> = emptyMap(),
     pendingSettings: Set<String> = emptySet(),
+    settingFeedback: Map<String, String> = emptyMap(),
+    conversationPhoneVolume: Boolean = true,
+    onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
     onSettingChange: (String, Int) -> Unit = { _, _ -> },
     diagnostics: Bundle? = null,
@@ -422,6 +451,8 @@ fun AppHorizontalPager(
                         if (value) {
                             PodDetailPage(
                                 settings = settings, pendingSettings = pendingSettings, onAllowOffChange = onAllowOffChange,
+                                settingFeedback = settingFeedback, conversationPhoneVolume = conversationPhoneVolume,
+                                onConversationPhoneVolumeChange = onConversationPhoneVolumeChange,
                                 onSettingChange = onSettingChange, diagnostics = diagnostics,
                                 padding = padding,
                                 batteryParams = batteryParams,

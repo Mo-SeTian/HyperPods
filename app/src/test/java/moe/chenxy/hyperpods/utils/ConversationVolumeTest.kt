@@ -50,4 +50,69 @@ class ConversationVolumeTest {
         controller.onStatus(5)
         assertEquals(10, volume)
     }
+
+    @Test fun smoothRestoreUsesGradualStepsAndFinishesAtTheOriginalVolume() {
+        controller.onStatus(1)
+        controller.onStatus(6, smoothRestore = true)
+        assertEquals(2, volume)
+        repeat(7) {
+            assertTrue(controller.restoreStep())
+            assertEquals(3 + it, volume)
+        }
+        assertFalse(controller.restoreStep())
+        assertEquals(10, volume)
+        assertFalse(controller.restoreStep())
+    }
+
+    @Test fun aNewConversationDuringRestorationKeepsTheOriginalTarget() {
+        controller.onStatus(1)
+        controller.onStatus(6, smoothRestore = true)
+        repeat(3) { controller.restoreStep() }
+        assertEquals(5, volume)
+        controller.onStatus(1, smoothRestore = true)
+        assertEquals(2, volume)
+        assertFalse(controller.restoreStep())
+        controller.onStatus(6, smoothRestore = true)
+        repeat(10) { controller.restoreStep() }
+        assertEquals(10, volume)
+    }
+
+    @Test fun aManualChangeDuringTheFadeStopsAutomaticRestoration() {
+        controller.onStatus(1)
+        controller.onStatus(6, smoothRestore = true)
+        controller.restoreStep()
+        volume = 5
+        assertFalse(controller.restoreStep())
+        controller.reset()
+        assertEquals(5, volume)
+    }
+
+    @Test fun disablingDuringTheFadeRestoresImmediatelyOnce() {
+        controller.onStatus(1)
+        controller.onStatus(6, smoothRestore = true)
+        controller.restoreStep()
+        controller.reset()
+        assertEquals(10, volume)
+        assertFalse(controller.restoreStep())
+    }
+
+    @Test fun aRejectedVolumeStepCannotLeaveAnEndlessRestorationLoop() {
+        var reject = false
+        val limited = ConversationVolume({ volume }, { if (!reject) volume = it }, { true })
+        limited.onStatus(1)
+        limited.onStatus(6, smoothRestore = true)
+        reject = true
+        assertFalse(limited.restoreStep())
+        assertFalse(limited.restoreStep())
+    }
+
+    @Test fun highResolutionVolumeRestoresInAtMostTenSteps() {
+        volume = 150
+        controller.onStatus(1)
+        controller.onStatus(6, smoothRestore = true)
+        var steps = 0
+        do { steps++ } while (controller.restoreStep() && steps <= 10)
+        assertTrue(steps <= 10)
+        assertEquals(150, volume)
+    }
 }
