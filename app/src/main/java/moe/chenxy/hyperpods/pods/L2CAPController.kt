@@ -35,6 +35,7 @@ import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.AirPodsModels
 import moe.chenxy.hyperpods.utils.ConversationVolume
 import moe.chenxy.hyperpods.utils.DiagnosticsHistory
+import moe.chenxy.hyperpods.utils.DiagnosticEvents
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.SystemApisUtils
@@ -71,6 +72,9 @@ object L2CAPController {
     private var lastSettingKey = ""
     private var lastSettingStatus = ""
     private var lastDiagnostics: Bundle? = null
+    private var lastTimelineState = ""
+    private var lastTimelineStage = ""
+    private var lastPrimaryComponent: Int? = null
     private var lastSettingsState: Triple<Map<String, Int>, Set<String>, Set<String>>? = null
 
 //    private lateinit var mAirPodsInstance: AirPodsInstance
@@ -202,6 +206,7 @@ object L2CAPController {
             HyperPodsAction.ACTION_PODS_STATUS_RETRY -> {
                 if (aacpManager != null) {
                     initialStatusRetries++
+                    recordEvent("sync", "request")
                     lastStatusFailure = if (aacpManager?.requestInitialStatus() == true) "" else "write_failed"
                 } else if (connectionJob?.isActive != true) {
                     connectPod(mContext!!, mDevice)
@@ -317,12 +322,27 @@ object L2CAPController {
         putLong("wear_at", aacpManager?.wearReceivedAt ?: 0)
         putLong("information_at", aacpManager?.informationReceivedAt ?: 0)
         putLong("settings_at", aacpManager?.settingsReceivedAt ?: 0)
+        putLong("left_battery_at", AirPodsNotifications.BatteryNotification.lastValidReportAt(BatteryComponent.LEFT))
+        putLong("right_battery_at", AirPodsNotifications.BatteryNotification.lastValidReportAt(BatteryComponent.RIGHT))
+        putLong("case_battery_at", AirPodsNotifications.BatteryNotification.lastValidReportAt(BatteryComponent.CASE))
+        putLong("wear_report_at", AirPodsNotifications.EarDetection.reportedAt)
+        putInt("primary_component", AirPodsNotifications.BatteryNotification.primaryComponent ?: 0)
         putString("setting_key", lastSettingKey)
         putString("setting_status", lastSettingStatus)
     }
 
     private fun sendDiagnostics(force: Boolean = false) {
         val snapshot = diagnosticsSnapshot()
+        val state = if (snapshot.getBoolean("ready")) "ready" else connectionState
+        if (mContext != null && state != lastTimelineState) {
+            recordEvent("connection", state)
+            lastTimelineState = state
+        }
+        val stage = snapshot.getString("stage").orEmpty()
+        if (mContext != null && stage != lastTimelineStage) {
+            recordEvent("sync", stage)
+            lastTimelineStage = stage
+        }
         val previous = lastDiagnostics
         @Suppress("DEPRECATION")
         val unchanged = previous != null && snapshot.keySet().orEmpty().all { snapshot.get(it) == previous.get(it) }
@@ -341,6 +361,7 @@ object L2CAPController {
 
     private fun recordFailure(snapshot: Bundle, failure: String) {
         if (failure !in DiagnosticsHistory.failureCodes) return
+        recordEvent("failure", failure)
         val record = Bundle(snapshot).apply {
             putString("failure", failure)
             putLong("recorded_at", System.currentTimeMillis())
@@ -352,11 +373,26 @@ object L2CAPController {
         }
     }
 
+    private fun recordEvent(kind: String, detail: String, setting: String = "") {
+        val event = DiagnosticEvents.create(System.currentTimeMillis(), kind, detail, setting) ?: return
+        Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_EVENT).apply {
+            setClassName(BuildConfig.APPLICATION_ID, DiagnosticsHistory::class.java.name)
+            putExtra("diagnostics", Bundle().apply {
+                putLong("at", event.at)
+                putString("kind", event.kind)
+                putString("detail", event.detail)
+                putString("setting", event.setting)
+            })
+            HyperPodsBroadcasts.send(mContext, this)
+        }
+    }
+
     private fun sendSettingResult(key: String, success: Boolean, pending: Boolean = false,
         status: String = if (pending) "sent" else if (success) "confirmed" else "timeout") {
         val continueOff = key == HyperPodsPrefsKey.ALLOW_OFF_OPTION && pendingOffSelection && !pending
         lastSettingKey = key
         lastSettingStatus = status
+        recordEvent("setting", status, key)
         Intent(HyperPodsAction.ACTION_PODS_SETTING_RESULT).apply {
             putExtra("key", key)
             putExtra("success", success)
@@ -451,6 +487,7 @@ object L2CAPController {
             }
         }
         currentEarDetectionParams = EarDetectionParams(status[0], status[1])
+        recordEvent("wear", "${status[0]},${status[1]}")
         earDetectionStateValid = true
         if (!batteryStateValid || AirPodsNotifications.BatteryNotification.needsRefresh)
             aacpManager?.sendNotificationRequest()
@@ -600,6 +637,11 @@ object L2CAPController {
     @OptIn(ExperimentalStdlibApi::class)
     @Synchronized
     fun handleBatteryChanged(packet: ByteArray) {
+        val primary = AirPodsNotifications.BatteryNotification.primaryComponent
+        if (primary != null && primary != lastPrimaryComponent) {
+            recordEvent("role", if (primary == BatteryComponent.LEFT) "left" else "right")
+            lastPrimaryComponent = primary
+        }
         // Apply an earlier wear report, or remap it if the primary ear changed.
         AirPodsNotifications.EarDetection.getLeftRightStatus(
             AirPodsNotifications.BatteryNotification.primaryComponent)?.let(::handleInEarStatusChanged)
@@ -814,8 +856,10 @@ object L2CAPController {
             val key = PodsSettings.keyFor(command.identifier)
             val value = command.value.firstOrNull()?.toInt()?.and(0xff)
             if (key != null && value != null) {
-                if (key == lastSettingKey && lastSettingStatus == "sent" && !pendingSettings.containsKey(key))
+                if (key == lastSettingKey && lastSettingStatus == "sent" && !pendingSettings.containsKey(key)) {
                     lastSettingStatus = "reported"
+                    recordEvent("setting", "reported", key)
+                }
                 pendingSettings[key]?.takeIf { it.value == value }?.let {
                     pendingSettings.remove(key)
                     failedSettings.remove(key)
@@ -907,6 +951,7 @@ object L2CAPController {
         lastRecordedFailure = ""
         lastSettingKey = ""
         lastSettingStatus = ""
+        if (newDeviceSession) lastTimelineState = ""
         if (newDeviceSession) context.registerReceiver(broadcastReceiver, IntentFilter().apply {
             this.addAction(HyperPodsAction.ACTION_APP_SETTINGS_CHANGED)
             this.addAction(HyperPodsAction.ACTION_ANC_SELECT)
@@ -1015,6 +1060,7 @@ object L2CAPController {
                     if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
                     resetControlState()
                     connectionState = "connecting"
+                    recordEvent("retry", attempt.toString())
                     sendConnectedStatus()
                     changeUIBatteryStatus(currentBatteryParams)
                     MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings)
@@ -1095,6 +1141,7 @@ object L2CAPController {
                         if (sessionId != thisSession || initialStatusReady() || !connectedSocket.isConnected) true
                         else {
                             initialStatusRetries++
+                            recordEvent("sync", "request")
                             Log.i(TAG, "Initial headset status incomplete; retrying ${manager.initializationStage}")
                             lastStatusFailure = if (manager.requestInitialStatus()) "" else "write_failed"
                             sendDiagnostics()
@@ -1176,6 +1223,8 @@ object L2CAPController {
         lastDiagnostics = null
         AirPodsNotifications.BatteryNotification.reset()
         AirPodsNotifications.EarDetection.reset()
+        lastPrimaryComponent = null
+        lastTimelineStage = ""
         currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
     }
 
@@ -1220,10 +1269,11 @@ object L2CAPController {
         currentAnc = 0
         currentPodsInfo = null
         routes = emptyList()
-        mContext = null
-        MediaControl.mContext = null
         aacpManager = null
         connectionState = "disconnected"
+        sendDiagnostics(force = true)
+        mContext = null
+        MediaControl.mContext = null
         lastSettingsState = null
         lastDiagnostics = null
     }

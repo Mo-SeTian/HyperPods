@@ -11,6 +11,20 @@ class EarDetectionTest {
 
     private fun packet(primary: Byte, secondary: Byte) = byteArrayOf(4, 0, 4, 0, 6, 0, primary, secondary)
 
+    @Test fun onlyValidWearReportsRenewTheirTimestampAndResetClearsIt() {
+        val valid = packet(0, 1)
+        parser.setStatus(valid, 1000)
+        assertEquals(1000L, parser.reportedAt)
+        parser.setStatus(valid.copyOf(7), 2000)
+        assertEquals(1000L, parser.reportedAt)
+        parser.getLeftRightStatus(BatteryComponent.RIGHT)
+        assertEquals(1000L, parser.reportedAt) // Remapping is not a new headset report.
+        parser.setStatus(valid, 3000)
+        assertEquals(3000L, parser.reportedAt)
+        parser.reset()
+        assertEquals(0L, parser.reportedAt)
+    }
+
     @Test fun batteryMappingAloneDoesNotInventAWearReport() {
         assertNull(parser.getLeftRightStatus(BatteryComponent.LEFT))
         assertNull(parser.getLeftRightStatus(BatteryComponent.RIGHT))

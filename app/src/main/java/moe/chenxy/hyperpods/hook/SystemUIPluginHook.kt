@@ -16,6 +16,8 @@ import kotlin.math.roundToInt
 
 
 object SystemUIPluginHook : YukiBaseHooker() {
+    @Volatile var pluginObserved = false
+        private set
     override fun onHook() {
         var pluginLoaderClassLoader: ClassLoader? = null
 
@@ -125,6 +127,7 @@ object SystemUIPluginHook : YukiBaseHooker() {
                             "[loadPlugin] initPluginHook"
                         )
                         pluginLoaderClassLoader = clsLoader
+                        pluginObserved = true
                         initPluginHook()
                     }
                 }

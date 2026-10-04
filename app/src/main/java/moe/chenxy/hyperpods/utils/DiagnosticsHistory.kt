@@ -7,13 +7,15 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 
-/** Failure-only receiver: retain diagnostics even when the settings activity is closed. */
+/** Fixed-field diagnostics survive closing the settings activity. */
 class DiagnosticsHistory : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != HyperPodsAction.ACTION_PODS_DIAGNOSTICS_RECORD ||
+        if (intent.action !in setOf(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_RECORD, HyperPodsAction.ACTION_PODS_DIAGNOSTICS_EVENT) ||
             !HyperPodsBroadcasts.isTrusted(context, this, HyperPodsBroadcasts.BLUETOOTH)) return
         val snapshot = intent.getBundleExtra("diagnostics") ?: return
-        save(preferences(context), snapshot)
+        if (intent.action == HyperPodsAction.ACTION_PODS_DIAGNOSTICS_EVENT)
+            DiagnosticEvents.fromBundle(snapshot)?.let { append(preferences(context), it) }
+        else save(preferences(context), snapshot)
     }
 
     companion object {
@@ -27,7 +29,7 @@ class DiagnosticsHistory : BroadcastReceiver() {
         // Explicit whitelist: never persist a Bundle wholesale or accept arbitrary failure text.
         fun save(preferences: SharedPreferences, snapshot: Bundle) {
             val failure = snapshot.getString("failure")?.takeIf { it in failureCodes } ?: return
-            preferences.edit().clear()
+            preferences.edit()
                 .putString("failure", failure)
                 .putString("stage", snapshot.getString("stage").takeIf { it in stages } ?: "NONE")
                 .putLong("recorded_at", snapshot.getLong("recorded_at").coerceAtLeast(0))
@@ -38,6 +40,15 @@ class DiagnosticsHistory : BroadcastReceiver() {
                     ?.takeIf { it in PodsSettings.identifiers || it == PodsSettings.RENAME }.orEmpty())
                 .apply()
         }
+
+        @Synchronized
+        fun append(preferences: SharedPreferences, event: DiagnosticEvents.Event) {
+            val safe = DiagnosticEvents.create(event.at, event.kind, event.detail, event.setting) ?: return
+            preferences.edit().putString("events", DiagnosticEvents.encode(events(preferences) + safe)).apply()
+        }
+
+        fun events(preferences: SharedPreferences): List<DiagnosticEvents.Event> =
+            DiagnosticEvents.decode(preferences.getString("events", null))
 
         fun read(preferences: SharedPreferences): Bundle? {
             val failure = preferences.getString("failure", "")?.takeIf { it in failureCodes } ?: return null

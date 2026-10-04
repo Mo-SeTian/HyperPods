@@ -25,7 +25,7 @@ android {
         applicationId = "moe.chenxy.hyperpods"
         minSdk = 35
         targetSdk = 36
-        versionCode = 16
+        versionCode = 17
         versionName = "3.0.0-AAP-W-HyperOS4"
         val revision = providers.exec {
             workingDir(rootProject.projectDir)

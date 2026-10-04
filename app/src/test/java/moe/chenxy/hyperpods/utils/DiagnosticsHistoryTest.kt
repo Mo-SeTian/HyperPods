@@ -26,9 +26,30 @@ class DiagnosticsHistoryTest {
         `when`(it.getString("setting_key")).thenReturn(HyperPodsPrefsKey.CONVERSATION_AWARENESS)
     }
 
+    @Test fun eventsSurviveSavingTheMostRecentFailure() {
+        val event = DiagnosticEvents.Event(1, "connection", "connected")
+        `when`(preferences.getString("events", null)).thenReturn(DiagnosticEvents.encode(listOf(event)))
+        DiagnosticsHistory.save(preferences, snapshot)
+        verify(editor, never()).clear()
+        verify(editor, never()).putString(eq("events"), anyString())
+        assertEquals(listOf(event), DiagnosticsHistory.events(preferences))
+    }
+
+    @Test fun appendIsBoundedAndRejectsArbitraryValues() {
+        val events = (1L..40L).map { DiagnosticEvents.Event(it, "role", "left") }
+        `when`(preferences.getString("events", null)).thenReturn(DiagnosticEvents.encode(events))
+        val latest = DiagnosticEvents.Event(41, "role", "right")
+        DiagnosticsHistory.append(preferences, latest)
+        verify(editor).putString("events", DiagnosticEvents.encode(events.drop(1) + latest))
+        verify(editor).apply()
+        clearInvocations(editor)
+        DiagnosticsHistory.append(preferences, DiagnosticEvents.Event(42, "failure", "PRIVATE_VALUE"))
+        verifyNoInteractions(editor)
+    }
+
     @Test fun persistenceUsesOnlyFixedNonSensitiveFields() {
         DiagnosticsHistory.save(preferences, snapshot)
-        verify(editor).clear()
+        verify(editor, never()).clear()
         verify(editor).putString("failure", "setting_write_failed")
         verify(editor).putString("stage", "STATUS")
         verify(editor).putLong("recorded_at", 5000L)
@@ -86,13 +107,36 @@ class DiagnosticsHistoryTest {
         `when`(context.packageManager).thenReturn(packages)
         `when`(packages.getPackageUid(HyperPodsBroadcasts.BLUETOOTH, 0)).thenReturn(1002)
         val intent = mock(Intent::class.java)
-        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_RECORD)
         val receiver = spy(DiagnosticsHistory())
-        for (uid in listOf(-1, 12345)) {
-            doReturn(uid).`when`(receiver).sentFromUid
-            receiver.onReceive(context, intent)
+        for (action in listOf(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_RECORD, HyperPodsAction.ACTION_PODS_DIAGNOSTICS_EVENT)) {
+            `when`(intent.action).thenReturn(action)
+            for (uid in listOf(-1, 12345)) {
+                doReturn(uid).`when`(receiver).sentFromUid
+                receiver.onReceive(context, intent)
+            }
         }
         verify(intent, never()).getBundleExtra("diagnostics")
+    }
+
+    @Test fun verifiedBluetoothEventIsPersistedWithTheActivityClosed() {
+        val context = mock(Context::class.java)
+        val packages = mock(PackageManager::class.java)
+        `when`(context.packageManager).thenReturn(packages)
+        `when`(packages.getPackageUid(HyperPodsBroadcasts.BLUETOOTH, 0)).thenReturn(1002)
+        `when`(context.getSharedPreferences("diagnostics_history", Context.MODE_PRIVATE)).thenReturn(preferences)
+        `when`(snapshot.getLong("at")).thenReturn(5000L)
+        `when`(snapshot.getString("kind")).thenReturn("role")
+        `when`(snapshot.getString("detail")).thenReturn("left")
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_EVENT)
+        `when`(intent.getBundleExtra("diagnostics")).thenReturn(snapshot)
+        val receiver = spy(DiagnosticsHistory())
+        doReturn(1002).`when`(receiver).sentFromUid
+        receiver.onReceive(context, intent)
+        verify(editor).putString("events", DiagnosticEvents.encode(listOf(DiagnosticEvents.Event(5000, "role", "left"))))
+        verify(editor).apply()
+        verify(snapshot, never()).keySet()
+        verify(snapshot, never()).getString("device_name")
     }
 
     @Test fun verifiedBluetoothSenderCanRecordAFailureWithTheActivityClosed() {

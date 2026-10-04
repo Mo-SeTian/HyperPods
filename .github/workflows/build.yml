@@ -27,6 +27,9 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      - name: 验证 APK 命名逻辑
+        run: node --test .github/scripts/prepare-apk.test.cjs
+
       - name: Restore release keystore
         if: github.event_name != 'pull_request'
         env:
@@ -58,19 +61,22 @@ jobs:
         if: github.event_name == 'pull_request'
         run: ./gradlew :app:assembleDebug
 
-      - name: Rename release APK
-        if: github.event_name != 'pull_request'
-        run: mv app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/HyperPods-3.0.0-AAP-W-HyperOS4.apk
+      - name: 按版本名和短 MD5 命名 APK
+        id: apk
+        env:
+          APK_VARIANT: ${{ github.event_name == 'pull_request' && 'debug' || 'release' }}
+        run: node .github/scripts/prepare-apk.cjs
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: 直接上传 APK（不套 ZIP）
+        uses: actions/upload-artifact@v7
         with:
-          name: HyperPods-${{ github.sha }}
-          path: app/build/outputs/apk/**/*.apk
+          path: ${{ steps.apk.outputs.path }}
+          archive: false
+          if-no-files-found: error
 
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: app/build/outputs/apk/release/HyperPods-3.0.0-AAP-W-HyperOS4.apk
+          files: ${{ steps.apk.outputs.path }}

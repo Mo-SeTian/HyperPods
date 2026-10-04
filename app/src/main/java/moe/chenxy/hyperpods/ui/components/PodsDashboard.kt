@@ -1,5 +1,6 @@
 package moe.chenxy.hyperpods.ui.components
 
+import android.os.Bundle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -38,6 +39,7 @@ import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.EarDetectionStatus
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AirPodsBase
+import moe.chenxy.hyperpods.utils.StatusFreshness
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
@@ -51,6 +53,9 @@ import top.yukonga.miuix.kmp.icon.icons.basic.ArrowRight
 import top.yukonga.miuix.kmp.icon.icons.useful.Back
 import top.yukonga.miuix.kmp.icon.icons.useful.Info
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun DashboardDivider() {
@@ -65,21 +70,22 @@ fun DashboardSection(title: String) {
 }
 
 @Composable
-fun DashboardBattery(params: BatteryParams, ears: EarDetectionParams, model: AirPodsBase) {
+fun DashboardBattery(params: BatteryParams, ears: EarDetectionParams, model: AirPodsBase, diagnostics: Bundle? = null) {
     val showCase = params.case?.let { it.isConnected && it.battery in 0..100 } == true
     Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         BatteryColumn(params.left, ears.left, model.leftBudsRes,
-            stringResource(R.string.dashboard_left), Modifier.weight(1f))
+            stringResource(R.string.dashboard_left), Modifier.weight(1f), diagnostics, "left_battery_at")
         BatteryColumn(params.right, ears.right, model.rightBudsRes,
-            stringResource(R.string.dashboard_right), Modifier.weight(1f))
+            stringResource(R.string.dashboard_right), Modifier.weight(1f), diagnostics, "right_battery_at")
         if (showCase) BatteryColumn(params.case, null, model.caseRes,
-            stringResource(R.string.dashboard_case), Modifier.weight(1f))
+            stringResource(R.string.dashboard_case), Modifier.weight(1f), diagnostics, "case_battery_at")
     }
 }
 
 @Composable
-private fun BatteryColumn(params: PodBatteryParams?, ear: Byte?, image: Int, title: String, modifier: Modifier) {
+private fun BatteryColumn(params: PodBatteryParams?, ear: Byte?, image: Int, title: String, modifier: Modifier,
+    diagnostics: Bundle?, timeKey: String) {
     val available = params?.isConnected == true && params.battery in 0..100
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Image(painterResource(image), title, modifier = Modifier.size(112.dp))
@@ -90,19 +96,39 @@ private fun BatteryColumn(params: PodBatteryParams?, ear: Byte?, image: Int, tit
             Text(if (available) "${params!!.battery}%" else "—",
                 fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
         }
+        val wear = StatusFreshness.wear(diagnostics?.getBoolean("wear") == true,
+            diagnostics?.getLong("wear_report_at") ?: 0, diagnostics?.getString("connection"))
         val status = when {
             params?.isConnected != true -> R.string.dashboard_unavailable
             params.isCharging -> R.string.dashboard_charging
             ear == null -> R.string.dashboard_connected
+            wear == StatusFreshness.State.UNKNOWN -> R.string.settings_reading
             ear == EarDetectionStatus.IN_EAR -> R.string.dashboard_wearing
             ear == EarDetectionStatus.IN_CASE || params.isInCase -> R.string.dashboard_in_case
             ear.toInt() !in 0..3 -> R.string.settings_reading
             else -> R.string.dashboard_out_of_ear
         }
-        Text(stringResource(status), fontSize = 12.sp, lineHeight = 16.sp,
+        Text(if (ear != null && wear == StatusFreshness.State.RETAINED && params?.isConnected == true)
+            stringResource(R.string.freshness_last_wear, stringResource(status)) else stringResource(status), fontSize = 12.sp, lineHeight = 16.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(top = 5.dp))
+        val at = diagnostics?.getLong(timeKey) ?: 0
+        val freshness = StatusFreshness.battery(params, at, diagnostics?.getString("connection"))
+        val label = if (freshness == StatusFreshness.State.UNKNOWN) stringResource(R.string.freshness_unknown)
+        else stringResource(if (freshness == StatusFreshness.State.RETAINED) R.string.freshness_retained else R.string.freshness_reported,
+            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(at)))
+        Text(label, fontSize = 10.sp, lineHeight = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 3.dp))
     }
+}
+
+/** A2DP can be connected while the independent control channel is still unavailable. */
+fun dashboardConnectionStatus(diagnostics: Bundle?): Int = when {
+    diagnostics == null -> R.string.diagnostics_audio_no_control_report
+    diagnostics.getString("connection") == "failed" -> R.string.diagnostics_audio_control_failed
+    diagnostics.getBoolean("ready") -> R.string.dashboard_connected
+    diagnostics.getString("connection") == "disconnected" -> R.string.diagnostics_no_session
+    else -> R.string.diagnostics_audio_syncing
 }
 
 @Composable

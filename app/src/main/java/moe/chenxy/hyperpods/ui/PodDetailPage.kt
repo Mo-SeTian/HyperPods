@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.ui.components.DashboardBattery
+import moe.chenxy.hyperpods.ui.components.dashboardConnectionStatus
 import moe.chenxy.hyperpods.ui.components.DashboardDivider
 import moe.chenxy.hyperpods.ui.components.DashboardLink
 import moe.chenxy.hyperpods.ui.components.DashboardNoise
@@ -195,10 +196,10 @@ fun PodDetailPage(
                         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.size(6.dp).background(Color(0xFF147F66), CircleShape))
-                            Text(stringResource(if (pendingSettings.isNotEmpty()) R.string.setting_pending else R.string.dashboard_connected), fontSize = 13.sp, lineHeight = 18.sp,
+                            Text(stringResource(if (pendingSettings.isNotEmpty()) R.string.setting_pending else dashboardConnectionStatus(diagnostics)), fontSize = 13.sp, lineHeight = 18.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
-                        DashboardBattery(batteryParams, earDetectionParams, model ?: AirPods())
+                        DashboardBattery(batteryParams, earDetectionParams, model ?: AirPods(), diagnostics)
                         if (model == null) Text(stringResource(R.string.settings_reading), fontSize = 13.sp)
                         if (PodsSettings.supports(PodsSettings.NOISE_MODE, model)) {
                             DashboardSection(stringResource(R.string.dashboard_noise))

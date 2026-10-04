@@ -93,12 +93,15 @@ class AirPodsNotifications {
         // AACP reports primary/secondary, not fixed left/right ears.
         var status: List<Byte>? = null
             private set
+        var reportedAt: Long = 0
+            private set
 
-        fun reset() { status = null }
+        fun reset() { status = null; reportedAt = 0 }
 
-        fun setStatus(data: ByteArray): Boolean {
+        fun setStatus(data: ByteArray, receivedAt: Long = System.currentTimeMillis()): Boolean {
             if (!isEarDetectionData(data) || data[6].toInt() !in 0..3 || data[7].toInt() !in 0..3) return false
             status = listOf(data[6], data[7])
+            reportedAt = receivedAt.coerceAtLeast(0)
             return true
         }
 
@@ -173,12 +176,16 @@ class AirPodsNotifications {
         private var case = Battery(BatteryComponent.CASE, -1, BatteryStatus.DISCONNECTED)
         var primaryComponent: Int? = null
             private set
+        private val reportedAt = mutableMapOf<Int, Long>()
+
+        fun lastValidReportAt(component: Int): Long = reportedAt[component] ?: 0
 
         fun reset() {
             first = Battery(BatteryComponent.LEFT, -1, BatteryStatus.DISCONNECTED)
             second = Battery(BatteryComponent.RIGHT, -1, BatteryStatus.DISCONNECTED)
             case = Battery(BatteryComponent.CASE, -1, BatteryStatus.DISCONNECTED)
             primaryComponent = null
+            reportedAt.clear()
         }
 
         fun isBatteryData(data: ByteArray): Boolean {
@@ -191,7 +198,7 @@ class AirPodsNotifications {
         val needsRefresh: Boolean
             get() = listOf(first, second).any { it.status == BatteryStatus.NEED_AGAIN }
 
-        fun setBattery(data: ByteArray): Boolean {
+        fun setBattery(data: ByteArray, receivedAt: Long = System.currentTimeMillis()): Boolean {
             if (!isBatteryData(data)) return false
             // Like LibrePods, the first ear record identifies the primary pod.
             // Case-only updates retain the previous mapping.
@@ -212,6 +219,8 @@ class AirPodsNotifications {
                 val level = if (status == BatteryStatus.DISCONNECTED || status == BatteryStatus.NEED_AGAIN)
                     previous.level else data[offset + 2].toInt() and 0xff
                 val battery = Battery(component, level, status)
+                if (level in 0..100 && status in listOf(BatteryStatus.CHARGING, BatteryStatus.NOT_CHARGING))
+                    reportedAt[component] = receivedAt.coerceAtLeast(0)
                 when (component) {
                     BatteryComponent.LEFT -> first = battery
                     BatteryComponent.RIGHT -> second = battery

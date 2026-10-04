@@ -15,6 +15,39 @@ class BatteryNotificationTest {
         }.toByteArray()
     }
 
+    @Test fun partialReportsOnlyRefreshTheirOwnValidTimestamp() {
+        parser.setBattery(packet(Battery(BatteryComponent.LEFT, 82, BatteryStatus.NOT_CHARGING),
+            Battery(BatteryComponent.RIGHT, 65, BatteryStatus.NOT_CHARGING)), 1000)
+        parser.setBattery(packet(Battery(BatteryComponent.CASE, 91, BatteryStatus.CHARGING)), 2000)
+        assertEquals(1000L, parser.lastValidReportAt(BatteryComponent.LEFT))
+        assertEquals(1000L, parser.lastValidReportAt(BatteryComponent.RIGHT))
+        assertEquals(2000L, parser.lastValidReportAt(BatteryComponent.CASE))
+    }
+
+    @Test fun pendingDisconnectedInvalidAndMalformedRecordsNeverRenewCachedBatteryAge() {
+        val valid = packet(Battery(BatteryComponent.LEFT, 82, BatteryStatus.NOT_CHARGING))
+        parser.setBattery(valid, 1000)
+        for (status in listOf(BatteryStatus.NEED_AGAIN, BatteryStatus.DISCONNECTED)) {
+            parser.setBattery(packet(Battery(BatteryComponent.LEFT, 0, status)), 2000)
+            assertEquals(82, parser.getBattery()[0].level)
+            assertEquals(1000L, parser.lastValidReportAt(BatteryComponent.LEFT))
+        }
+        parser.setBattery(packet(Battery(BatteryComponent.LEFT, 101, BatteryStatus.NOT_CHARGING)), 3000)
+        assertEquals(1000L, parser.lastValidReportAt(BatteryComponent.LEFT))
+        assertFalse(parser.setBattery(valid.copyOf(11), 4000))
+        assertEquals(1000L, parser.lastValidReportAt(BatteryComponent.LEFT))
+        parser.reset()
+        assertEquals(0L, parser.lastValidReportAt(BatteryComponent.LEFT))
+    }
+
+    @Test fun repeatedValidAndZeroPercentReportsRenewTheirTimestamp() {
+        val packet = packet(Battery(BatteryComponent.RIGHT, 0, BatteryStatus.NOT_CHARGING))
+        parser.setBattery(packet, 1000)
+        parser.setBattery(packet, 2000)
+        assertEquals(2000L, parser.lastValidReportAt(BatteryComponent.RIGHT))
+        assertEquals(0L, parser.lastValidReportAt(BatteryComponent.LEFT))
+    }
+
     @Test fun firstEarRecordDefinesPrimaryWithoutReorderingPhysicalBatteryValues() {
         parser.setBattery(packet(
             Battery(BatteryComponent.CASE, 91, BatteryStatus.NOT_CHARGING),
