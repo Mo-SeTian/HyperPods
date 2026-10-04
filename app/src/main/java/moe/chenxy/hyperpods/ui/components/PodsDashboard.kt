@@ -109,7 +109,7 @@ private fun BatteryColumn(params: PodBatteryParams?, ear: Byte?, image: Int, tit
 private fun IconBattery(available: Boolean, charging: Boolean) {
     top.yukonga.miuix.kmp.basic.Icon(painterResource(R.drawable.dashboard_battery),
         contentDescription = if (charging) stringResource(R.string.dashboard_charging) else null,
-        tint = if (available) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        tint = if (available) Color(0xFF147F66) else MiuixTheme.colorScheme.onSurfaceVariantSummary,
         modifier = Modifier.size(20.dp).rotate(90f))
 }
 

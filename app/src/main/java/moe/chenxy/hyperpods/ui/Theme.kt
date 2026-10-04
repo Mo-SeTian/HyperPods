@@ -14,17 +14,17 @@ fun AppTheme(
 ) {
     val darkTheme = isSystemInDarkTheme()
     val light = lightColorScheme(
-        primary = Color(0xFF147F66), onPrimary = Color.White,
-        primaryVariant = Color(0xFF65D9BA), onPrimaryVariant = Color(0xFF182421),
-        background = Color(0xFFF8FAF9), onBackground = Color(0xFF182421),
-        surface = Color(0xFFF8FAF9), onSurface = Color(0xFF182421),
-        surfaceVariant = Color(0xFFEEF2EF),
-        onSurfaceVariantSummary = Color(0xFF68736F),
-        dividerLine = Color(0xFFDFE5E1)
+        primary = Color(0xFF006BE6), onPrimary = Color.White,
+        primaryVariant = Color(0xFF006BE6), onPrimaryVariant = Color.White,
+        background = Color(0xFFF7F8FA), onBackground = Color(0xFF18212F),
+        surface = Color(0xFFF7F8FA), onSurface = Color(0xFF18212F),
+        surfaceVariant = Color(0xFFEEF1F5),
+        onSurfaceVariantSummary = Color(0xFF687380),
+        dividerLine = Color(0xFFDFE4EB)
     )
     val dark = darkColorScheme(
-        primary = Color(0xFF65D9BA), onPrimary = Color(0xFF182421),
-        primaryVariant = Color(0xFF65D9BA), onPrimaryVariant = Color(0xFF182421),
+        primary = Color(0xFF82B1FF), onPrimary = Color(0xFF18212F),
+        primaryVariant = Color(0xFF006BE6), onPrimaryVariant = Color.White,
         background = Color(0xFF111517), surface = Color(0xFF111517),
         surfaceVariant = Color(0xFF202629), dividerLine = Color(0xFF2D3438)
     )

@@ -67,8 +67,8 @@ object AppPreferences {
         val saved = try { decode(store.openRead().bufferedReader().use { it.readText() }) }
             catch (_: IOException) { null }
         if (saved != null && legacySecuredDir == context.filesDir) return saved
-        // Keep min API 93 during migration so LSPosed can still locate the old XML.
-        // MODE_PRIVATE is essential: do not call Yuki's world-readable prefs bridge.
+        // Import any legacy XML still accessible here; already migrated JSON remains authoritative
+        // after NSP redirection is disabled. Never call Yuki's world-readable prefs bridge.
         val legacy = context.getSharedPreferences(BuildConfig.APPLICATION_ID + "_preferences", Context.MODE_PRIVATE)
         val snapshot = saved ?: fromLegacy(legacy)
         val persisted = saved != null || write(store, snapshot)

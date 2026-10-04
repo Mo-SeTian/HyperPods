@@ -3,6 +3,7 @@ package moe.chenxy.hyperpods.utils
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.system.Os
 import androidx.test.platform.app.InstrumentationRegistry
 import moe.chenxy.hyperpods.BuildConfig
@@ -104,5 +105,13 @@ class AppPreferencesStorageTest {
         assertThrows(SecurityException::class.java) {
             app.contentResolver.call(AppPreferences.AUTHORITY, AppPreferences.READ, null, null)
         }
+    }
+
+    @Test fun packagedModuleDoesNotOptIntoDeprecatedNsp() {
+        val metadata = app.packageManager.getApplicationInfo(app.packageName,
+            PackageManager.ApplicationInfoFlags.of(PackageManager.GET_META_DATA.toLong())).metaData
+        assertTrue(metadata.getBoolean("xposedmodule"))
+        assertEquals(82, metadata.getInt("xposedminversion"))
+        assertFalse(metadata.containsKey("xposedsharedprefs"))
     }
 }

@@ -192,7 +192,7 @@ fun PodDetailPage(
                         }
                         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Box(Modifier.size(6.dp).background(MiuixTheme.colorScheme.primary, CircleShape))
+                            Box(Modifier.size(6.dp).background(Color(0xFF147F66), CircleShape))
                             Text(stringResource(if (pendingSettings.isNotEmpty()) R.string.setting_pending else R.string.dashboard_connected), fontSize = 13.sp, lineHeight = 18.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
