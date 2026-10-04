@@ -52,6 +52,10 @@ int main(int argc, char** argv) {
     const uintptr_t log = begin + 128;
     writeReference(log, begin + 512, 8);
     writeReference(log + 16, begin + 768, 3);
+    // A reference at the expected offset must not hook arbitrary bytes.
+    assert(hyperpods::findFunction(ranges, begin + 512, begin + 768, false) == 0);
+    const uint32_t paciasp = 0xd503233fu;
+    std::memcpy(reinterpret_cast<void*>(log - 0x44), &paciasp, 4);
     // The assertion ADD stores into x3 using the expected x3 base.
     assert(hyperpods::findFunction(ranges, begin + 512, begin + 768, false) == log - 0x44);
     assert(hyperpods::findFunction(ranges, 0, begin + 768, false) == 0);
@@ -60,6 +64,7 @@ int main(int argc, char** argv) {
     assert(hyperpods::findFunction(ranges, begin + 512 + 4096, begin + 768, false) == 0);
     writeReference(begin + 256, begin + 512, 8);
     writeReference(begin + 272, begin + 768, 3);
+    std::memcpy(reinterpret_cast<void*>(begin + 256 - 0x44), &paciasp, 4);
     assert(hyperpods::findFunction(ranges, begin + 512, begin + 768, false) == 0);
     munmap(allocation, page * 3);
     std::cout << "Native boundary, address-reference and ambiguous-target tests passed\n";

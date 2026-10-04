@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.MutableIntState
@@ -36,15 +37,18 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -106,14 +110,22 @@ fun CustomSuperBottomSheet(
     allowDismiss: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    if (!show.value) return
-
+    val retainHost = remember { mutableStateOf(show.value) }
     val sheetHeightPx = remember { mutableIntStateOf(0) }
     val dragOffsetY = remember { Animatable(0f) }
     val dimAlpha = remember { mutableFloatStateOf(1f) }
     val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val coroutineScope = rememberCoroutineScope()
     val dragSnapChannel = remember { Channel<Float>(capacity = Channel.CONFLATED) }
+
+    LaunchedEffect(show.value) {
+        if (show.value) {
+            retainHost.value = true
+            while (dragSnapChannel.tryReceive().isSuccess) { }
+            dragOffsetY.snapTo(0f)
+            dimAlpha.floatValue = 1f
+        }
+    }
 
     LaunchedEffect(dragOffsetY) {
         for (target in dragSnapChannel) {
@@ -141,7 +153,7 @@ fun CustomSuperBottomSheet(
         }
     }
 
-    DialogLayout(
+    if (show.value || retainHost.value) DialogLayout(
         visible = show,
         enterTransition = rememberDefaultSheetEnterTransition(),
         exitTransition = rememberDefaultSheetExitTransition(),
@@ -149,8 +161,17 @@ fun CustomSuperBottomSheet(
         enableAutoLargeScreen = false,
         dimAlpha = dimAlpha
     ) {
+        // Miuix removes the popup entry when its exit completes. Dispose the
+        // registration at that point, so a later opening can register again.
+        DisposableEffect(Unit) {
+            onDispose { if (!show.value) retainHost.value = false }
+        }
         SuperBottomSheetContent(
-            modifier = modifier,
+            modifier = modifier.pointerInput(show.value) {
+                if (!show.value) awaitPointerEventScope {
+                    while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                }
+            },
             title = title,
             leftAction = leftAction,
             rightAction = rightAction,
@@ -197,6 +218,7 @@ fun CustomSuperBottomSheet(
             }
         },
         onBackCancelled = {
+            while (dragSnapChannel.tryReceive().isSuccess) { }
             coroutineScope.launch {
                 // Reset to original position
                 dragOffsetY.animateTo(0f, animationSpec = tween(durationMillis = 150))
@@ -248,13 +270,13 @@ private fun SuperBottomSheetContent(
     val statusBars = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val captionBar = WindowInsets.captionBar.asPaddingValues().calculateTopPadding()
     val displayCutout = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
-    val statusBarHeight = remember { maxOf(statusBars, captionBar, displayCutout) }
+    val statusBarHeight = maxOf(statusBars, captionBar, displayCutout)
 
     val rootBoxModifier = Modifier
-        .pointerInput(onDismissRequest) {
+        .pointerInput(onDismissRequest, allowDismiss) {
             detectTapGestures(
                 onTap = {
-                    onDismissRequest?.invoke()
+                    if (allowDismiss) onDismissRequest?.invoke()
                 }
             )
         }
@@ -369,7 +391,6 @@ private fun SuperBottomSheetColumn(
             DragHandleArea(
                 dragHandleColor = dragHandleColor,
                 allowDismiss = allowDismiss,
-                windowHeight = windowHeight,
                 sheetHeightPx = sheetHeightPx,
                 dragOffsetY = dragOffsetY,
                 dimAlpha = dimAlpha,
@@ -396,7 +417,6 @@ private fun SuperBottomSheetColumn(
 private fun DragHandleArea(
     dragHandleColor: Color,
     allowDismiss: Boolean,
-    windowHeight: Dp,
     sheetHeightPx: MutableIntState,
     dragOffsetY: Animatable<Float, *>,
     dimAlpha: MutableFloatState,
@@ -406,6 +426,7 @@ private fun DragHandleArea(
     onDismissRequest: (() -> Unit)?
 ) {
     val dragStartOffset = remember { mutableFloatStateOf(0f) }
+    val dragPosition = remember { mutableFloatStateOf(0f) }
     val isPressing = remember { mutableFloatStateOf(0f) }
     val pressScale = remember { Animatable(1f) }
     val pressWidth = remember { Animatable(45f) }
@@ -456,10 +477,10 @@ private fun DragHandleArea(
             .pointerInput(allowDismiss) {
                 detectVerticalDragGestures(
                     onDragStart = {
+                        dragStartOffset.floatValue = dragOffsetY.value
+                        dragPosition.floatValue = dragOffsetY.value
+                        velocityTracker.resetTracking()
                         coroutineScope.launch {
-                            dragStartOffset.floatValue = dragOffsetY.value
-                            // No need to snap; just ensure we cancel any running animations implicitly
-                            velocityTracker.resetTracking()
                             // Animate press effect
                             isPressing.floatValue = 1f
                             launch {
@@ -477,6 +498,9 @@ private fun DragHandleArea(
                         }
                     },
                     onDragEnd = {
+                        val currentOffset = dragPosition.floatValue
+                        val dragDelta = currentOffset - dragStartOffset.floatValue
+                        val velocity = velocityTracker.calculateVelocity().y
                         coroutineScope.launch {
                             // Reset press effect
                             isPressing.floatValue = 0f
@@ -493,24 +517,18 @@ private fun DragHandleArea(
                                 )
                             }
 
-                            val currentOffset = dragOffsetY.value
-                            val dragDelta = currentOffset - dragStartOffset.floatValue
-                            val velocity = velocityTracker.calculateVelocity().y
+                            while (dragSnapChannel.tryReceive().isSuccess) { /* Replace queued drag frames with this release. */ }
+                            dragOffsetY.snapTo(currentOffset)
                             val velocityThreshold = 500f
                             val dismissThresholdPx = with(density) { 150.dp.toPx() }
 
                             when {
                                 // Dragged far enough down or has strong downward velocity -> dismiss
-                                allowDismiss && (dragDelta >= dismissThresholdPx || (velocity < -velocityThreshold && dragDelta > 0)) -> {
+                                allowDismiss && (dragDelta >= dismissThresholdPx || (velocity > velocityThreshold && dragDelta > 0)) -> {
                                     onDismissRequest?.invoke()
-                                    val windowHeightPx = windowHeight.value * density.density
-                                    dragOffsetY.animateTo(
-                                        targetValue = windowHeightPx,
-                                        animationSpec = tween(durationMillis = 250)
-                                    )
                                 }
                                 // Has strong upward velocity -> continue to expand
-                                velocity > velocityThreshold -> {
+                                velocity < -velocityThreshold -> {
                                     dragOffsetY.animateTo(
                                         targetValue = 0f,
                                         animationSpec = tween(durationMillis = 250)
@@ -528,27 +546,41 @@ private fun DragHandleArea(
                             }
                         }
                     },
+                    onDragCancel = {
+                        isPressing.floatValue = 0f
+                        while (dragSnapChannel.tryReceive().isSuccess) { }
+                        coroutineScope.launch {
+                            launch { pressScale.animateTo(1f, tween(150)) }
+                            launch { pressWidth.animateTo(45f, tween(150)) }
+                            dragOffsetY.animateTo(0f, tween(250))
+                            dimAlpha.floatValue = 1f
+                        }
+                    },
                     onVerticalDrag = { change, dragAmount ->
-                        velocityTracker.addPosition(change.uptimeMillis, change.position)
                         // Update drag offset with damping
-                        val newOffset = dragOffsetY.value + dragAmount
+                        val newOffset = dragPosition.floatValue + dragAmount
+                        // Local pointer coordinates move with the sheet; use
+                        // accumulated travel so a fast flick retains its velocity.
+                        velocityTracker.addPosition(change.uptimeMillis, Offset(0f, newOffset))
 
                         val finalOffset = if (newOffset < 0) {
                             // Dragging UP
                             val dampingFactor = 0.1f
                             val dampedAmount = dragAmount * dampingFactor
-                            (dragOffsetY.value + dampedAmount).coerceAtMost(0f)
+                            (dragPosition.floatValue + dampedAmount).coerceAtMost(0f)
                         } else if (newOffset >= 0 && !allowDismiss) {
                             // Dragging DOWN but dismiss not allowed
                             val dampingFactor = 0.1f
                             val dampedAmount = if (dragAmount > 0) dragAmount * dampingFactor else dragAmount
-                            (dragOffsetY.value + dampedAmount).coerceAtLeast(0f)
+                            (dragPosition.floatValue + dampedAmount).coerceAtLeast(0f)
                         } else {
                             // Normal dragging
                             newOffset
                         }
 
                         // Send target to snap channel
+                        dragPosition.floatValue = finalOffset
+                        change.consume()
                         dragSnapChannel.trySend(finalOffset)
 
                         val thresholdPx = if (sheetHeightPx.intValue > 0) sheetHeightPx.intValue.toFloat() else 500f

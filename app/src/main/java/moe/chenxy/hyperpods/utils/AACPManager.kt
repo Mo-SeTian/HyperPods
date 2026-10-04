@@ -26,6 +26,7 @@ import android.os.Parcelable
 import android.util.Log
 import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.Serializable
+import moe.chenxy.hyperpods.BuildConfig
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -372,7 +373,7 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
     fun sendControlCommand(identifier: Byte, value: ByteArray): Boolean {
         val controlPacket = createControlCommandPacket(identifier, value)
         if (!sendDataPacket(controlPacket)) return false
-        Log.d(TAG, "Control command sent: ${"%02X".format(identifier)} - ${value.take(4).joinToString(" ") { "%02X".format(it) }}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Control command sent: ${"%02X".format(identifier)} - ${value.take(4).joinToString(" ") { "%02X".format(it) }}")
         // Match LibrePods' optimistic UI for these two listening toggles only.
         // Incoming reports remain authoritative; a failed write must not change the cache.
         val id = ControlCommandIdentifiers.fromByte(identifier)
@@ -507,23 +508,12 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
                     identifier,
                     controlCommand.value
                 )
-                Log.d(
+                if (BuildConfig.DEBUG) Log.d(
                     TAG,
                     "Control command received: ${controlCommand.identifier.toHexString()} - ${
                         controlCommand.value.joinToString(" ") { "%02X".format(it) }
                     }"
                 )
-                Log.d(
-                    TAG, "Control command list is now: ${
-                    controlCommandStatusList.joinToString(", ") { it ->
-                        "${it.identifier.name} (${it.identifier.value.toHexString()}) - ${
-                            it.value.joinToString(
-                                " "
-                            ) { "%02X".format(it) }
-                        }"
-                    }
-                }")
-
                 val controlCommandIdentifier =
                     ControlCommandIdentifiers.fromByte(controlCommand.identifier)
                 if (controlCommandIdentifier == ControlCommandIdentifiers.OWNS_CONNECTION) {
@@ -647,7 +637,7 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
             }
             
             Opcodes.INFORMATION -> {
-                Log.e(TAG, "Parsing Information Packet")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Parsing Information Packet")
                 val information = parseInformationPacket(packet)
                 callback?.onDeviceInformationReceived(information)
             }
@@ -1132,9 +1122,9 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
                 val value = ByteArray(4)
                 System.arraycopy(data, 3, value, 0, 4)
 
-                val trimmedValue = value.dropLastWhile { it == 0x00.toByte() }.toByteArray()
-                val finalValue = if (trimmedValue.isEmpty()) byteArrayOf(0x00) else trimmedValue
-                return ControlCommand(identifier, finalValue)
+                // This is a fixed-width field: a zero byte can be meaningful
+                // configuration (for example CHIME_VOLUME's second byte).
+                return ControlCommand(identifier, value)
             }
         }
     }

@@ -25,8 +25,14 @@ android {
         applicationId = "moe.chenxy.hyperpods"
         minSdk = 35
         targetSdk = 36
-        versionCode = 15
+        versionCode = 16
         versionName = "3.0.0-AAP-W-HyperOS4"
+        val revision = providers.exec {
+            workingDir(rootProject.projectDir)
+            commandLine("git", "rev-parse", "--short=8", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim().takeIf { it.matches(Regex("[0-9a-f]{8}")) } ?: "local"
+        buildConfigField("String", "BUILD_REVISION", "\"$revision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {

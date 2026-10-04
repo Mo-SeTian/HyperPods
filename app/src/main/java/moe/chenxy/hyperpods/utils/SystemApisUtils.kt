@@ -328,15 +328,10 @@ object SystemApisUtils {
         }
     }
 
-    val isHyperOS: Boolean
-        get() {
-            return getPropByShell("ro.mi.os.version.code").isNotEmpty()
-        }
-
-    val isHyperOS3: Boolean
-        get() {
-            return getPropByShell("ro.mi.os.version.code") == "3"
-        }
+    private val hyperOSVersion by lazy { getPropByShell("ro.mi.os.version.code") }
+    private val islandFeature by lazy { getPropByShell("persist.sys.feature.island") }
+    val isHyperOS: Boolean get() = hyperOSVersion.isNotEmpty()
+    val isHyperOS3: Boolean get() = hyperOSVersion == "3"
 
     fun supportsIsland(context: Context): Boolean {
         val protocol = Settings.System.getInt(
@@ -344,8 +339,7 @@ object SystemApisUtils {
             "notification_focus_protocol",
             0
         )
-        val feature = getPropByShell("persist.sys.feature.island")
-        return protocol >= 3 || feature == "1" || feature.equals("true", ignoreCase = true)
+        return protocol >= 3 || islandFeature == "1" || islandFeature.equals("true", ignoreCase = true)
     }
 
     fun performVibrateClick(context: Context) {

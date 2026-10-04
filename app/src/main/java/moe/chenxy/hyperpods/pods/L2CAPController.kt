@@ -70,6 +70,8 @@ object L2CAPController {
     private var lastRecordedFailure = ""
     private var lastSettingKey = ""
     private var lastSettingStatus = ""
+    private var lastDiagnostics: Bundle? = null
+    private var lastSettingsState: Triple<Map<String, Int>, Set<String>, Set<String>>? = null
 
 //    private lateinit var mAirPodsInstance: AirPodsInstance
 
@@ -97,6 +99,7 @@ object L2CAPController {
     var currentPodsInfo: AACPManager.Companion.AirPodsInformation? = null
     private data class PendingSetting(val value: Int, val timeout: Job)
     private val pendingSettings = mutableMapOf<String, PendingSetting>()
+    private val failedSettings = mutableMapOf<String, Int>()
     private var pendingOffSelection = false
     private var pendingRename: String? = null
     private var renameTimeout: Job? = null
@@ -177,7 +180,7 @@ object L2CAPController {
                     updateFeatureToggle(it)
                 }
             }
-            HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST -> sendDiagnostics()
+            HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST -> sendDiagnostics(force = true)
             HyperPodsAction.ACTION_PODS_UI_INIT -> {
                 Log.i(TAG, "UI Init")
 
@@ -188,16 +191,20 @@ object L2CAPController {
                     changeUIBatteryStatus(currentBatteryParams)
 
                 changeUIAncStatus(currentAnc)
-                sendSettingsState()
+                sendSettingsState(force = true)
                 // Reopening the page also recovers settings missed during initial connection.
                 aacpManager?.requestInitialStatus()
-                if (aacpManager != null) sendConnectedStatus()
-                sendDiagnostics()
+                // A2DP may still be connected after control-channel exhaustion.
+                // Keep the detail page and manual-recovery action accessible.
+                sendConnectedStatus()
+                sendDiagnostics(force = true)
             }
             HyperPodsAction.ACTION_PODS_STATUS_RETRY -> {
                 if (aacpManager != null) {
                     initialStatusRetries++
                     lastStatusFailure = if (aacpManager?.requestInitialStatus() == true) "" else "write_failed"
+                } else if (connectionJob?.isActive != true) {
+                    connectPod(mContext!!, mDevice)
                 }
                 sendDiagnostics()
             }
@@ -274,14 +281,21 @@ object L2CAPController {
                 ?.takeIf { PodsSettings.knownValue(key, it) }?.let { key to it }
         } }?.toMap().orEmpty()
 
-    private fun sendSettingsState() {
+    private fun sendSettingsState(force: Boolean = false) {
+        val values = confirmedSettings()
+        val pending = (pendingSettings.keys + listOfNotNull(pendingRename?.let { PodsSettings.RENAME },
+            PodsSettings.NOISE_MODE.takeIf { pendingOffSelection })).toSet()
+        val unconfirmed = PodsSettings.identifiers.filterValues { aacpManager?.isAwaitingReport(it) == true }.keys.toSet()
+        val state = Triple(values, pending, unconfirmed)
+        if (!force && lastSettingsState == state) {
+            sendDiagnostics()
+            return
+        }
+        lastSettingsState = state
         Intent(HyperPodsAction.ACTION_PODS_SETTINGS_STATE).apply {
-            putExtra("settings", Bundle().apply { confirmedSettings().forEach { (key, value) -> putInt(key, value) } })
-            putStringArrayListExtra("pending", ArrayList(pendingSettings.keys +
-                    listOfNotNull(pendingRename?.let { PodsSettings.RENAME }, PodsSettings.NOISE_MODE.takeIf { pendingOffSelection })))
-            putStringArrayListExtra("unconfirmed", ArrayList(PodsSettings.identifiers.filterValues {
-                aacpManager?.isAwaitingReport(it) == true
-            }.keys))
+            putExtra("settings", Bundle().apply { values.forEach { (key, value) -> putInt(key, value) } })
+            putStringArrayListExtra("pending", ArrayList(pending))
+            putStringArrayListExtra("unconfirmed", ArrayList(unconfirmed))
             HyperPodsBroadcasts.send(mContext, this)
         }
         sendDiagnostics()
@@ -296,6 +310,7 @@ object L2CAPController {
         putBoolean("wear", earDetectionStateValid)
         putBoolean("information", currentPodsInfo != null)
         putBoolean("ready", connectionState == "connected" && initialStatusReady())
+        putInt("missing_settings", missingSettings().size)
         putString("failure", lastStatusFailure)
         putLong("last_packet_at", aacpManager?.lastPacketAt ?: 0)
         putLong("battery_at", aacpManager?.batteryReceivedAt ?: 0)
@@ -306,8 +321,13 @@ object L2CAPController {
         putString("setting_status", lastSettingStatus)
     }
 
-    private fun sendDiagnostics() {
+    private fun sendDiagnostics(force: Boolean = false) {
         val snapshot = diagnosticsSnapshot()
+        val previous = lastDiagnostics
+        @Suppress("DEPRECATION")
+        val unchanged = previous != null && snapshot.keySet().orEmpty().all { snapshot.get(it) == previous.get(it) }
+        if (!force && unchanged) return
+        lastDiagnostics = snapshot
         Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS).apply {
             putExtra("diagnostics", snapshot)
             HyperPodsBroadcasts.send(mContext, this)
@@ -359,6 +379,7 @@ object L2CAPController {
     private fun sendSetting(key: String, value: Int) {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
         if (!PodsSettings.validValue(key, value, model, confirmedSettings()) || pendingSettings.containsKey(key)) {
+            failedSettings[key] = value
             sendSettingResult(key, false, status = "invalid")
             return
         }
@@ -366,13 +387,19 @@ object L2CAPController {
         val manager = aacpManager
         val written = if (key == HyperPodsPrefsKey.CHIME_VOLUME && manager != null) {
             // Change only the volume; retain the second configuration byte from the headset.
-            val second = manager.getControlCommandStatus(identifier)?.value?.getOrNull(1) ?: 0x50.toByte()
+            val second = manager.getControlCommandStatus(identifier)?.value?.getOrNull(1) ?: run {
+                failedSettings[key] = value
+                sendSettingResult(key, false, status = "invalid")
+                return
+            }
             manager.sendControlCommand(identifier.value, byteArrayOf(value.toByte(), second))
         } else manager?.sendControlCommand(identifier.value, value) == true
         if (!written) {
+            failedSettings[key] = value
             sendSettingResult(key, false, status = "write_failed")
             return
         }
+        failedSettings.remove(key)
         if (key == HyperPodsPrefsKey.PERSONLIZED_VOLUME || key == HyperPodsPrefsKey.CONVERSATION_AWARENESS) {
             // These two toggles follow LibrePods: publish the local value without awaiting an echo.
             if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) resetConversationVolume()
@@ -383,9 +410,19 @@ object L2CAPController {
         val generation = sessionId
         val timeout = CoroutineScope(Dispatchers.Default).launch {
             delay(3000)
+            if (key == HyperPodsPrefsKey.ALLOW_OFF_OPTION) {
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId == generation && pendingSettings.containsKey(key)) aacpManager?.sendNotificationRequest()
+                }
+                delay(3000) // One bounded status refresh before abandoning the Off prerequisite.
+            }
             synchronized(this@L2CAPController) {
                 ensureActive()
-                if (sessionId == generation && pendingSettings.remove(key) != null) sendSettingResult(key, false)
+                if (sessionId == generation) pendingSettings.remove(key)?.let {
+                    failedSettings[key] = it.value
+                    sendSettingResult(key, false)
+                }
             }
         }
         pendingSettings[key] = PendingSetting(value, timeout)
@@ -545,7 +582,6 @@ object L2CAPController {
             mediaRouter.transferTo(route)
         } catch (_: RuntimeException) {
             handleAudioRouteFailure(route)
-            handleAudioRouteFailure(route)
         }
     }
 
@@ -679,7 +715,7 @@ object L2CAPController {
 
     private val routeCallback = object : MediaRouter2.RouteCallback() {
         override fun onRoutesUpdated(routes: List<MediaRoute2Info>) {
-            Log.v(TAG, "routes updated: $routes")
+            if (BuildConfig.DEBUG) Log.v(TAG, "routes updated (${routes.size})")
             this@L2CAPController.routes = routes
             synchronized(this@L2CAPController) {
                 if (mContext != null && wantsHeadphoneRoute()) restoreHeadphoneRoute()
@@ -768,8 +804,13 @@ object L2CAPController {
                     lastSettingStatus = "reported"
                 pendingSettings[key]?.takeIf { it.value == value }?.let {
                     pendingSettings.remove(key)
+                    failedSettings.remove(key)
                     it.timeout.cancel()
                     sendSettingResult(key, true)
+                }
+                if (key !in pendingSettings && failedSettings[key] == value && PodsSettings.knownValue(key, value)) {
+                    failedSettings.remove(key)
+                    sendSettingResult(key, true, status = "reported")
                 }
                 if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) resetConversationVolume()
                 sendSettingsState()
@@ -840,26 +881,19 @@ object L2CAPController {
     @Synchronized
     fun connectPod(context: Context, device: BluetoothDevice) {
         if (connectionJob?.isActive == true && mContext != null && mDevice == device) return
-        if (mContext != null) disconnectedPod(context, mDevice)
+        if (mContext != null && mDevice != device) disconnectedPod(context, mDevice)
+        val newDeviceSession = mContext == null
         val thisSession = ++sessionId
         mContext = context
         mDevice = device
-        batteryStateValid = false
-        earDetectionStateValid = false
-        mShowedConnectedToast = false
-        lastCaseConnected = false
-        currentPodsInfo = null
-        currentAnc = 0
+        resetControlState()
         connectionState = "connecting"
         initialStatusRetries = 0
         lastStatusFailure = ""
         lastRecordedFailure = ""
         lastSettingKey = ""
         lastSettingStatus = ""
-        AirPodsNotifications.BatteryNotification.reset()
-        currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
-
-        context.registerReceiver(broadcastReceiver, IntentFilter().apply {
+        if (newDeviceSession) context.registerReceiver(broadcastReceiver, IntentFilter().apply {
             this.addAction(HyperPodsAction.ACTION_APP_SETTINGS_CHANGED)
             this.addAction(HyperPodsAction.ACTION_ANC_SELECT)
             this.addAction(HyperPodsAction.ACTION_PODS_UI_INIT)
@@ -873,8 +907,10 @@ object L2CAPController {
         sendDiagnostics()
 
         MediaControl.mContext = mContext
-        mediaRouter = MediaRouter2.getInstance(mContext!!)
-        startRoutesScan()
+        if (newDeviceSession) {
+            mediaRouter = MediaRouter2.getInstance(context)
+            startRoutesScan()
+        }
 
         val uuid = ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a")
 
@@ -939,140 +975,200 @@ object L2CAPController {
                     // A newer UI edit wins over a cold-start provider response.
                     applyInitialPolicy(thisSession, requestRevision, policy)
                 }
-                val connectingSocket = try {
-                    getBtSocket()
-                } catch (e: Exception) {
-                    Log.e(TAG, "failed to create AirPods socket", e)
-                    synchronized(this@L2CAPController) {
-                        if (sessionId == thisSession) {
-                            connectionState = "failed"
-                            lastStatusFailure = "socket_create_failed"
-                            sendDiagnostics()
-                        }
-                    }
-                    return@launch
-                }
-                try {
-                    synchronized(this@L2CAPController) {
-                        ensureActive()
-                        if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
-                        socket = connectingSocket
-                    }
-                    Log.d(TAG, "connecting AirPods!")
-                    connectingSocket.connect()
-                    ensureActive()
-                } catch (e: CancellationException) {
-                    runCatching { connectingSocket.close() }
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "failed to connect to AirPods socket; stop retrying", e)
-                    runCatching { connectingSocket.close() }
-                    synchronized(this@L2CAPController) {
-                        if (sessionId == thisSession) {
-                            connectionState = "failed"
-                            lastStatusFailure = "socket_connect_failed"
-                            sendDiagnostics()
-                        }
-                    }
-                    return@launch
-                }
-
-
-                Log.d(TAG, "connected!")
-                val connectedSocket = connectingSocket
-                val manager = AACPManager(connectedSocket)
-                var statusRequestJob: Job? = null
-                try {
-                    synchronized(this@L2CAPController) {
-                        ensureActive()
-                        if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
-                        aacpManager = manager
-                        connectionState = "connected"
-                        manager.setPacketCallback(packetCallback)
-                        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings)
-                        sendConnectedStatus()
-                    }
-                    if (!manager.requestInitialStatus()) throw java.io.IOException("Initial handshake write failed")
-                    statusRequestJob = launch {
-                        // Retry the missing protocol step on this socket. The reader is already active.
-                        for (waitMs in listOf(1000L, 2000L, 4000L, 8000L, 15000L)) {
-                            delay(waitMs)
-                            val stop = synchronized(this@L2CAPController) {
-                                ensureActive()
-                                if (sessionId != thisSession || initialStatusReady() || !connectedSocket.isConnected) true
-                                else {
-                                    initialStatusRetries++
-                                    Log.i(TAG, "Initial headset status incomplete; retrying ${manager.initializationStage}")
-                                    lastStatusFailure = if (manager.requestInitialStatus()) "" else "write_failed"
-                                    sendDiagnostics()
-                                    false
-                                }
-                            }
-                            if (stop) return@launch
-                        }
-                        delay(3000)
-                        synchronized(this@L2CAPController) {
-                            ensureActive()
-                            if (sessionId == thisSession && !initialStatusReady()) {
-                                lastStatusFailure = "status_timeout"
-                                sendDiagnostics()
-                            }
-                        }
-                    }
-                    // Read handshake and feature acknowledgements immediately, without fixed sleeps.
-                    while (connectedSocket.isConnected) {
-                        val buffer = ByteArray(1024)
-                        val bytesRead = connectedSocket.inputStream.read(buffer)
-                        ensureActive()
-                        if (bytesRead == -1) throw java.io.IOException("AirPods control stream closed")
-                        if (bytesRead > 0) synchronized(this@L2CAPController) {
-                            ensureActive()
-                            if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
-                            manager.receivePacket(buffer.copyOfRange(0, bytesRead))
-                            if (initialStatusReady()) lastStatusFailure = ""
-                            sendDiagnostics()
-                        }
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "AirPods status session ended", e)
-                    synchronized(this@L2CAPController) {
-                        if (sessionId == thisSession) {
-                            connectionState = "failed"
-                            lastStatusFailure = "status_session_ended"
-                            sendDiagnostics()
-                        }
-                    }
-                } finally {
-                    statusRequestJob?.cancel()
-                    runCatching { connectedSocket.close() }
-                    synchronized(this@L2CAPController) {
-                        if (aacpManager === manager) aacpManager = null
-                    }
-                }
+                recoverControlSession(context, device, thisSession, ::getBtSocket)
             } finally {
-                finishSession(thisSession, context, device)
+                synchronized(this@L2CAPController) {
+                    if (sessionId == thisSession) {
+                        connectionJob = null
+                        // Keep the receiver available for manual recovery after
+                        // the bounded automatic attempts have been exhausted.
+                        sendDiagnostics(force = true)
+                    }
+                }
             }
         }
     }
 
-    @Synchronized
-    private fun finishSession(expectedSession: Long, context: Context, device: BluetoothDevice) {
-        // Old coroutine completion must not tear down a newer connection.
-        if (sessionId == expectedSession) disconnectedPod(context, device)
+    internal suspend fun CoroutineScope.recoverControlSession(context: Context, device: BluetoothDevice,
+        thisSession: Long, getBtSocket: () -> BluetoothSocket) {
+        // AACP can fail while A2DP remains connected. Retry only this socket,
+        // retaining the UI receiver and physical audio route.
+        for (attempt in 0..3) {
+            if (attempt > 0) {
+                delay(1000L shl (attempt - 1))
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                    resetControlState()
+                    connectionState = "connecting"
+                    sendConnectedStatus()
+                    changeUIBatteryStatus(currentBatteryParams)
+                    MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings)
+                }
+            }
+            runControlAttempt(context, device, thisSession, getBtSocket)
+        }
+    }
+
+    internal suspend fun CoroutineScope.runControlAttempt(context: Context, device: BluetoothDevice,
+        thisSession: Long, getBtSocket: () -> BluetoothSocket) {
+        val connectingSocket = try {
+            getBtSocket()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "failed to create AirPods socket", e)
+            synchronized(this@L2CAPController) {
+                if (sessionId == thisSession) {
+                    connectionState = "failed"
+                    lastStatusFailure = "socket_create_failed"
+                    sendDiagnostics()
+                }
+            }
+            return
+        }
+        try {
+            synchronized(this@L2CAPController) {
+                ensureActive()
+                if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                socket = connectingSocket
+            }
+            Log.d(TAG, "connecting AirPods!")
+            connectingSocket.connect()
+            ensureActive()
+        } catch (e: CancellationException) {
+            runCatching { connectingSocket.close() }
+            synchronized(this@L2CAPController) {
+                if (socket === connectingSocket) socket = null
+            }
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "failed to connect to AirPods control socket", e)
+            runCatching { connectingSocket.close() }
+            synchronized(this@L2CAPController) {
+                if (sessionId == thisSession) {
+                    if (socket === connectingSocket) socket = null
+                    connectionState = "failed"
+                    lastStatusFailure = "socket_connect_failed"
+                    sendDiagnostics()
+                }
+            }
+            return
+        }
+
+
+        Log.d(TAG, "connected!")
+        val connectedSocket = connectingSocket
+        val manager = AACPManager(connectedSocket)
+        var statusRequestJob: Job? = null
+        try {
+            synchronized(this@L2CAPController) {
+                ensureActive()
+                if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                aacpManager = manager
+                connectionState = "connected"
+                manager.setPacketCallback(packetCallback)
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings)
+                sendConnectedStatus()
+            }
+            if (!manager.requestInitialStatus()) throw java.io.IOException("Initial handshake write failed")
+            statusRequestJob = launch {
+                // Retry the missing protocol step on this socket. The reader is already active.
+                for (waitMs in listOf(1000L, 2000L, 4000L, 8000L, 15000L)) {
+                    delay(waitMs)
+                    val stop = synchronized(this@L2CAPController) {
+                        ensureActive()
+                        if (sessionId != thisSession || initialStatusReady() || !connectedSocket.isConnected) true
+                        else {
+                            initialStatusRetries++
+                            Log.i(TAG, "Initial headset status incomplete; retrying ${manager.initializationStage}")
+                            lastStatusFailure = if (manager.requestInitialStatus()) "" else "write_failed"
+                            sendDiagnostics()
+                            false
+                        }
+                    }
+                    if (stop) return@launch
+                }
+                delay(3000)
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId == thisSession && !initialStatusReady()) {
+                        lastStatusFailure = "status_timeout"
+                        sendDiagnostics()
+                    }
+                }
+            }
+            // Read handshake and feature acknowledgements immediately, without fixed sleeps.
+            while (connectedSocket.isConnected) {
+                val buffer = ByteArray(1024)
+                val bytesRead = connectedSocket.inputStream.read(buffer)
+                ensureActive()
+                if (bytesRead == -1) throw java.io.IOException("AirPods control stream closed")
+                if (bytesRead > 0) synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                    manager.receivePacket(buffer.copyOfRange(0, bytesRead))
+                    if (initialStatusReady()) lastStatusFailure = ""
+                    sendDiagnostics()
+                }
+            }
+            throw java.io.IOException("AirPods control socket disconnected")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "AirPods status session ended", e)
+            synchronized(this@L2CAPController) {
+                if (sessionId == thisSession) {
+                    connectionState = "failed"
+                    lastStatusFailure = "status_session_ended"
+                    sendDiagnostics()
+                }
+            }
+        } finally {
+            statusRequestJob?.cancel()
+            runCatching { connectedSocket.close() }
+            synchronized(this@L2CAPController) {
+                if (aacpManager === manager) aacpManager = null
+                if (socket === connectedSocket) socket = null
+                if (sessionId == thisSession) {
+                    clearPendingSettings()
+                    sendSettingsState()
+                }
+            }
+        }
+    }
+
+    private fun clearPendingSettings() {
+        pendingSettings.values.forEach { it.timeout.cancel() }
+        pendingSettings.clear()
+        failedSettings.clear()
+        pendingOffSelection = false
+        pendingRename = null
+        renameTimeout?.cancel()
+        renameTimeout = null
+    }
+
+    private fun resetControlState() {
+        clearPendingSettings()
+        resetConversationVolume()
+        batteryStateValid = false
+        earDetectionStateValid = false
+        mShowedConnectedToast = false
+        lastCaseConnected = false
+        currentPodsInfo = null
+        currentAnc = 0
+        aacpManager = null
+        lastSettingsState = null
+        lastDiagnostics = null
+        AirPodsNotifications.BatteryNotification.reset()
+        currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
     }
 
     @Synchronized
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
         if (::mDevice.isInitialized && device != mDevice) return
         ++sessionId
-        pendingSettings.values.forEach { it.timeout.cancel() }
-        pendingSettings.clear()
-        pendingOffSelection = false
-        pendingRename = null
-        renameTimeout?.cancel()
-        renameTimeout = null
+        clearPendingSettings()
         resetConversationVolume()
         headphoneRouteId = null
         speakerSwitchJob?.cancel()
@@ -1111,6 +1207,8 @@ object L2CAPController {
         MediaControl.mContext = null
         aacpManager = null
         connectionState = "disconnected"
+        lastSettingsState = null
+        lastDiagnostics = null
     }
 
     fun sendPacket(packet: String) {
@@ -1145,7 +1243,16 @@ object L2CAPController {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
         return batteryStateValid && !AirPodsNotifications.BatteryNotification.needsRefresh &&
                 earDetectionStateValid && currentPodsInfo != null &&
-                (!PodsSettings.supports(PodsSettings.NOISE_MODE, model) || PodsSettings.NOISE_MODE in confirmedSettings())
+                (!PodsSettings.supports(PodsSettings.NOISE_MODE, model) || PodsSettings.NOISE_MODE in confirmedSettings()) &&
+                missingSettings().isEmpty()
+    }
+
+    private fun missingSettings(): Set<String> {
+        val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) ?: return emptySet()
+        val reported = confirmedSettings()
+        return PodsSettings.identifiers.keys.filterTo(mutableSetOf()) {
+            PodsSettings.supports(it, model) && it !in reported
+        }
     }
 
     private fun scheduleSpeakerRoute() {
@@ -1161,7 +1268,8 @@ object L2CAPController {
                 if (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR ||
                     currentEarDetectionParams.right == EarDetectionStatus.IN_EAR) return@synchronized
                 routes.firstOrNull { it.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER }?.let {
-                    findHeadphoneRoute(mediaRouter.systemController.selectedRoutes + routes)
+                    // A wear event must not take over a route selected by the user.
+                    if (findHeadphoneRoute(mediaRouter.systemController.selectedRoutes) == null) return@synchronized
                     // Only change the media route. HFP/A2DP must stay connected.
                     switchedToSpeaker = true
                     requestAudioRoute(it)
@@ -1176,6 +1284,15 @@ object L2CAPController {
         // Initial wear reports must not reconnect profiles or take over a route
         // selected by the user. Only undo a speaker switch made by this module.
         if (!switchedToSpeaker || mContext == null || pendingAudioRoute != null || routeRetryCount >= 3) return
+        val selected = mediaRouter.systemController.selectedRoutes
+        if (selected.none { it.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER } && findHeadphoneRoute(selected) == null) {
+            // The user selected another output after our speaker transfer.
+            switchedToSpeaker = false
+            pausedAudio = false
+            routeRetryJob?.cancel()
+            routeRetryJob = null
+            return
+        }
         findHeadphoneRoute(routes)?.let {
             requestAudioRoute(it)
         }

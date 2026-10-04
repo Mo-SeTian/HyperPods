@@ -53,6 +53,14 @@ inline uintptr_t findFunction(const std::vector<MemoryRange>& ranges,
                 (instructionAt(pos + 16) & 0xff0003ffu) != 0x91000063u) continue;
             if (stringReference(pos) != name || stringReference(pos + 16) != assertion) continue;
             const uintptr_t candidate = pos - functionOffset;
+            const uint32_t entry = instructionAt(candidate);
+            // String references alone cannot validate a fixed-offset function
+            // boundary after a ROM update. Require a known ARM64 entry sequence.
+            const bool signedEntry = entry == 0xd503233fu || entry == 0xd503237fu;
+            const bool btiEntry = entry == 0xd503245fu || entry == 0xd50324dfu;
+            const bool stackAllocation = (entry & 0xffc003ffu) == 0xd10003ffu;
+            const bool savedRegisters = (entry & 0xffc003e0u) == 0xa98003e0u;
+            if (!signedEntry && !btiEntry && !stackAllocation && !savedRegisters) continue;
             if (result != 0 && result != candidate) return 0;
             result = candidate;
         }

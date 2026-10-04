@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import moe.chenxy.hyperpods.R
+import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
@@ -62,7 +63,7 @@ fun AboutPage(
                         fontSize = 24.sp
                     )
                     Text(
-                        text = "(AAP version)",
+                        text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_REVISION})",
                         modifier = Modifier,
                         fontWeight = FontWeight.Normal,
                         fontSize = 14.sp

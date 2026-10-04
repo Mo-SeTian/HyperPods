@@ -64,6 +64,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         stringResource(R.string.diagnostics_wear) to (stringResource(if (snapshot?.getBoolean("wear") == true) R.string.diagnostics_received else R.string.settings_reading) + "\n" + time(snapshot?.getLong("wear_at"))),
         stringResource(R.string.diagnostics_information) to (stringResource(if (snapshot?.getBoolean("information") == true) R.string.diagnostics_received else R.string.settings_reading) + "\n" + time(snapshot?.getLong("information_at"))),
         stringResource(R.string.diagnostics_settings_time) to time(snapshot?.getLong("settings_at")),
+        stringResource(R.string.diagnostics_missing_settings) to (snapshot?.getInt("missing_settings") ?: 0).toString(),
         stringResource(R.string.diagnostics_last_setting) to (stringResource(settingTitle(snapshot?.getString("setting_key"))) + "\n" + stringResource(settingStatus(snapshot?.getString("setting_status")))),
         stringResource(R.string.diagnostics_failure) to stringResource(failureReason(snapshot?.getString("failure"))),
     )
@@ -93,11 +94,11 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST), HyperPodsBroadcasts.BLUETOOTH)
     })
     BasicComponent(title = stringResource(R.string.diagnostics_retry), summary = stringResource(R.string.diagnostics_retry_summary),
-        enabled = snapshot?.getString("connection") == "connected", onClick = {
+        enabled = snapshot?.getString("connection") in listOf("connected", "failed"), onClick = {
             HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY), HyperPodsBroadcasts.BLUETOOTH)
         })
     BasicComponent(title = stringResource(R.string.diagnostics_copy), onClick = {
-        val report = "HyperPods ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
+        val report = "HyperPods ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_REVISION})\n" +
             fields.joinToString("\n") { (label, value) -> "$label: $value" } +
             "\n\n" + (historyReport ?: context.getString(R.string.diagnostics_no_history))
         context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("HyperPods", report))

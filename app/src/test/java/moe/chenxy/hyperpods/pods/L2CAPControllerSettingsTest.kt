@@ -44,6 +44,8 @@ class L2CAPControllerSettingsTest {
         field("lastStatusFailure").set(controller, "")
         field("lastSettingKey").set(controller, "")
         field("lastSettingStatus").set(controller, "")
+        field("lastSettingsState").set(controller, null)
+        field("lastDiagnostics").set(controller, null)
         broadcasts = mockStatic(BroadcastOptions::class.java)
         broadcasts.`when`<BroadcastOptions> { BroadcastOptions.makeBasic() }
             .thenReturn(mock(BroadcastOptions::class.java, RETURNS_SELF))
@@ -166,18 +168,33 @@ class L2CAPControllerSettingsTest {
     @Test fun offOptionTimeoutNeverSendsOffAndAllowsAnotherClick() {
         controller.setANCMode(1)
         field("mContext").set(controller, null)
-        val deadline = System.nanoTime() + 4_000_000_000L
+        val deadline = System.nanoTime() + 7_000_000_000L
         while (synchronized(controller) { pending().isNotEmpty() } && System.nanoTime() < deadline) Thread.sleep(20)
         assertFalse(field("pendingOffSelection").getBoolean(controller))
-        assertEquals(11, output.size())
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x34, 1, 0, 0, 0) +
+            manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
         field("mContext").set(controller, ContextWrapper(null))
         controller.setANCMode(1)
         assertTrue(field("pendingOffSelection").getBoolean(controller))
-        assertEquals(22, output.size())
+        assertEquals(32, output.size())
     }
 
     private fun initialReady(): Boolean = type.getDeclaredMethod("initialStatusReady")
         .apply { isAccessible = true }.invoke(controller) as Boolean
+
+    private fun receiveRemainingSettings() {
+        for ((key, id) in PodsSettings.identifiers) {
+            if (manager.getControlCommandStatus(id) != null) continue
+            val value = when (key) {
+                PodsSettings.NOISE_MODE -> 4
+                Key.LISTENING_MODE_BYTE -> 6
+                Key.MICROPHONE_MODE, Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED -> 0
+                Key.CHIME_VOLUME, Key.ADAPTIVE_AUDIO_LEVEL -> 50
+                else -> 2
+            }
+            receive(id.value, value.toByte())
+        }
+    }
 
     @Test fun batteryAloneDoesNotStopRecoveryBeforeInformationAndSettingsArrive() {
         field("batteryStateValid").set(controller, true)
@@ -185,6 +202,8 @@ class L2CAPControllerSettingsTest {
         field("earDetectionStateValid").set(controller, true)
         assertFalse(initialReady())
         receive(0x0d, 4)
+        assertFalse("Listening mode alone must not hide missing settings", initialReady())
+        receiveRemainingSettings()
         assertTrue(initialReady())
         controller.currentPodsInfo = null
         assertFalse(initialReady())
@@ -194,6 +213,7 @@ class L2CAPControllerSettingsTest {
         field("batteryStateValid").set(controller, true)
         field("earDetectionStateValid").set(controller, true)
         receive(0x0d, 4)
+        receiveRemainingSettings()
         val report = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 80, 2, 0)
         AirPodsNotifications.BatteryNotification.setBattery(report)
         assertTrue(initialReady())
@@ -229,6 +249,20 @@ class L2CAPControllerSettingsTest {
         assertFalse(field("pendingOffSelection").getBoolean(controller))
         assertTrue(pending().isEmpty())
         assertEquals(11, output.size())
+    }
+
+    @Test fun offPrerequisiteCanCompleteAfterItsSingleBoundedStatusRefresh() {
+        controller.setANCMode(1)
+        // Timer broadcasts use no-op stubs here; the protocol writer remains real.
+        field("mContext").set(controller, null)
+        Thread.sleep(3300)
+        synchronized(controller) {
+            assertEquals(21, output.size()) // Allow Off + one status subscription.
+            assertTrue(pending().containsKey(Key.ALLOW_OFF_OPTION))
+            receive(0x34, 1)
+            assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+            assertEquals(32, output.size()) // Only a confirmed prerequisite sends real Off.
+        }
     }
 
     @Test fun microphoneRequestIsNotConfirmedUntilMatchingReplyArrives() {
@@ -267,12 +301,30 @@ class L2CAPControllerSettingsTest {
         assertTrue(pending().isEmpty())
     }
 
+    @Test fun chimeVolumeRetainsZeroConfigurationWithoutReplacingItWithADefault() {
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 80, 0, 0, 0))
+        request(Key.CHIME_VOLUME, 35)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 35, 0, 0, 0), output.toByteArray())
+    }
+
     @Test fun manualRecoveryRestartsHandshakeBeforeSubscriptionWithoutOpeningAnotherSocket() {
         val intent = mock(Intent::class.java)
         `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
         controller.handleUIEvent(intent)
         assertArrayEquals(manager.createHandshakePacket(), output.toByteArray())
         verify(socket, never()).connect()
+    }
+
+    @Test fun reopeningUiAfterControlFailureStillPublishesThePhysicalDeviceSession() {
+        field("aacpManager").set(controller, null)
+        val actions = mutableListOf<Any?>()
+        mockConstruction(Intent::class.java) { _, construction -> actions.add(construction.arguments().firstOrNull()) }.use {
+            val init = mock(Intent::class.java)
+            `when`(init.action).thenReturn(HyperPodsAction.ACTION_PODS_UI_INIT)
+            controller.handleUIEvent(init)
+        }
+        assertTrue(actions.contains(HyperPodsAction.ACTION_PODS_CONNECTED))
+        assertEquals(0, output.size())
     }
 
     @Test fun listeningTogglesUpdateWithoutRepliesAndCanBeToggledAgainImmediately() {
@@ -304,6 +356,17 @@ class L2CAPControllerSettingsTest {
             assertEquals(2.toByte(), manager.getControlCommandStatus(id)!!.value[0])
         }
         assertEquals(0, output.size())
+    }
+
+    @Test fun matchingAuthoritativeReportClearsWriteFailureWithoutAConfirmationToast() {
+        receive(0x26, 2)
+        `when`(socket.isConnected).thenReturn(false)
+        request(Key.PERSONLIZED_VOLUME, 1)
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        receive(0x26, 2)
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        receive(0x26, 1)
+        assertEquals("reported", field("lastSettingStatus").get(controller))
     }
 
     @Test fun settingFeedbackDistinguishesSentReportedConfirmedAndWriteFailure() {
@@ -439,6 +502,10 @@ class L2CAPControllerSettingsTest {
         while (synchronized(controller) { pending().isNotEmpty() } && System.nanoTime() < deadline) Thread.sleep(20)
         assertTrue(pending().isEmpty())
         assertEquals(0.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
+        assertEquals("timeout", field("lastSettingStatus").get(controller))
+        receive(1, 2)
+        assertEquals("reported", field("lastSettingStatus").get(controller))
+        assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
         field("mContext").set(controller, ContextWrapper(null))
         request(Key.MICROPHONE_MODE, 1)
         assertTrue(pending().containsKey(Key.MICROPHONE_MODE))

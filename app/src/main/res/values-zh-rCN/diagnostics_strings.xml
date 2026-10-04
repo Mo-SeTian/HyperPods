@@ -11,6 +11,7 @@
     <string name="diagnostics_packets">已收到协议包</string>
     <string name="diagnostics_last_packet">最近一次协议回包</string>
     <string name="diagnostics_settings_time">最近一次耳机设置回报</string>
+    <string name="diagnostics_missing_settings">尚未收到的设置项数量</string>
     <string name="diagnostics_last_setting">最近一次设置操作</string>
     <string name="diagnostics_failure">失败原因</string>
     <string name="diagnostics_never">本次连接尚未收到</string>
@@ -34,7 +35,7 @@
     <string name="diagnostics_failed_summary">未完成状态恢复，可手动重试，或复制诊断报告排查。</string>
     <string name="diagnostics_refresh">刷新诊断信息</string>
     <string name="diagnostics_retry">重试状态同步</string>
-    <string name="diagnostics_retry_summary">在当前控制连接上重新请求尚未完成的同步步骤。</string>
+    <string name="diagnostics_retry_summary">重新请求缺失的耳机状态；控制通道故障时会重新建立通道。</string>
     <string name="diagnostics_copy">复制诊断报告</string>
     <string name="diagnostics_copied">诊断报告已复制</string>
     <string name="controls_timing">按压与滑动设置</string>

@@ -514,14 +514,22 @@ object MiBluetoothToastHook : YukiBaseHooker(){
         // manufacturer advertisements, writes airpodsRepository and starts its
         // popup/island controller. Disable only that scan entry so it cannot race
         // HyperPods; L2CAP control and ordinary Xiaomi fast-connect stay intact.
-        "b1.d".toClass().method {
-            name = "U"
-            param(ScanResult::class.java)
-        }.hook {
-            replaceUnit {
-                Log.v("Art_Chen", "Blocked official HyperOS AirPods fast-connect scan")
+        val officialScan = runCatching {
+            Class.forName("b1.d", false, appClassLoader).also {
+                check(it.getDeclaredMethod("U", ScanResult::class.java).returnType == Void.TYPE)
             }
-        }
+        }.getOrNull()
+        if (officialScan != null) {
+            officialScan.method {
+                name = "U"
+                param(ScanResult::class.java)
+            }.hook {
+                replaceUnit {
+                    if (BuildConfig.DEBUG) Log.v("Art_Chen", "Blocked official HyperOS AirPods fast-connect scan")
+                }
+            }
+            Log.i("Art_Chen", "HyperOS AirPods scan hook registered (${BuildConfig.BUILD_REVISION})")
+        } else Log.w("Art_Chen", "Official AirPods scan signature changed; interception unavailable on API ${android.os.Build.VERSION.SDK_INT}")
 
         appContext?.let { registerHyperPodsReceiver(it) }
 

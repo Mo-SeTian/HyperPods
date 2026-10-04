@@ -8,6 +8,15 @@ import android.bluetooth.BluetoothSocket
 import android.media.MediaRoute2Info
 import android.media.MediaRouter2
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import moe.chenxy.hyperpods.utils.data.BatteryParams
+import moe.chenxy.hyperpods.utils.data.PodBatteryParams
+import moe.chenxy.hyperpods.utils.AACPManager
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -57,6 +66,10 @@ class L2CAPControllerWearTest {
         field("pendingAudioRoute").set(controller, null)
         field("routeRetryCount").setInt(controller, 0)
         field("headphoneRouteId").set(controller, null)
+        field("aacpManager").set(controller, null)
+        field("socket").set(controller, null)
+        field("lastDiagnostics").set(controller, null)
+        controller.currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
         settings(true, true)
     }
 
@@ -169,39 +182,157 @@ class L2CAPControllerWearTest {
         assertEquals(generation, field("sessionId").getLong(controller))
     }
 
-    @Test fun obsoleteSessionCompletionCannotCleanUpTheNewSession() = synchronized(controller) {
-        wear(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.OUT_OF_EAR)
-        val pending = pendingSwitch()
+    @Test fun obsoleteControlAttemptCannotReplaceTheNewSessionSocket() = runBlocking {
         val generation = field("sessionId").getLong(controller)
-        finish(generation - 1)
-        assertSame(pending, pendingSwitch())
+        val current = mock(BluetoothSocket::class.java)
+        val obsolete = mock(BluetoothSocket::class.java)
+        field("socket").set(controller, current)
+        with(controller) {
+            try {
+                runControlAttempt(ContextWrapper(null), device, generation - 1) { obsolete }
+                fail("Obsolete attempt must be cancelled")
+            } catch (_: CancellationException) { }
+        }
+        verify(obsolete).close()
+        verify(obsolete, never()).connect()
+        assertSame(current, field("socket").get(controller))
         assertEquals(generation, field("sessionId").getLong(controller))
     }
 
-    @Test fun currentSessionCompletionClosesSocketAndClearsStatus() = synchronized(controller) {
-        val socket = mock(BluetoothSocket::class.java)
-        field("socket").set(controller, socket)
-        field("batteryStateValid").setBoolean(controller, true)
-        finish(field("sessionId").getLong(controller))
-        verify(socket).close()
-        assertNull(field("socket").get(controller))
-        assertNull(field("mContext").get(controller))
-        assertFalse(field("batteryStateValid").getBoolean(controller))
-        assertEquals(0, field("currentAnc").getInt(controller))
-        assertNull(controller.currentPodsInfo)
+    private fun closedStreamSocket() = mock(BluetoothSocket::class.java).apply {
+        `when`(isConnected).thenReturn(true)
+        `when`(outputStream).thenReturn(ByteArrayOutputStream())
+        `when`(inputStream).thenReturn(ByteArrayInputStream(byteArrayOf()))
     }
 
-    private fun finish(generation: Long) {
-        type.getDeclaredMethod("finishSession", Long::class.javaPrimitiveType,
-            android.content.Context::class.java, BluetoothDevice::class.java).apply {
-            isAccessible = true
-        }.invoke(controller, generation, ContextWrapper(null), device)
+    @Test fun controlStreamEndClosesOnlyTheControlSocketAndKeepsTheUiSession() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        val socket = closedStreamSocket()
+        with(controller) { runControlAttempt(context, device, field("sessionId").getLong(controller)) { socket } }
+        verify(socket).close()
+        assertNull(field("socket").get(controller))
+        assertNull(field("aacpManager").get(controller))
+        assertSame(context, field("mContext").get(controller))
+        assertEquals("failed", field("connectionState").get(controller))
+        assertEquals("status_session_ended", field("lastStatusFailure").get(controller))
+    }
+
+    @Test fun oldReaderCompletionCannotClearANewerControlSession() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        val generation = field("sessionId").getLong(controller)
+        val oldSocket = closedStreamSocket()
+        val newSocket = mock(BluetoothSocket::class.java)
+        val newManager = AACPManager(newSocket)
+        val newContext = ContextWrapper(null)
+        `when`(oldSocket.inputStream).thenAnswer {
+            field("sessionId").setLong(controller, generation + 1)
+            field("socket").set(controller, newSocket)
+            field("aacpManager").set(controller, newManager)
+            field("mContext").set(controller, newContext)
+            ByteArrayInputStream(byteArrayOf())
+        }
+        with(controller) { runControlAttempt(context, device, generation) { oldSocket } }
+        verify(oldSocket).close()
+        verify(newSocket, never()).close()
+        assertSame(newSocket, field("socket").get(controller))
+        assertSame(newManager, field("aacpManager").get(controller))
+        assertSame(newContext, field("mContext").get(controller))
+        assertEquals(generation + 1, field("sessionId").getLong(controller))
+    }
+
+    @Test fun automaticRecoveryIsBoundedAndRetainsManualRecoveryAfterExhaustion() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        val sockets = mutableListOf<BluetoothSocket>()
+        with(controller) {
+            recoverControlSession(context, device, field("sessionId").getLong(controller)) {
+                closedStreamSocket().also { sockets.add(it) }
+            }
+        }
+        assertEquals(4, sockets.size)
+        sockets.forEach { verify(it).close() }
+        assertSame(context, field("mContext").get(controller))
+        assertEquals("failed", field("connectionState").get(controller))
+    }
+
+    @Test fun physicalDisconnectDuringRetryDelayStopsRecovery() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        val generation = field("sessionId").getLong(controller)
+        var attempts = 0
+        val recovery = launch {
+            with(controller) {
+                recoverControlSession(context, device, generation) {
+                    attempts++
+                    closedStreamSocket()
+                }
+            }
+        }
+        delay(100)
+        assertEquals(1, attempts)
+        // This fixture has no registered Android receiver to unregister.
+        field("mContext").set(controller, null)
+        controller.disconnectedPod(context, device)
+        recovery.join()
+        assertTrue(recovery.isCancelled)
+        assertEquals(1, attempts)
+    }
+
+    @Test fun cancellationDuringSocketCreationIsNotTreatedAsARetryableFailure() = runBlocking {
+        var attempts = 0
+        with(controller) {
+            try {
+                recoverControlSession(ContextWrapper(null), device, field("sessionId").getLong(controller)) {
+                    attempts++
+                    throw CancellationException("Cancelled by disconnect")
+                }
+                fail("Cancellation must escape recovery")
+            } catch (_: CancellationException) { }
+        }
+        assertEquals(1, attempts)
     }
 
     private fun route(id: String, routeType: Int) = mock(MediaRoute2Info::class.java).apply {
         `when`(this.id).thenReturn(id)
         `when`(this.type).thenReturn(routeType)
         `when`(this.name).thenReturn("Test headset")
+    }
+
+    @Test fun removingEarbudsCannotTakeOverAnotherSelectedOutput() {
+        `when`(device.name).thenReturn("Test headset")
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val other = route("other", MediaRoute2Info.TYPE_BLUETOOTH_A2DP).apply {
+            `when`(name).thenReturn("Another headset")
+        }
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(other))
+        field("mediaRouter").set(controller, router)
+        controller.routes = listOf(speaker, headset, other)
+        synchronized(controller) { wear(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.OUT_OF_EAR) }
+        Thread.sleep(650)
+        verify(router, never()).transferTo(any())
+        assertFalse(field("switchedToSpeaker").getBoolean(controller))
+    }
+
+    @Test fun userRouteChangeAfterAutomaticSpeakerSwitchRelinquishesOwnership() = synchronized(controller) {
+        `when`(device.name).thenReturn("Test headset")
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val other = route("other", MediaRoute2Info.TYPE_BLUETOOTH_A2DP).apply {
+            `when`(name).thenReturn("Another headset")
+        }
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(other))
+        field("mediaRouter").set(controller, router)
+        field("switchedToSpeaker").setBoolean(controller, true)
+        field("pausedAudio").setBoolean(controller, true)
+        controller.routes = listOf(headset, other)
+        wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+        verify(router, never()).transferTo(any())
+        assertFalse(field("switchedToSpeaker").getBoolean(controller))
+        assertFalse(field("pausedAudio").getBoolean(controller))
     }
 
     @Test fun cachedRouteIdentitySurvivesAliasAndDisplayNameChanges() = synchronized(controller) {

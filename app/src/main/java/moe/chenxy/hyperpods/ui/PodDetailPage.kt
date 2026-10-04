@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -139,7 +140,8 @@ fun PodDetailPage(
         return stringResource(summary) + "\n" + stringResource(status)
     }
     val allowedModes = PodsSettings.allowedNoiseModes(model, settings)
-    var adaptiveDraft by remember(settings[Key.ADAPTIVE_AUDIO_LEVEL]) { mutableFloatStateOf(adaptiveAudioLevel) }
+    var adaptiveDraft by remember(settings[Key.ADAPTIVE_AUDIO_LEVEL], Key.ADAPTIVE_AUDIO_LEVEL in pendingSettings,
+        settingFeedback[Key.ADAPTIVE_AUDIO_LEVEL]) { mutableFloatStateOf(adaptiveAudioLevel) }
     var chimeDraft by remember(settings[Key.CHIME_VOLUME], Key.CHIME_VOLUME in pendingSettings) { mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat()) }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = isActive && detailPage != 0) { detailPage = 0 }
@@ -328,7 +330,8 @@ fun PodDetailPage(
                         Slider(value = chimeDraft, valueRange = 0f..100f,
                             onValueChange = { chimeDraft = it },
                             onValueChangeFinished = { onSettingChange(Key.CHIME_VOLUME, chimeDraft.toInt()) },
-                            enabled = ready(Key.CHIME_VOLUME), modifier = Modifier.fillMaxWidth())
+                            enabled = ready(Key.CHIME_VOLUME), modifier = Modifier.fillMaxWidth()
+                                .progressSemantics(chimeDraft, 0f..100f))
                     }
                     if (Capability.LOUD_SOUND_REDUCTION in model?.capabilities.orEmpty()) SuperSwitch(
                         title = stringResource(R.string.loud_sound_reduction_title),
@@ -365,7 +368,7 @@ fun PodDetailPage(
                                     onValueChange = { adaptiveDraft = it },
                                     onValueChangeFinished = { onAdaptiveAudioLevelChange(adaptiveDraft) },
                                     enabled = ready(Key.ADAPTIVE_AUDIO_LEVEL),
-                                    modifier = Modifier.padding(top = 8.dp),
+                                    modifier = Modifier.padding(top = 8.dp).progressSemantics(adaptiveDraft),
                                     effect = true,
                                     showKeyPoints = true,
                                     keyPoints = listOf(0f, 0.5f, 1f),

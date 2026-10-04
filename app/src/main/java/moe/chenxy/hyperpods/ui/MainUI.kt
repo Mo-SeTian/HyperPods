@@ -155,6 +155,9 @@ fun MainUI() {
                         val bundle = p1.getBundleExtra("settings") ?: return
                         settings.clear()
                         bundle.keySet().filter { it in PodsSettings.identifiers }.forEach { settings[it] = bundle.getInt(it) }
+                        // A recovered channel starts with an empty cache; do not
+                        // carry a previous session's failure into fresh reports.
+                        settingFeedback.keys.retainAll(settings.keys + PodsSettings.RENAME)
                         pendingSettings = p1.getStringArrayListExtra("pending")?.toSet().orEmpty()
                         val unconfirmed = p1.getStringArrayListExtra("unconfirmed")?.toSet().orEmpty()
                         settings.keys.forEach { key ->

@@ -87,7 +87,7 @@ class AACPManagerTest {
             this[6] = 13
             this[7] = 2
         }
-        assertArrayEquals(byteArrayOf(2), AACPManager.ControlCommand.fromByteArray(complete).value)
+        assertArrayEquals(byteArrayOf(2, 0, 0, 0), AACPManager.ControlCommand.fromByteArray(complete).value)
     }
 
     @Test fun malformedNotificationsDoNotPreventTheNextValidPacket() {
@@ -231,7 +231,7 @@ class AACPManagerTest {
         val listener = mock(AACPManager.ControlCommandListener::class.java)
         manager.registerControlCommandListener(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE, listener)
         manager.receivePacket(packet(0x09, 11).apply { this[6] = 1; this[7] = 2 })
-        verify(listener, times(1)).onControlCommandReceived(AACPManager.ControlCommand(1, byteArrayOf(2)))
+        verify(listener, times(1)).onControlCommandReceived(AACPManager.ControlCommand(1, byteArrayOf(2, 0, 0, 0)))
         assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
     }
 
