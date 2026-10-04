@@ -90,11 +90,25 @@ class AirPodsNotifications {
         private val notificationBit = Capabilities.EAR_DETECTION
         private val notificationPrefix = Enums.PREFIX.value + notificationBit
 
-        var status: List<Byte> = listOf(0x01, 0x01)
+        // AACP reports primary/secondary, not fixed left/right ears.
+        var status: List<Byte>? = null
+            private set
 
-        fun setStatus(data: ByteArray) {
-            if (!isEarDetectionData(data)) return
+        fun reset() { status = null }
+
+        fun setStatus(data: ByteArray): Boolean {
+            if (!isEarDetectionData(data) || data[6].toInt() !in 0..3 || data[7].toInt() !in 0..3) return false
             status = listOf(data[6], data[7])
+            return true
+        }
+
+        fun getLeftRightStatus(primaryComponent: Int?): List<Byte>? {
+            val reported = status ?: return null
+            return when (primaryComponent) {
+                BatteryComponent.LEFT -> reported
+                BatteryComponent.RIGHT -> reported.reversed()
+                else -> null // Wait for a battery report instead of guessing the physical sides.
+            }
         }
 
         fun isEarDetectionData(data: ByteArray): Boolean {
@@ -157,11 +171,14 @@ class AirPodsNotifications {
         private var first = Battery(BatteryComponent.LEFT, -1, BatteryStatus.DISCONNECTED)
         private var second = Battery(BatteryComponent.RIGHT, -1, BatteryStatus.DISCONNECTED)
         private var case = Battery(BatteryComponent.CASE, -1, BatteryStatus.DISCONNECTED)
+        var primaryComponent: Int? = null
+            private set
 
         fun reset() {
             first = Battery(BatteryComponent.LEFT, -1, BatteryStatus.DISCONNECTED)
             second = Battery(BatteryComponent.RIGHT, -1, BatteryStatus.DISCONNECTED)
             case = Battery(BatteryComponent.CASE, -1, BatteryStatus.DISCONNECTED)
+            primaryComponent = null
         }
 
         fun isBatteryData(data: ByteArray): Boolean {
@@ -176,6 +193,11 @@ class AirPodsNotifications {
 
         fun setBattery(data: ByteArray): Boolean {
             if (!isBatteryData(data)) return false
+            // Like LibrePods, the first ear record identifies the primary pod.
+            // Case-only updates retain the previous mapping.
+            (7 until data.size step 5).map { data[it].toInt() and 0xff }
+                .firstOrNull { it == BatteryComponent.LEFT || it == BatteryComponent.RIGHT }
+                ?.let { primaryComponent = it }
             // Records may arrive in either ear order. Never reuse the other
             // ear's cached level when a record is disconnected or not ready.
             for (offset in 7 until data.size step 5) {

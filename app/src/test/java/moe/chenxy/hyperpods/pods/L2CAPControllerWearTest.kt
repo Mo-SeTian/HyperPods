@@ -53,6 +53,8 @@ class L2CAPControllerWearTest {
     }
 
     @Before fun setUp() {
+        AirPodsNotifications.BatteryNotification.reset()
+        AirPodsNotifications.EarDetection.reset()
         broadcasts = mockStatic(BroadcastOptions::class.java)
         val options = mock(BroadcastOptions::class.java, RETURNS_SELF)
         broadcasts.`when`<BroadcastOptions> { BroadcastOptions.makeBasic() }.thenReturn(options)
@@ -82,6 +84,133 @@ class L2CAPControllerWearTest {
         (field("routeTransferTimeout").get(controller) as Job?)?.cancel()
         field("routeTransferTimeout").set(controller, null)
         broadcasts.close()
+    }
+
+    private fun protocolReceiver(): AACPManager {
+        // Exercise the actual packet callbacks without notification or audio services.
+        field("mContext").set(controller, null)
+        val socket = mock(BluetoothSocket::class.java)
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
+        return AACPManager(socket).also {
+            field("aacpManager").set(controller, it)
+            it.setPacketCallback(field("packetCallback").get(controller) as AACPManager.PacketCallback)
+        }
+    }
+
+    private fun batteryReport(vararg components: Int): ByteArray =
+        byteArrayOf(4, 0, 4, 0, 4, 0, components.size.toByte()) + components.flatMap {
+            val level = when (it) { BatteryComponent.LEFT -> 82; BatteryComponent.RIGHT -> 65; else -> 91 }
+            listOf(it.toByte(), 1, level.toByte(), BatteryStatus.NOT_CHARGING.toByte(), 0)
+        }.toByteArray()
+
+    private fun earReport(primary: Byte, secondary: Byte): ByteArray =
+        byteArrayOf(4, 0, 4, 0, 6, 0, primary, secondary)
+
+    private fun assertEars(left: Byte, right: Byte) {
+        assertTrue(field("earDetectionStateValid").getBoolean(controller))
+        assertEquals(left, controller.currentEarDetectionParams.left)
+        assertEquals(right, controller.currentEarDetectionParams.right)
+    }
+
+    @Test fun rightPrimaryMapsSingleLeftAndRightEarWear() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        manager.receivePacket(earReport(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR)
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        assertEars(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR)
+    }
+
+    @Test fun leftPrimaryMapsSingleLeftAndRightEarWear() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT))
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR)
+        manager.receivePacket(earReport(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR))
+        assertEars(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR)
+    }
+
+    @Test fun wearBeforeBatteryWaitsForSideMappingThenAppliesTheCachedReport() {
+        val manager = protocolReceiver()
+        manager.receivePacket(earReport(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR))
+        assertFalse("Do not guess physical sides before the primary is known",
+            field("earDetectionStateValid").getBoolean(controller))
+        manager.receivePacket(batteryReport(BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR)
+    }
+
+    @Test fun primaryChangeRemapsCachedWearAndCaseStateWithoutChangingBatteryLevels() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_CASE))
+        assertEars(EarDetectionStatus.IN_CASE, EarDetectionStatus.IN_EAR)
+        assertTrue(controller.currentBatteryParams.left!!.isInCase)
+        assertFalse(controller.currentBatteryParams.right!!.isInCase)
+        manager.receivePacket(batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_CASE)
+        assertFalse(controller.currentBatteryParams.left!!.isInCase)
+        assertTrue(controller.currentBatteryParams.right!!.isInCase)
+        assertEquals(82, controller.currentBatteryParams.left!!.battery)
+        assertEquals(65, controller.currentBatteryParams.right!!.battery)
+    }
+
+    @Test fun caseOnlyReportRetainsThePrimaryAndCaseFirstIsNotAnEar() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.CASE, BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        assertEars(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR)
+        manager.receivePacket(batteryReport(BatteryComponent.CASE))
+        assertEars(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR)
+    }
+
+    @Test fun singleEarReportMapsItsPrimaryStatusToThePhysicalEar() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.RIGHT))
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, 3))
+        assertEars(3, EarDetectionStatus.IN_EAR)
+    }
+
+    @Test fun controlReconnectClearsOldPrimaryAndWearReports() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+        val reconnected = protocolReceiver()
+        reconnected.receivePacket(batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT))
+        assertFalse("A new battery report must not replay the previous session's wear state",
+            field("earDetectionStateValid").getBoolean(controller))
+        reconnected.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR)
+    }
+
+    @Test fun legacyPacketEntryUsesTheSamePhysicalSideMapping() {
+        field("mContext").set(controller, null)
+        controller.handleAirPodsPacket(batteryReport(BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        controller.handleAirPodsPacket(earReport(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR)
+    }
+
+    @Test fun physicalDisconnectClearsPrimaryBeforeTheNextWearReport() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        controller.disconnectedPod(ContextWrapper(null), device)
+        val reconnected = protocolReceiver()
+        reconnected.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        assertFalse(field("earDetectionStateValid").getBoolean(controller))
+        reconnected.receivePacket(batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR)
+    }
+
+    @Test fun invalidWearReportCannotCorruptARemapWhenPrimaryChanges() {
+        val manager = protocolReceiver()
+        manager.receivePacket(batteryReport(BatteryComponent.RIGHT, BatteryComponent.LEFT))
+        manager.receivePacket(earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR))
+        assertEars(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR)
+        manager.receivePacket(earReport(0xff.toByte(), EarDetectionStatus.IN_EAR))
+        manager.receivePacket(batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT))
+        assertEars(EarDetectionStatus.IN_EAR, EarDetectionStatus.OUT_OF_EAR)
     }
 
     @Test fun initialWearDoesNotForceAnAudioReconnect() = synchronized(controller) {

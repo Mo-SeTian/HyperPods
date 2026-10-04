@@ -15,6 +15,42 @@ class BatteryNotificationTest {
         }.toByteArray()
     }
 
+    @Test fun firstEarRecordDefinesPrimaryWithoutReorderingPhysicalBatteryValues() {
+        parser.setBattery(packet(
+            Battery(BatteryComponent.CASE, 91, BatteryStatus.NOT_CHARGING),
+            Battery(BatteryComponent.RIGHT, 65, BatteryStatus.NOT_CHARGING),
+            Battery(BatteryComponent.LEFT, 82, BatteryStatus.NOT_CHARGING)))
+        assertEquals(BatteryComponent.RIGHT, parser.primaryComponent)
+        assertEquals(listOf(82, 65, 91), parser.getBattery().map { it.level })
+        parser.setBattery(packet(
+            Battery(BatteryComponent.LEFT, 81, BatteryStatus.NOT_CHARGING),
+            Battery(BatteryComponent.RIGHT, 64, BatteryStatus.NOT_CHARGING)))
+        assertEquals(BatteryComponent.LEFT, parser.primaryComponent)
+        assertEquals(listOf(81, 64, 91), parser.getBattery().map { it.level })
+    }
+
+    @Test fun caseOnlyUpdateKeepsPrimaryAndSingleEarReportCanChangeIt() {
+        parser.setBattery(packet(Battery(BatteryComponent.RIGHT, 65, BatteryStatus.NOT_CHARGING)))
+        parser.setBattery(packet(Battery(BatteryComponent.CASE, 91, BatteryStatus.NOT_CHARGING)))
+        assertEquals(BatteryComponent.RIGHT, parser.primaryComponent)
+        parser.setBattery(packet(Battery(BatteryComponent.LEFT, 82, BatteryStatus.NOT_CHARGING)))
+        assertEquals(BatteryComponent.LEFT, parser.primaryComponent)
+    }
+
+    @Test fun primaryRoleUsesReportOrderEvenForPendingOrDisconnectedRecords() {
+        for (status in listOf(BatteryStatus.NEED_AGAIN, BatteryStatus.DISCONNECTED)) {
+            parser.setBattery(packet(Battery(BatteryComponent.RIGHT, 0, status),
+                Battery(BatteryComponent.LEFT, 82, BatteryStatus.NOT_CHARGING)))
+            assertEquals(BatteryComponent.RIGHT, parser.primaryComponent)
+        }
+    }
+
+    @Test fun invalidBatteryPacketCannotReplacePrimaryRole() {
+        parser.setBattery(packet(Battery(BatteryComponent.RIGHT, 65, BatteryStatus.NOT_CHARGING)))
+        assertFalse(parser.setBattery(packet(Battery(BatteryComponent.LEFT, 82, BatteryStatus.NOT_CHARGING)).copyOf(11)))
+        assertEquals(BatteryComponent.RIGHT, parser.primaryComponent)
+    }
+
     @Test fun fastRemovalDoesNotDiscardReadyEarWhenCaseOrOtherEarIsPending() {
         assertTrue(parser.setBattery(packet(
             Battery(BatteryComponent.LEFT, 82, BatteryStatus.NOT_CHARGING),
@@ -107,6 +143,7 @@ class BatteryNotificationTest {
         ))
         parser.reset()
         assertTrue(parser.getBattery().all { it.level == -1 && !it.isAvailable })
+        assertNull(parser.primaryComponent)
     }
 
     @Test fun truncatedPacketIsRejectedWithoutChangingState() {

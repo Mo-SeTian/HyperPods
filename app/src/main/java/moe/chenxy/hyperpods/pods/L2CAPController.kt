@@ -430,6 +430,18 @@ object L2CAPController {
     }
 
     @Synchronized
+    private fun handleEarDetectionPacket(packet: ByteArray) {
+        if (!AirPodsNotifications.EarDetection.setStatus(packet)) return
+        val status = AirPodsNotifications.EarDetection.getLeftRightStatus(
+            AirPodsNotifications.BatteryNotification.primaryComponent)
+        if (status == null) {
+            aacpManager?.sendNotificationRequest()
+            return
+        }
+        handleInEarStatusChanged(status)
+    }
+
+    @Synchronized
     private fun handleInEarStatusChanged(status: List<Byte>) {
         if (status.size != 2 || status.any { it.toInt() !in 0..3 }) return
         if (earDetectionStateValid && ::currentEarDetectionParams.isInitialized) {
@@ -588,6 +600,9 @@ object L2CAPController {
     @OptIn(ExperimentalStdlibApi::class)
     @Synchronized
     fun handleBatteryChanged(packet: ByteArray) {
+        // Apply an earlier wear report, or remap it if the primary ear changed.
+        AirPodsNotifications.EarDetection.getLeftRightStatus(
+            AirPodsNotifications.BatteryNotification.primaryComponent)?.let(::handleInEarStatusChanged)
         val batteries = AirPodsNotifications.BatteryNotification.getBattery()
         val leftInCase = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
                 isInCaseStatus(currentEarDetectionParams.left)
@@ -659,10 +674,10 @@ object L2CAPController {
     }
 
     @OptIn(ExperimentalStdlibApi::class)
+    @Synchronized
     fun handleAirPodsPacket(packet: ByteArray) {
         if (AirPodsNotifications.EarDetection.isEarDetectionData(packet)) {
-            AirPodsNotifications.EarDetection.setStatus(packet)
-            handleInEarStatusChanged(AirPodsNotifications.EarDetection.status)
+            handleEarDetectionPacket(packet)
         } else if (AirPodsNotifications.ANC.isANCData(packet)) {
             AirPodsNotifications.ANC.setStatus(packet)
             currentAnc = AirPodsNotifications.ANC.status
@@ -767,8 +782,7 @@ object L2CAPController {
         }
 
         override fun onEarDetectionReceived(earDetection: ByteArray) {
-            AirPodsNotifications.EarDetection.setStatus(earDetection)
-            handleInEarStatusChanged(AirPodsNotifications.EarDetection.status)
+            handleEarDetectionPacket(earDetection)
         }
 
         override fun onConversationAwarenessReceived(conversationAwareness: ByteArray) {
@@ -1161,6 +1175,7 @@ object L2CAPController {
         lastSettingsState = null
         lastDiagnostics = null
         AirPodsNotifications.BatteryNotification.reset()
+        AirPodsNotifications.EarDetection.reset()
         currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
     }
 
@@ -1199,6 +1214,8 @@ object L2CAPController {
         lastCaseConnected = false
         batteryStateValid = false
         earDetectionStateValid = false
+        AirPodsNotifications.BatteryNotification.reset()
+        AirPodsNotifications.EarDetection.reset()
         pausedAudio = false
         currentAnc = 0
         currentPodsInfo = null

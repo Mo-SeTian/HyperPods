@@ -37,6 +37,7 @@ class L2CAPControllerSettingsTest {
 
     @Before fun setUp() {
         AirPodsNotifications.BatteryNotification.reset()
+        AirPodsNotifications.EarDetection.reset()
         field("batteryStateValid").set(controller, false)
         field("earDetectionStateValid").set(controller, false)
         field("conversationPhoneVolume").set(controller, true)
