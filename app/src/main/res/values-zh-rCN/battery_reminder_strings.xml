@@ -1,0 +1,13 @@
+<resources>
+    <string name="battery_reminder_title">低电量提醒</string>
+    <string name="battery_reminder_ears">耳机低电量提醒</string>
+    <string name="battery_reminder_ears_summary">左右耳独立判断，同时电量低时合并提醒。</string>
+    <string name="battery_reminder_ears_threshold">耳机提醒阈值</string>
+    <string name="battery_reminder_case">耳机仓低电量提醒</string>
+    <string name="battery_reminder_case_summary">仅使用新收到的耳机仓电量；仓离线时无法实时监测。</string>
+    <string name="battery_reminder_case_threshold">耳机仓提醒阈值</string>
+    <string name="battery_reminder_rules">提醒规则</string>
+    <string name="battery_reminder_rules_summary" formatted="false">达到设置阈值提醒一次，降到 10% 再提醒一次；阈值设为 10% 时合并为一次。收到恢复至对应阈值以上至少 5 个百分点的新电量后，允许下一轮提醒。充电和待刷新数据不报警，重连或重启不清空去重记录；不播报、不打断播放、不增加常驻通知。</string>
+    <string name="battery_reminder_low_message">电量低：%1$s，请充电。</string>
+    <string name="battery_reminder_critical_message">电量即将耗尽：%1$s，请及时充电。</string>
+</resources>

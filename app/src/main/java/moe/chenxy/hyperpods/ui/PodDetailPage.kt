@@ -54,6 +54,8 @@ import moe.chenxy.hyperpods.utils.AirPodsModels.getModelByModelNumber
 import moe.chenxy.hyperpods.utils.AirPods
 import moe.chenxy.hyperpods.utils.Capability
 import moe.chenxy.hyperpods.utils.PodsSettings
+import moe.chenxy.hyperpods.utils.LowBatterySettings
+import moe.chenxy.hyperpods.utils.LowBatteryReminder
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
@@ -101,6 +103,8 @@ fun PodDetailPage(
     settings: Map<String, Int> = emptyMap(),
     pendingSettings: Set<String> = emptySet(),
     settingFeedback: Map<String, String> = emptyMap(),
+    lowBatterySettings: LowBatterySettings = LowBatterySettings(),
+    onLowBatterySettingsChange: (LowBatterySettings) -> Unit = {},
     conversationPhoneVolume: Boolean = true,
     onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
@@ -207,6 +211,30 @@ fun PodDetailPage(
             val cardModifier = Modifier
                 .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
             val titleModifier = Modifier
+
+            SmallTitle(stringResource(R.string.battery_reminder_title), modifier = titleModifier)
+            Card(modifier = cardModifier) {
+                SuperSwitch(title = stringResource(R.string.battery_reminder_ears),
+                    summary = stringResource(R.string.battery_reminder_ears_summary),
+                    checked = lowBatterySettings.earsEnabled,
+                    onCheckedChange = { onLowBatterySettingsChange(lowBatterySettings.copy(earsEnabled = it)) })
+                SuperDropdown(title = stringResource(R.string.battery_reminder_ears_threshold),
+                    items = LowBatteryReminder.thresholds.map { "$it%" },
+                    selectedIndex = LowBatteryReminder.thresholds.indexOf(lowBatterySettings.earsThreshold),
+                    enabled = lowBatterySettings.earsEnabled,
+                    onSelectedIndexChange = { onLowBatterySettingsChange(lowBatterySettings.copy(earsThreshold = LowBatteryReminder.thresholds[it])) })
+                SuperSwitch(title = stringResource(R.string.battery_reminder_case),
+                    summary = stringResource(R.string.battery_reminder_case_summary),
+                    checked = lowBatterySettings.caseEnabled,
+                    onCheckedChange = { onLowBatterySettingsChange(lowBatterySettings.copy(caseEnabled = it)) })
+                SuperDropdown(title = stringResource(R.string.battery_reminder_case_threshold),
+                    items = LowBatteryReminder.thresholds.map { "$it%" },
+                    selectedIndex = LowBatteryReminder.thresholds.indexOf(lowBatterySettings.caseThreshold),
+                    enabled = lowBatterySettings.caseEnabled,
+                    onSelectedIndexChange = { onLowBatterySettingsChange(lowBatterySettings.copy(caseThreshold = LowBatteryReminder.thresholds[it])) })
+                top.yukonga.miuix.kmp.basic.BasicComponent(title = stringResource(R.string.battery_reminder_rules),
+                    summary = stringResource(R.string.battery_reminder_rules_summary), enabled = false)
+            }
 
             // Press & Hold Settings
             if (PodsSettings.supports(Key.LISTENING_MODE_BYTE, model)) PressAndHoldSettingPage(

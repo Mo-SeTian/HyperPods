@@ -15,6 +15,8 @@ import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Bundle
 import android.os.Process
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
@@ -25,6 +27,11 @@ import de.robv.android.xposed.XposedHelpers
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.utils.PodsIslandData
+import moe.chenxy.hyperpods.utils.LowBatterySettings
+import moe.chenxy.hyperpods.utils.LowBatteryReminder
+import moe.chenxy.hyperpods.utils.BatteryReminderStore
+import moe.chenxy.hyperpods.utils.BatteryReminderText
+import moe.chenxy.hyperpods.utils.BatteryReminderBatch
 import moe.chenxy.hyperpods.utils.SystemApisUtils
 import moe.chenxy.hyperpods.utils.SystemApisUtils.cancelAsUser
 import moe.chenxy.hyperpods.utils.SystemApisUtils.notifyAsUser
@@ -136,7 +143,8 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             return "${PodsIslandData.batteryText(batteryParams.left)} / ${PodsIslandData.batteryText(batteryParams.right)}"
         }
 
-        fun buildNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams): Notification.Builder {
+        fun buildNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams,
+            warning: String = ""): Notification.Builder {
             initResources(context)
 
             val address: String = bluetoothDevice.address
@@ -190,11 +198,11 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val rightEar = " | ${context.resources.getString(miheadset_notification_RightEar)}：${PodsIslandData.batteryText(batteryParams.right)}" +
                     (if (batteryParams.right?.isCharging == true) " ⚡" else "")
 
-            val content: String = caseBattStr + leftEar + rightEar
+            val content: String = (if (warning.isEmpty()) "" else "$warning\n") + caseBattStr + leftEar + rightEar
             return Notification.Builder(context, "BTHeadset$address").setSmallIcon(
                 android.R.drawable.stat_sys_data_bluetooth
             ).setWhen(0L).setTicker(alias).setDefaults(-1).setContentTitle(alias)
-                .setContentText(content)
+                .setContentText(content).setStyle(Notification.BigTextStyle().bigText(content)).setOnlyAlertOnce(true)
                 .setContentIntent(pendingIntent)
                 .setDeleteIntent(deleteIntent(context, bluetoothDevice)).setColor(
                     context.getColor(
@@ -257,8 +265,9 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             )
         }
 
-        fun createPodsIslandNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams) {
-            val sendNotification = buildNotification(bluetoothDevice, context, batteryParams)
+        fun createPodsIslandNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams,
+            warning: String = "") {
+            val sendNotification = buildNotification(bluetoothDevice, context, batteryParams, warning)
 //            val actions = focusApi.actionInfo(actionIntent = actionIntent, actionIntentType = "2", actionTitle = context.resources
 //                .getString(miheadset_notification_Disconnect))
 
@@ -300,7 +309,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             actionObject.put("action", "miui.focus.action_disconnect")
 
             val baseInfo = focusApi.baseinfo(title = "$leftEar$rightEar",
-                basetype = 1, content = caseBattStr)
+                basetype = 1, content = (if (warning.isEmpty()) "" else "$warning\n") + caseBattStr)
             val hintInfo = focusApi.hintInfo(type = 2,
                 titleLineCount = 1,
                 title = bluetoothDevice.name,
@@ -347,15 +356,16 @@ object MiBluetoothToastHook : YukiBaseHooker(){
         }
 
         @SuppressLint("WrongConstant")
-        fun createPodsNotification(bluetoothDevice: BluetoothDevice?, context: Context, batteryParams: BatteryParams) {
+        fun createPodsNotification(bluetoothDevice: BluetoothDevice?, context: Context, batteryParams: BatteryParams,
+            warning: String = ""): Boolean {
             if (bluetoothDevice == null) {
                 Log.e("Art_Chen", "createPodsNotification: btDevice null");
-                return
+                return false
             }
             if (supportsIsland(context)) {
                 try {
-                    createPodsIslandNotification(bluetoothDevice, context, batteryParams)
-                    return
+                    createPodsIslandNotification(bluetoothDevice, context, batteryParams, warning)
+                    return true
                 } catch (error: Exception) {
                     Log.w("Art_Chen", "Unable to create headset island; using notification", error)
                 }
@@ -372,11 +382,13 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 notificationManager.notifyAsUser(
                     "BTHeadset$address",
                     10003,
-                    buildNotification(bluetoothDevice, context, batteryParams).build(),
+                    buildNotification(bluetoothDevice, context, batteryParams, warning).build(),
                     SystemApisUtils.getUserAllUserHandle()
                 )
+                return true
             } catch (e: Exception) {
                 Log.e("Art_Chen", "Failed to create Pod Notification", e)
+                return false
             }
         }
 
@@ -397,6 +409,16 @@ object MiBluetoothToastHook : YukiBaseHooker(){
 
         fun registerHyperPodsReceiver(context: Context) {
             if (receiverRegistered) return
+            val handler = Handler(Looper.getMainLooper())
+            val warningBatch = BatteryReminderBatch()
+            var warningDevice: BluetoothDevice? = null
+            var warningTask: Runnable? = null
+            fun cancelWarning() {
+                warningTask?.let(handler::removeCallbacks)
+                warningTask = null
+                warningBatch.clear()
+                warningDevice = null
+            }
             val receiver = object : BroadcastReceiver() {
                 override fun onReceive(receiveContext: Context?, intent: Intent?) {
                     if (!HyperPodsBroadcasts.isTrusted(context, this, HyperPodsBroadcasts.BLUETOOTH)) return
@@ -417,11 +439,48 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                             }
                             "chen.action.hyperpods.updatepodsnotification" -> {
                                 val params = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
+                                val device = intent.getParcelableExtra("device", BluetoothDevice::class.java) ?: return
+                                val settings = intent.getParcelableExtra("lowBatterySettings", LowBatterySettings::class.java)
+                                    ?.takeIf { it.valid } ?: LowBatterySettings()
                                 MiuiStrongToastUtil.updateCaseBatteryState(params)
-                                createPodsNotification(intent.getParcelableExtra("device", BluetoothDevice::class.java), context, params)
+                                try {
+                                    val resources = context.createPackageContext(BuildConfig.APPLICATION_ID, 0).resources
+                                    val warning = BatteryReminderText.format(resources, params, LowBatteryReminder.lowComponents(params, settings))
+                                    val store = BatteryReminderStore(context.getSharedPreferences("hyperpods_battery_reminders", Context.MODE_PRIVATE), device.address)
+                                    val decisions = LowBatteryReminder.evaluate(params, intent.getIntArrayExtra("freshComponents") ?: intArrayOf(), settings, store::state)
+                                    val posted = createPodsNotification(device, context, params, warning)
+                                    store.commit(decisions, posted)
+                                    if (warningDevice != device) cancelWarning()
+                                    warningDevice = device
+                                    val alerts = if (posted) decisions.filter { it.alert }.map { it.component } else emptyList()
+                                    val hasWarning = warningBatch.update(params, settings, alerts)
+                                    // Merge split left/right/case reports arriving close together into one transient warning.
+                                    if (hasWarning && warningTask == null) {
+                                        warningTask = Runnable {
+                                            warningTask = null
+                                            try {
+                                                warningBatch.take()?.let { (latest, components) ->
+                                                    val text = BatteryReminderText.format(resources, latest, components)
+                                                    if (text.isNotEmpty()) MiuiStrongToastUtil.showLowBatteryToast(context, text)
+                                                }
+                                            } catch (_: Exception) {
+                                                warningBatch.clear()
+                                                Log.w("Art_Chen", "Unable to show low battery warning")
+                                            }
+                                        }.also { handler.postDelayed(it, 350) }
+                                    }
+                                } catch (_: Exception) {
+                                    // An optional reminder failure must not remove the normal battery/settings entry.
+                                    Log.w("Art_Chen", "Low battery reminder unavailable; retaining headset notification")
+                                    cancelWarning()
+                                    createPodsNotification(device, context, params)
+                                }
                             }
                             "chen.action.hyperpods.cancelpodsnotification" ->
-                                intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let { cancelNotification(it, context) }
+                                intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let {
+                                    if (it == warningDevice) cancelWarning()
+                                    cancelNotification(it, context)
+                                }
                             "chen.action.hyperpods.podconnecting" ->
                                 intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let { showConnectedToast(it, context) }
                         }

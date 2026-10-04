@@ -34,6 +34,7 @@ import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.AirPodsModels
 import moe.chenxy.hyperpods.utils.ConversationVolume
 import moe.chenxy.hyperpods.utils.DiagnosticsHistory
+import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.SystemApisUtils
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil
@@ -111,6 +112,7 @@ object L2CAPController {
     private var earDetection = true
     private var autoSwitchToSpeaker = true
     private var conversationPhoneVolume = true
+    private var lowBatterySettings = LowBatterySettings()
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(p0: Context?, p1: Intent?) {
@@ -235,6 +237,12 @@ object L2CAPController {
                         } else updateFeatureToggle()
                     } else if (it == HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME && intent.hasExtra("enabled")) {
                         updateConversationPhoneVolume(intent.getBooleanExtra("enabled", true))
+                    } else if (it == HyperPodsPrefsKey.LOW_BATTERY_EARS) {
+                        intent.getParcelableExtra("lowBatterySettings", LowBatterySettings::class.java)?.takeIf { it.valid }?.let { settings ->
+                            lowBatterySettings = settings
+                            if (::currentBatteryParams.isInitialized)
+                                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
+                        }
                     } else if (intent.hasExtra("value")) {
                         sendSetting(it, intent.getIntExtra("value", -1))
                     }
@@ -401,7 +409,7 @@ object L2CAPController {
             currentBatteryParams.left?.isInCase = leftInCase
             currentBatteryParams.right?.isInCase = rightInCase
             if (caseStateChanged) {
-                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice)
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
                 changeUIBatteryStatus(currentBatteryParams)
             }
         }
@@ -586,7 +594,10 @@ object L2CAPController {
             mShowedConnectedToast = true
         }
         lastCaseConnected = case.isConnected
-        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, batteryParams, mDevice)
+        // Only records from this packet may trigger/rearm a reminder, never other cached components.
+        val fresh = if (AirPodsNotifications.BatteryNotification.isBatteryData(packet))
+            (7 until packet.size step 5).map { packet[it].toInt() and 0xff }.toIntArray() else intArrayOf()
+        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, batteryParams, mDevice, lowBatterySettings, fresh)
         changeUIBatteryStatus(batteryParams)
 
         lastTempBatt = if (left.isConnected && right.isConnected)
@@ -635,6 +646,12 @@ object L2CAPController {
             mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)
         )
         updateConversationPhoneVolume(mPrefsBridge.getBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, true))
+        lowBatterySettings = LowBatterySettings(
+            mPrefsBridge.getBoolean(HyperPodsPrefsKey.LOW_BATTERY_EARS, true),
+            mPrefsBridge.getInt(HyperPodsPrefsKey.LOW_BATTERY_EARS_THRESHOLD, 20),
+            mPrefsBridge.getBoolean(HyperPodsPrefsKey.LOW_BATTERY_CASE, true),
+            mPrefsBridge.getInt(HyperPodsPrefsKey.LOW_BATTERY_CASE_THRESHOLD, 20),
+        ).takeIf { it.valid } ?: LowBatterySettings()
     }
 
     private fun updateConversationPhoneVolume(enabled: Boolean) {
@@ -765,7 +782,7 @@ object L2CAPController {
                 }
                     .onFailure { Log.w(TAG, "Unable to update Bluetooth alias") }
                 sendSettingResult(PodsSettings.RENAME, true)
-                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice)
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
             }
             sendConnectedStatus()
         }
@@ -954,7 +971,7 @@ object L2CAPController {
                         aacpManager = manager
                         connectionState = "connected"
                         manager.setPacketCallback(packetCallback)
-                        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device)
+                        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings)
                         sendConnectedStatus()
                     }
                     if (!manager.requestInitialStatus()) throw java.io.IOException("Initial handshake write failed")

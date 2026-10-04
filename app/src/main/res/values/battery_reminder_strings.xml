@@ -1,0 +1,13 @@
+<resources>
+    <string name="battery_reminder_title">Low battery reminders</string>
+    <string name="battery_reminder_ears">Earbud reminders</string>
+    <string name="battery_reminder_ears_summary">Check each earbud separately and combine simultaneous warnings.</string>
+    <string name="battery_reminder_ears_threshold">Earbud warning threshold</string>
+    <string name="battery_reminder_case">Charging case reminders</string>
+    <string name="battery_reminder_case_summary">Only check fresh case reports. Offline case battery cannot be monitored.</string>
+    <string name="battery_reminder_case_threshold">Case warning threshold</string>
+    <string name="battery_reminder_rules">Reminder rules</string>
+    <string name="battery_reminder_rules_summary" formatted="false">One reminder at the chosen threshold and another at 10%; choosing 10% combines them into one. Reminders rearm after a fresh reading recovers at least 5 percentage points above the corresponding threshold. Charging and pending readings do not trigger alerts. Reconnecting or restarting does not reset reminders. No speech, media interruption or extra persistent notification.</string>
+    <string name="battery_reminder_low_message">Low battery: %1$s. Please charge.</string>
+    <string name="battery_reminder_critical_message">Very low battery: %1$s. Please charge soon.</string>
+</resources>

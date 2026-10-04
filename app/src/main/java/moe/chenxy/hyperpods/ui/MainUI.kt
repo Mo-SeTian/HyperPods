@@ -55,6 +55,7 @@ import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.PodsSettings
+import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
@@ -122,6 +123,12 @@ fun MainUI() {
     var pendingSettings by remember { mutableStateOf<Set<String>>(emptySet()) }
     val settingFeedback = remember { mutableStateMapOf<String, String>() }
     var conversationPhoneVolume by remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, true)) }
+    var lowBatterySettings by remember { mutableStateOf(LowBatterySettings(
+        context.prefs().getBoolean(HyperPodsPrefsKey.LOW_BATTERY_EARS, true),
+        context.prefs().getInt(HyperPodsPrefsKey.LOW_BATTERY_EARS_THRESHOLD, 20),
+        context.prefs().getBoolean(HyperPodsPrefsKey.LOW_BATTERY_CASE, true),
+        context.prefs().getInt(HyperPodsPrefsKey.LOW_BATTERY_CASE_THRESHOLD, 20),
+    ).takeIf { it.valid } ?: LowBatterySettings()) }
     var diagnostics by remember { mutableStateOf<Bundle?>(null) }
     val personlizedVolume = remember { mutableStateOf(false) }
     val adaptiveAudioLevel = remember { mutableFloatStateOf(0.5f) }
@@ -389,6 +396,18 @@ fun MainUI() {
             noiseCancellationSingleAirPod = noiseCancellationSingleAirPod.value,
             settings = settings.toMap(), pendingSettings = pendingSettings,
             settingFeedback = settingFeedback.toMap(),
+            lowBatterySettings = lowBatterySettings,
+            onLowBatterySettingsChange = {
+                lowBatterySettings = it
+                context.prefs().edit {
+                    putBoolean(HyperPodsPrefsKey.LOW_BATTERY_EARS, it.earsEnabled)
+                    putInt(HyperPodsPrefsKey.LOW_BATTERY_EARS_THRESHOLD, it.earsThreshold)
+                    putBoolean(HyperPodsPrefsKey.LOW_BATTERY_CASE, it.caseEnabled)
+                    putInt(HyperPodsPrefsKey.LOW_BATTERY_CASE_THRESHOLD, it.caseThreshold)
+                }
+                HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+                    .putExtra("key", HyperPodsPrefsKey.LOW_BATTERY_EARS).putExtra("lowBatterySettings", it), HyperPodsBroadcasts.BLUETOOTH)
+            },
             conversationPhoneVolume = conversationPhoneVolume,
             onConversationPhoneVolumeChange = {
                 conversationPhoneVolume = it
@@ -436,6 +455,8 @@ fun AppHorizontalPager(
     settings: Map<String, Int> = emptyMap(),
     pendingSettings: Set<String> = emptySet(),
     settingFeedback: Map<String, String> = emptyMap(),
+    lowBatterySettings: LowBatterySettings = LowBatterySettings(),
+    onLowBatterySettingsChange: (LowBatterySettings) -> Unit = {},
     conversationPhoneVolume: Boolean = true,
     onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
@@ -452,6 +473,7 @@ fun AppHorizontalPager(
                             PodDetailPage(
                                 settings = settings, pendingSettings = pendingSettings, onAllowOffChange = onAllowOffChange,
                                 settingFeedback = settingFeedback, conversationPhoneVolume = conversationPhoneVolume,
+                                lowBatterySettings = lowBatterySettings, onLowBatterySettingsChange = onLowBatterySettingsChange,
                                 onConversationPhoneVolumeChange = onConversationPhoneVolumeChange,
                                 onSettingChange = onSettingChange, diagnostics = diagnostics,
                                 padding = padding,

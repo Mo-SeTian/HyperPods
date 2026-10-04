@@ -10,6 +10,8 @@ import android.media.AudioManager
 import kotlinx.coroutines.Job
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.PodsSettings
+import moe.chenxy.hyperpods.utils.LowBatterySettings
+import moe.chenxy.hyperpods.utils.LowBatteryReminder
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import org.junit.After
@@ -37,6 +39,7 @@ class L2CAPControllerSettingsTest {
         field("batteryStateValid").set(controller, false)
         field("earDetectionStateValid").set(controller, false)
         field("conversationPhoneVolume").set(controller, true)
+        field("lowBatterySettings").set(controller, LowBatterySettings())
         field("lastStatusFailure").set(controller, "")
         field("lastSettingKey").set(controller, "")
         field("lastSettingStatus").set(controller, "")
@@ -263,6 +266,43 @@ class L2CAPControllerSettingsTest {
         `when`(socket.isConnected).thenReturn(false)
         request(Key.PERSONLIZED_VOLUME, 1)
         assertEquals("write_failed", field("lastSettingStatus").get(controller))
+    }
+
+    @Test fun lowBatteryPolicyChangesStayOnThePhoneAndRejectInvalidThresholds() {
+        val policy = mock(Intent::class.java)
+        `when`(policy.action).thenReturn(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+        `when`(policy.getStringExtra("key")).thenReturn(Key.LOW_BATTERY_EARS)
+        val config = LowBatterySettings(earsEnabled = false, caseThreshold = 30)
+        `when`(policy.getParcelableExtra("lowBatterySettings", LowBatterySettings::class.java)).thenReturn(config)
+        controller.handleUIEvent(policy)
+        assertEquals(config, field("lowBatterySettings").get(controller))
+        `when`(policy.getParcelableExtra("lowBatterySettings", LowBatterySettings::class.java))
+            .thenReturn(config.copy(earsThreshold = 101))
+        controller.handleUIEvent(policy)
+        assertEquals(config, field("lowBatterySettings").get(controller))
+        assertEquals(0, output.size())
+        verify(socket, never()).connect()
+    }
+
+    @Test fun notificationUpdatesCarryOnlyTheComponentsInTheActualBatteryPacket() {
+        val notifications = mutableListOf<Intent>()
+        mockConstruction(Intent::class.java) { intent, construction ->
+            if (construction.arguments().firstOrNull() == "chen.action.hyperpods.updatepodsnotification") notifications.add(intent)
+        }.use {
+            val left = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 18, 2, 0)
+            val right = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 2, 1, 19, 2, 0)
+            manager.receivePacket(left)
+            manager.receivePacket(right)
+            val leftFresh = org.mockito.ArgumentCaptor.forClass(IntArray::class.java)
+            val rightFresh = org.mockito.ArgumentCaptor.forClass(IntArray::class.java)
+            verify(notifications[0]).putExtra(eq("freshComponents"), leftFresh.capture())
+            verify(notifications[1]).putExtra(eq("freshComponents"), rightFresh.capture())
+            assertArrayEquals(intArrayOf(4), leftFresh.value)
+            assertArrayEquals(intArrayOf(2), rightFresh.value)
+            // Left is still available in the display snapshot, but cannot trigger on a right-only report.
+            val decisions = LowBatteryReminder.evaluate(controller.currentBatteryParams, rightFresh.value, LowBatterySettings()) { 0 }
+            assertEquals(listOf(2), decisions.filter { decision -> decision.alert }.map { decision -> decision.component })
+        }
     }
 
     @Test fun disablingPhoneDuckingRestoresVolumeAndDoesNotDisableHeadsetConversationAwareness() = synchronized(controller) {

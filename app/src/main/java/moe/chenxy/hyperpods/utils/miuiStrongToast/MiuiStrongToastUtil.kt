@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
+import moe.chenxy.hyperpods.utils.LowBatterySettings
 import kotlinx.serialization.json.Json
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.SystemApisUtils.isHyperOS
@@ -82,6 +83,35 @@ object MiuiStrongToastUtil {
             ).invoke(service, 1, "strong_toast_action", bundle)
         } catch (e: Exception) {
             Log.e("Art_Chen", "Failed to show HyperOS String Toast")
+        }
+    }
+
+    /** A transient, silent warning; does not post another persistent notification or change audio. */
+    fun showLowBatteryToast(context: Context, text: String) {
+        cancelCaseBatteryToast() // Do not let the deferred case animation overwrite this warning.
+        if (isHyperOS) {
+            try {
+                val bean = StrongToastBean(Left(textParams = TextParams(text, colorRed)),
+                    Right(iconParams = IconParams(Category.DRAWABLE, FileType.SVG, "earphone", 1)))
+                val bundle = DeviceNotificationBundle.Builder()
+                    .setPackageName(HyperPodsBroadcasts.XIAOMI_BLUETOOTH)
+                    .setStrongToastCategory(StrongToastCategory.TEXT_BITMAP_INTENT)
+                    .setNotifyId("hyperpods_low_battery")
+                    .setDuration(5000)
+                    .setTarget(null)
+                    .setParam(Json.encodeToString(StrongToastBean.serializer(), bean))
+                    .onCreate()
+                val service = context.getSystemService(Context.STATUS_BAR_SERVICE)
+                service.javaClass.getMethod("setStatus", Int::class.javaPrimitiveType, String::class.java, Bundle::class.java)
+                    .invoke(service, 1, "strong_toast_action", bundle)
+                return
+            } catch (_: Exception) {
+                Log.w("Art_Chen", "Low battery strong toast unavailable; using text toast")
+            }
+        }
+        Handler(Looper.getMainLooper()).post {
+            runCatching { Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
+                .onFailure { Log.w("Art_Chen", "Unable to show low battery text toast") }
         }
     }
 
@@ -191,11 +221,15 @@ object MiuiStrongToastUtil {
         context: Context?,
         batteryParams: BatteryParams,
         device: BluetoothDevice,
+        lowBatterySettings: LowBatterySettings = LowBatterySettings(),
+        freshComponents: IntArray = intArrayOf(),
     ) {
         val intent = Intent("chen.action.hyperpods.updatepodsnotification")
 
         intent.putExtra("batteryParams", batteryParams)
         intent.putExtra("device", device)
+        intent.putExtra("lowBatterySettings", lowBatterySettings)
+        intent.putExtra("freshComponents", freshComponents)
 
         intent.`package` = "com.xiaomi.bluetooth"
 
