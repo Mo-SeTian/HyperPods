@@ -108,16 +108,34 @@ class AACPManagerTest {
         assertEquals(4, manager.createRenamePacket("🎧")[3].toInt() and 0xff)
     }
 
-    @Test fun sendingNeverPollutesConfirmedSettingsEvenWhenTheWriteSucceeds() {
+    @Test fun otherSettingsStillRequireReportsForEverySendOverload() {
         val socket = mock(BluetoothSocket::class.java)
         `when`(socket.isConnected).thenReturn(true)
         `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
         val sender = AACPManager(socket)
-        assertTrue(sender.sendControlCommand(0x26, true))
-        assertTrue(sender.sendControlCommand(0x26, 2))
-        assertTrue(sender.sendControlCommand(0x26, 1.toByte()))
-        assertTrue(sender.sendControlCommand(0x26, byteArrayOf(2)))
+        assertTrue(sender.sendControlCommand(0x25, true))
+        assertTrue(sender.sendControlCommand(0x25, 2))
+        assertTrue(sender.sendControlCommand(0x25, 1.toByte()))
+        assertTrue(sender.sendControlCommand(0x25, byteArrayOf(2)))
         assertTrue(sender.controlCommandStatusList.isEmpty())
+    }
+
+    @Test fun listeningTogglesUpdateLocallyForEverySendOverload() {
+        val socket = mock(BluetoothSocket::class.java)
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
+        val sender = AACPManager(socket)
+        for (id in listOf(AACPManager.Companion.ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG,
+            AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG)) {
+            assertTrue(sender.sendControlCommand(id.value, true))
+            assertEquals(1.toByte(), sender.getControlCommandStatus(id)!!.value[0])
+            assertTrue(sender.sendControlCommand(id.value, 2))
+            assertEquals(2.toByte(), sender.getControlCommandStatus(id)!!.value[0])
+            assertTrue(sender.sendControlCommand(id.value, 1.toByte()))
+            assertEquals(1.toByte(), sender.getControlCommandStatus(id)!!.value[0])
+            assertTrue(sender.sendControlCommand(id.value, byteArrayOf(2)))
+            assertEquals(2.toByte(), sender.getControlCommandStatus(id)!!.value[0])
+        }
     }
 
     @Test fun failedWritePreservesTheLastReceivedSetting() {

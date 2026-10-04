@@ -345,26 +345,31 @@ class AACPManager(val socket: BluetoothSocket) {
 
     fun sendControlCommand(identifier: Byte, value: ByteArray): Boolean {
         val controlPacket = createControlCommandPacket(identifier, value)
-        return sendDataPacket(controlPacket)
+        if (!sendDataPacket(controlPacket)) return false
+        // Match LibrePods' optimistic UI for these two listening toggles only.
+        // Incoming reports remain authoritative; a failed write must not change the cache.
+        val id = ControlCommandIdentifiers.fromByte(identifier)
+        if (id == ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG ||
+            id == ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG) {
+            setControlCommandStatusValue(id, value)
+        }
+        return true
     }
 
     @OptIn(ExperimentalStdlibApi::class)
     fun sendControlCommand(identifier: Byte, value: Byte): Boolean {
-        val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value))
-        return sendDataPacket(controlPacket)
+        return sendControlCommand(identifier, byteArrayOf(value))
     }
 
     fun sendControlCommand(identifier: Byte, value: Boolean): Boolean {
-        val controlPacket = createControlCommandPacket(
+        return sendControlCommand(
             identifier,
             if (value) byteArrayOf(0x01) else byteArrayOf(0x02)
         )
-        return sendDataPacket(controlPacket)
     }
 
     fun sendControlCommand(identifier: Byte, value: Int): Boolean {
-        val controlPacket = createControlCommandPacket(identifier, byteArrayOf(value.toByte()))
-        return sendDataPacket(controlPacket)
+        return sendControlCommand(identifier, byteArrayOf(value.toByte()))
     }
 
     fun parseProximityKeysResponse(data: ByteArray): Map<ProximityKeyType, ByteArray> {

@@ -180,6 +180,37 @@ class L2CAPControllerSettingsTest {
         assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
     }
 
+    @Test fun listeningTogglesUpdateWithoutRepliesAndCanBeToggledAgainImmediately() {
+        for (key in listOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS)) {
+            val id = PodsSettings.identifiers.getValue(key)
+            receive(id.value, 2)
+            request(key, 1)
+            assertTrue(pending().isEmpty())
+            assertEquals(1.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+            assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, id.value, 1, 0, 0, 0), output.toByteArray())
+            output.reset()
+            request(key, 2)
+            assertTrue(pending().isEmpty())
+            assertEquals(2.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+            output.reset()
+            // A later headset report replaces the locally requested state.
+            receive(id.value, 1)
+            assertEquals(1.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        }
+    }
+
+    @Test fun listeningToggleWriteFailuresPreserveThePreviousState() {
+        `when`(socket.isConnected).thenReturn(false)
+        for (key in listOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS)) {
+            val id = PodsSettings.identifiers.getValue(key)
+            receive(id.value, 2)
+            request(key, 1)
+            assertTrue(pending().isEmpty())
+            assertEquals(2.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        }
+        assertEquals(0, output.size())
+    }
+
     @Test fun writeFailureDoesNotQueueOrChangeConfirmedValue() {
         receive(0x26, 2)
         `when`(socket.isConnected).thenReturn(false)

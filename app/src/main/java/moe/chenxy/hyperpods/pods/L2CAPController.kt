@@ -232,6 +232,7 @@ object L2CAPController {
         sendSettingsState()
     }
 
+    // Listening toggles also include optimistic local writes; all other values require a report.
     private fun confirmedSettings(): Map<String, Int> = aacpManager?.controlCommandStatusList
         ?.mapNotNull { status -> PodsSettings.keyFor(status.identifier.value)?.let { key ->
             status.value.firstOrNull()?.let { it.toInt() and 0xff }
@@ -270,11 +271,17 @@ object L2CAPController {
             return
         }
         val identifier = PodsSettings.identifiers[key] ?: return
-        // A successful write is not an acknowledgement. Only incoming packets change confirmed values.
         if (aacpManager?.sendControlCommand(identifier.value, value) != true) {
             sendSettingResult(key, false)
             return
         }
+        if (key == HyperPodsPrefsKey.PERSONLIZED_VOLUME || key == HyperPodsPrefsKey.CONVERSATION_AWARENESS) {
+            // These two toggles follow LibrePods: publish the local value without awaiting an echo.
+            if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) resetConversationVolume()
+            sendSettingResult(key, true)
+            return
+        }
+        // Other settings still require a matching headset report.
         val generation = sessionId
         val timeout = CoroutineScope(Dispatchers.Default).launch {
             delay(3000)
