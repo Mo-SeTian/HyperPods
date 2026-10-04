@@ -32,7 +32,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
-import com.highcapable.yukihookapi.hook.factory.prefs
 import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -45,6 +44,7 @@ import moe.chenxy.hyperpods.MainActivity
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.LowBatterySettings
@@ -99,20 +99,16 @@ fun MainUI() {
 
     val context = LocalContext.current
 
-    val earDetectionEnable = remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.EAR_DETECTION, true)) }
+    val initialPolicy = remember(context) { AppPreferences.read(context) }
+    val earDetectionEnable = remember { mutableStateOf(initialPolicy.earDetection) }
     val earDetectionParams = remember { mutableStateOf(EarDetectionParams((-1).toByte(), (-1).toByte())) }
     val batteryParams = remember { mutableStateOf(BatteryParams()) }
-    val autoSwitchToSpeaker = remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)) }
+    val autoSwitchToSpeaker = remember { mutableStateOf(initialPolicy.switchSpeaker) }
     val settings = remember { mutableStateMapOf<String, Int>() }
     var pendingSettings by remember { mutableStateOf<Set<String>>(emptySet()) }
     val settingFeedback = remember { mutableStateMapOf<String, String>() }
-    var conversationPhoneVolume by remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, true)) }
-    var lowBatterySettings by remember { mutableStateOf(LowBatterySettings(
-        context.prefs().getBoolean(HyperPodsPrefsKey.LOW_BATTERY_EARS, true),
-        context.prefs().getInt(HyperPodsPrefsKey.LOW_BATTERY_EARS_THRESHOLD, 20),
-        context.prefs().getBoolean(HyperPodsPrefsKey.LOW_BATTERY_CASE, true),
-        context.prefs().getInt(HyperPodsPrefsKey.LOW_BATTERY_CASE_THRESHOLD, 20),
-    ).takeIf { it.valid } ?: LowBatterySettings()) }
+    var conversationPhoneVolume by remember { mutableStateOf(initialPolicy.conversationVolume) }
+    var lowBatterySettings by remember { mutableStateOf(initialPolicy.lowBattery) }
     var diagnostics by remember { mutableStateOf<Bundle?>(null) }
     val personlizedVolume = remember { mutableStateOf(false) }
     val adaptiveAudioLevel = remember { mutableFloatStateOf(0.5f) }
@@ -218,6 +214,7 @@ fun MainUI() {
             this.addAction(HyperPodsAction.ACTION_PODS_DIAGNOSTICS)
         }, Context.RECEIVER_EXPORTED)
 
+        AppPreferences.publish(context, AppPreferences.read(context))
         HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_UI_INIT), HyperPodsBroadcasts.BLUETOOTH)
         onDispose {
             context.unregisterReceiver(broadcastReceiver)
@@ -232,15 +229,20 @@ fun MainUI() {
         }
     }
 
-    fun setEarDetection(main: Boolean, disconnect: Boolean) {
-        context.prefs().edit {
-            putBoolean(HyperPodsPrefsKey.EAR_DETECTION, main)
-            putBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, disconnect)
+    fun savePolicy(snapshot: AppPreferences.Snapshot): Boolean {
+        if (!AppPreferences.save(context, snapshot)) {
+            Toast.makeText(context, R.string.setting_write_failed, Toast.LENGTH_LONG).show()
+            return false
         }
-        // Deliver the new policy directly; preference persistence may finish after the broadcast.
-        HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
-            .putExtra("key", HyperPodsPrefsKey.EAR_DETECTION)
-            .putExtra("ear_detection", main).putExtra("switch_speaker", disconnect), HyperPodsBroadcasts.BLUETOOTH)
+        AppPreferences.publish(context, snapshot)
+        return true
+    }
+
+    fun setEarDetection(main: Boolean, disconnect: Boolean) {
+        if (savePolicy(AppPreferences.read(context).copy(earDetection = main, switchSpeaker = disconnect))) {
+            earDetectionEnable.value = main
+            autoSwitchToSpeaker.value = disconnect
+        }
     }
 
     fun renameAirPods(it: String) {
@@ -326,12 +328,10 @@ fun MainUI() {
             earDetectionParams = earDetectionParams.value,
             earDetectionEnable = earDetectionEnable.value,
             onEarDetectionChanged = {
-                earDetectionEnable.value = it
                 setEarDetection(it, autoSwitchToSpeaker.value)
             },
             autoSwitchToSpeaker = autoSwitchToSpeaker.value,
             onAutoSwitchToSpeakerChange = {
-                autoSwitchToSpeaker.value = it
                 setEarDetection(earDetectionEnable.value, it)
             },
             personlizedVolume = personlizedVolume.value,
@@ -372,22 +372,11 @@ fun MainUI() {
             settingFeedback = settingFeedback.toMap(),
             lowBatterySettings = lowBatterySettings,
             onLowBatterySettingsChange = {
-                lowBatterySettings = it
-                context.prefs().edit {
-                    putBoolean(HyperPodsPrefsKey.LOW_BATTERY_EARS, it.earsEnabled)
-                    putInt(HyperPodsPrefsKey.LOW_BATTERY_EARS_THRESHOLD, it.earsThreshold)
-                    putBoolean(HyperPodsPrefsKey.LOW_BATTERY_CASE, it.caseEnabled)
-                    putInt(HyperPodsPrefsKey.LOW_BATTERY_CASE_THRESHOLD, it.caseThreshold)
-                }
-                HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
-                    .putExtra("key", HyperPodsPrefsKey.LOW_BATTERY_EARS).putExtra("lowBatterySettings", it), HyperPodsBroadcasts.BLUETOOTH)
+                if (savePolicy(AppPreferences.read(context).copy(lowBattery = it))) lowBatterySettings = it
             },
             conversationPhoneVolume = conversationPhoneVolume,
             onConversationPhoneVolumeChange = {
-                conversationPhoneVolume = it
-                context.prefs().edit { putBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, it) }
-                HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
-                    .putExtra("key", HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME).putExtra("enabled", it), HyperPodsBroadcasts.BLUETOOTH)
+                if (savePolicy(AppPreferences.read(context).copy(conversationVolume = it))) conversationPhoneVolume = it
             },
             onAllowOffChange = { sendBooleanSetting(context, HyperPodsPrefsKey.ALLOW_OFF_OPTION, it) },
             onSettingChange = { key, value -> sendPodsSetting(context, key, value) },

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.AudioManager
 import kotlinx.coroutines.Job
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.LowBatteryReminder
@@ -74,6 +75,57 @@ class L2CAPControllerSettingsTest {
 
     private fun receive(identifier: Byte, value: Byte) = synchronized(controller) {
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, identifier, value, 0, 0, 0))
+    }
+
+    @Test fun privatePolicySnapshotAppliesAllChoicesWithoutSendingEarbudCommands() = synchronized(controller) {
+        val policy = AppPreferences.Snapshot(false, false, false, LowBatterySettings(false, 35, true, 15))
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_APP_SETTINGS_CHANGED)
+        `when`(intent.getStringExtra(AppPreferences.EXTRA)).thenReturn(policy.encode())
+        controller.handleUIEvent(intent)
+        assertFalse(field("earDetection").getBoolean(controller))
+        assertFalse(field("autoSwitchToSpeaker").getBoolean(controller))
+        assertFalse(field("conversationPhoneVolume").getBoolean(controller))
+        assertEquals(policy.lowBattery, field("lowBatterySettings").get(controller))
+        val revision = field("appSettingsRevision").getLong(controller)
+        `when`(intent.getStringExtra(AppPreferences.EXTRA)).thenReturn("{}")
+        controller.handleUIEvent(intent)
+        assertEquals(revision, field("appSettingsRevision").getLong(controller))
+        assertEquals(policy.lowBattery, field("lowBatterySettings").get(controller))
+        assertEquals(0, output.size())
+    }
+
+    @Test fun staleColdStartReplyCannotOverwriteANewerEditOrAnotherSession() = synchronized(controller) {
+        val apply = type.getDeclaredMethod("applyInitialPolicy", Long::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType, AppPreferences.Snapshot::class.java).apply { isAccessible = true }
+        val session = field("sessionId").getLong(controller)
+        val revision = field("appSettingsRevision").getLong(controller)
+        field("earDetection").setBoolean(controller, true)
+        val disabled = AppPreferences.Snapshot(earDetection = false)
+        apply.invoke(controller, session, revision - 1, disabled)
+        assertTrue(field("earDetection").getBoolean(controller))
+        apply.invoke(controller, session - 1, revision, disabled)
+        assertTrue(field("earDetection").getBoolean(controller))
+        apply.invoke(controller, session, revision, null)
+        assertTrue(field("earDetection").getBoolean(controller))
+        apply.invoke(controller, session, revision, disabled)
+        assertFalse(field("earDetection").getBoolean(controller))
+    }
+
+    @Test fun reminderEditDoesNotReplayTheUnchangedWearPolicy() = synchronized(controller) {
+        field("earDetection").setBoolean(controller, false)
+        field("autoSwitchToSpeaker").setBoolean(controller, false)
+        field("pausedAudio").setBoolean(controller, true)
+        field("routeRetryCount").setInt(controller, 3)
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_APP_SETTINGS_CHANGED)
+        `when`(intent.getStringExtra(AppPreferences.EXTRA)).thenReturn(
+            AppPreferences.Snapshot(false, false, true, LowBatterySettings(earsThreshold = 35)).encode())
+        controller.handleUIEvent(intent)
+        assertTrue(field("pausedAudio").getBoolean(controller))
+        assertEquals(3, field("routeRetryCount").getInt(controller))
+        assertEquals(0, output.size())
+        field("pausedAudio").setBoolean(controller, false)
     }
 
     @Test fun selectingOffEnablesTheOptionAndWaitsForConfirmationBeforeChangingMode() {

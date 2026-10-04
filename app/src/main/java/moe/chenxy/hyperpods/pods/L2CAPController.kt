@@ -17,7 +17,6 @@ import android.media.RouteDiscoveryPreference
 import android.os.ParcelUuid
 import android.os.Bundle
 import android.util.Log
-import com.highcapable.yukihookapi.hook.xposed.prefs.YukiHookPrefsBridge
 import de.robv.android.xposed.XposedHelpers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,8 +25,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.AirPodsInstance
 import moe.chenxy.hyperpods.utils.MediaControl
 import moe.chenxy.hyperpods.utils.PodsSettings
@@ -58,7 +59,7 @@ object L2CAPController {
     lateinit var mDevice: BluetoothDevice
     private val audioManager: AudioManager?
         get() = mContext?.getSystemService(AudioManager::class.java)
-    private lateinit var mPrefsBridge: YukiHookPrefsBridge
+    private var appSettingsRevision = 0L
 
     private var aacpManager: AACPManager? = null
     private var connectionJob: Job? = null
@@ -170,6 +171,12 @@ object L2CAPController {
     fun handleUIEvent(intent: Intent) {
         if (mContext == null) return
         when (intent.action) {
+            HyperPodsAction.ACTION_APP_SETTINGS_CHANGED -> {
+                AppPreferences.decode(intent.getStringExtra(AppPreferences.EXTRA))?.let {
+                    appSettingsRevision++
+                    updateFeatureToggle(it)
+                }
+            }
             HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST -> sendDiagnostics()
             HyperPodsAction.ACTION_PODS_UI_INIT -> {
                 Log.i(TAG, "UI Init")
@@ -234,7 +241,7 @@ object L2CAPController {
                         if (intent.hasExtra("ear_detection") && intent.hasExtra("switch_speaker")) {
                             updateEarDetectionSettings(intent.getBooleanExtra("ear_detection", true),
                                 intent.getBooleanExtra("switch_speaker", true))
-                        } else updateFeatureToggle()
+                        }
                     } else if (it == HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME && intent.hasExtra("enabled")) {
                         updateConversationPhoneVolume(intent.getBooleanExtra("enabled", true))
                     } else if (it == HyperPodsPrefsKey.LOW_BATTERY_EARS) {
@@ -640,18 +647,21 @@ object L2CAPController {
 
     }
 
-    private fun updateFeatureToggle() {
-        updateEarDetectionSettings(
-            mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION, true),
-            mPrefsBridge.getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)
-        )
-        updateConversationPhoneVolume(mPrefsBridge.getBoolean(HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME, true))
-        lowBatterySettings = LowBatterySettings(
-            mPrefsBridge.getBoolean(HyperPodsPrefsKey.LOW_BATTERY_EARS, true),
-            mPrefsBridge.getInt(HyperPodsPrefsKey.LOW_BATTERY_EARS_THRESHOLD, 20),
-            mPrefsBridge.getBoolean(HyperPodsPrefsKey.LOW_BATTERY_CASE, true),
-            mPrefsBridge.getInt(HyperPodsPrefsKey.LOW_BATTERY_CASE_THRESHOLD, 20),
-        ).takeIf { it.valid } ?: LowBatterySettings()
+    private fun applyInitialPolicy(expectedSession: Long, expectedRevision: Long, settings: AppPreferences.Snapshot?) {
+        if (sessionId == expectedSession && appSettingsRevision == expectedRevision && settings != null)
+            updateFeatureToggle(settings)
+    }
+
+    private fun updateFeatureToggle(settings: AppPreferences.Snapshot) {
+        // A full snapshot must not replay unrelated audio or notification side effects.
+        if (earDetection != settings.earDetection || autoSwitchToSpeaker != settings.switchSpeaker)
+            updateEarDetectionSettings(settings.earDetection, settings.switchSpeaker)
+        if (conversationPhoneVolume != settings.conversationVolume)
+            updateConversationPhoneVolume(settings.conversationVolume)
+        val remindersChanged = lowBatterySettings != settings.lowBattery
+        lowBatterySettings = settings.lowBattery
+        if (remindersChanged && batteryStateValid && ::currentBatteryParams.isInitialized)
+            MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
     }
 
     private fun updateConversationPhoneVolume(enabled: Boolean) {
@@ -828,13 +838,12 @@ object L2CAPController {
     }
 
     @Synchronized
-    fun connectPod(context: Context, device: BluetoothDevice, prefsBridge: YukiHookPrefsBridge) {
+    fun connectPod(context: Context, device: BluetoothDevice) {
         if (connectionJob?.isActive == true && mContext != null && mDevice == device) return
         if (mContext != null) disconnectedPod(context, mDevice)
         val thisSession = ++sessionId
         mContext = context
         mDevice = device
-        mPrefsBridge = prefsBridge
         batteryStateValid = false
         earDetectionStateValid = false
         mShowedConnectedToast = false
@@ -850,9 +859,8 @@ object L2CAPController {
         AirPodsNotifications.BatteryNotification.reset()
         currentBatteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams())
 
-        updateFeatureToggle()
-
         context.registerReceiver(broadcastReceiver, IntentFilter().apply {
+            this.addAction(HyperPodsAction.ACTION_APP_SETTINGS_CHANGED)
             this.addAction(HyperPodsAction.ACTION_ANC_SELECT)
             this.addAction(HyperPodsAction.ACTION_PODS_UI_INIT)
             this.addAction(HyperPodsAction.ACTION_EAR_DETECTION_SWITCH_CHANGED)
@@ -918,9 +926,19 @@ object L2CAPController {
             return constructor.newInstance(*args) as BluetoothSocket
         }
 
+        val requestRevision = appSettingsRevision
         connectionJob = CoroutineScope(Dispatchers.IO).launch {
             try {
+                // Overlap IPC with the existing connection delay; never block the Bluetooth main thread.
+                val settingsRequest = async { AppPreferences.readRemote(context) }
                 delay(500)
+                val policy = settingsRequest.await()
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
+                    // A newer UI edit wins over a cold-start provider response.
+                    applyInitialPolicy(thisSession, requestRevision, policy)
+                }
                 val connectingSocket = try {
                     getBtSocket()
                 } catch (e: Exception) {

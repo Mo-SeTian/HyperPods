@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.VIBRATE" />
+    <queries>
+        <package android:name="com.android.bluetooth" />
+    </queries>
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -20,6 +23,10 @@
         </activity>
         <!-- Only the verified Bluetooth UID may store a fixed-field failure report. -->
         <receiver android:name=".utils.DiagnosticsHistory" android:exported="true" />
+        <!-- The provider verifies the Bluetooth UID and returns only fixed app-policy fields. -->
+        <provider android:name=".utils.AppPreferencesProvider"
+            android:authorities="${applicationId}.preferences"
+            android:exported="true" />
         <!-- Set as Xposed Module -->
         <meta-data
             android:name="xposedmodule"
@@ -31,7 +38,7 @@
             android:value="Apple AirPods Support for Xiaomi HyperOS." />
 
         <!-- The minimum Xposed version number -->
-        <!-- If you are using EdXposed/LSPosed, the minimum recommended is 93 -->
+        <!-- Retain 93 to locate and privately migrate existing NSP XML. Runtime policy uses private files + IPC. -->
         <meta-data
             android:name="xposedminversion"
             android:value="93" />

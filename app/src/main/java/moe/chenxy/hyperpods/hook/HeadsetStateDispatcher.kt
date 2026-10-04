@@ -84,7 +84,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
                                                     if (state == BluetoothProfile.STATE_CONNECTED && nativeGetHookResult()) {
                                                         waitingForUuids = null
                                                         showPodConnectingByMiuiBt(context, resolved)
-                                                        L2CAPController.connectPod(context, resolved, prefs)
+                                                        L2CAPController.connectPod(context, resolved)
                                                     }
                                                 } catch (error: Exception) {
                                                     Log.e("Art_Chen", "Unable to complete headset UUID discovery", error)
@@ -115,7 +115,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
                                     return@post
                                 }
                                 showPodConnectingByMiuiBt(context, device)
-                                L2CAPController.connectPod(context, device, prefs)
+                                L2CAPController.connectPod(context, device)
                             } else if (currState == BluetoothHeadset.STATE_DISCONNECTING || currState == BluetoothHeadset.STATE_DISCONNECTED) {
                                 statusBarManager.setIconVisibility("wireless_headset", false)
                             }

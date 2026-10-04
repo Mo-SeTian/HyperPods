@@ -9,7 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
-import com.highcapable.yukihookapi.hook.factory.prefs
 import moe.chenxy.hyperpods.ui.App
 
 class MainActivity : ComponentActivity() {

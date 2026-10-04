@@ -15,6 +15,7 @@ object HyperPodsAction {
     const val ACTION_GET_PODS_MAC = "chen.action.hyperpods.get_pods_mac"
     const val ACTION_PODS_MAC_RECEIVED = "chen.action.hyperpods.got_pods_mac"
     const val ACTION_PODS_SETTINGS_CHANGED = "chen.action.hyperpods.preference_changed"
+    const val ACTION_APP_SETTINGS_CHANGED = "chen.action.hyperpods.app_settings_changed"
     const val ACTION_PODS_SETTINGS_STATE = "chen.action.hyperpods.settings_state"
     const val ACTION_PODS_SETTING_RESULT = "chen.action.hyperpods.setting_result"
     const val ACTION_PODS_DIAGNOSTICS = "chen.action.hyperpods.diagnostics"
