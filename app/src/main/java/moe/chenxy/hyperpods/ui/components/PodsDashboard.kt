@@ -1,6 +1,10 @@
 package moe.chenxy.hyperpods.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -8,6 +12,11 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,6 +32,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.EarDetectionStatus
 import moe.chenxy.hyperpods.pods.NoiseControlMode
@@ -115,13 +126,28 @@ fun DashboardTopBar(onBack: () -> Unit) {
 }
 
 @Composable
+fun DashboardNavigation(pagerState: PagerState) {
+    val scope = rememberCoroutineScope()
+    var animation by remember { mutableStateOf<Job?>(null) }
+    DashboardNavigation(pagerState.targetPage) { index ->
+        // Retarget from the currently rendered offset, not a delayed selected-tab
+        // copy. A new tap or pager swipe can immediately take over the animation.
+        animation?.cancel()
+        animation = scope.launch {
+            pagerState.animateScrollToPage(index, animationSpec = tween(240, easing = FastOutSlowInEasing))
+        }
+    }
+}
+
+@Composable
 fun DashboardNavigation(selected: Int, onSelect: (Int) -> Unit) {
     Column(Modifier.background(MiuixTheme.colorScheme.background).navigationBarsPadding()) {
         DashboardDivider()
         Row(Modifier.fillMaxWidth().selectableGroup()) {
             listOf(R.string.dashboard_headphones, R.string.dashboard_about).forEachIndexed { index, label ->
-                val tint = if (selected == index) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                val tint by animateColorAsState(
+                    if (selected == index) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    animationSpec = tween(180), label = "DashboardTabTint")
                 Column(Modifier.weight(1f).selectable(selected == index, role = Role.Tab,
                     onClick = { onSelect(index) }).padding(vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {

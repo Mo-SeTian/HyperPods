@@ -6,7 +6,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import moe.chenxy.hyperpods.pods.EarDetectionStatus
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
@@ -44,46 +48,49 @@ class DashboardPreviewActivity : ComponentActivity() {
                 var level by remember { mutableFloatStateOf(0.5f) }
                 var microphone by remember { mutableIntStateOf(0) }
                 var name by remember { mutableStateOf("AirPods Pro") }
-                var tab by remember { mutableIntStateOf(0) }
+                val pager = rememberPagerState(pageCount = { 2 })
                 val scroll = MiuixScrollBehavior(rememberTopAppBarState())
                 Scaffold(
                     topBar = { DashboardTopBar { onBackPressedDispatcher.onBackPressed() } },
-                    bottomBar = { DashboardNavigation(tab) { tab = it } }
+                    bottomBar = { DashboardNavigation(pager) }
                 ) { padding ->
-                    if (tab == 1) AboutPage(scroll, padding) else PodDetailPage(
-                        padding = padding,
-                        batteryParams = BatteryParams(
-                            PodBatteryParams(leftBattery, isConnected = !unknown, isInCase = inCase),
-                            PodBatteryParams(87, isConnected = !unknown, isInCase = inCase),
-                            PodBatteryParams(73, isConnected = caseConnected)),
-                        earDetectionParams = EarDetectionParams(
-                            if (inCase) EarDetectionStatus.IN_CASE else EarDetectionStatus.IN_EAR,
-                            if (inCase) EarDetectionStatus.IN_CASE else EarDetectionStatus.IN_EAR),
-                        earDetectionEnable = detection, onEarDetectionChanged = { detection = it },
-                        autoSwitchToSpeaker = speaker, onAutoSwitchToSpeakerChange = { speaker = it },
-                        personlizedVolume = personalized, onPersonlizedVolumeChange = { personalized = it },
-                        conversationAwareness = conversation, onConversationAwarenessChange = { conversation = it },
-                        adjustVolumeBySwiper = swipe, onAdjustVolumeBySwiperChange = { swipe = it },
-                        adaptiveAudioLevel = level, onAdaptiveAudioLevelChange = { level = it },
-                        onListeningModeChange = {}, ancMode = anc, onAncModeChange = { anc = it },
-                        podsInfo = if (unknown) null else AACPManager.Companion.AirPodsInformation(
-                            name, "A3049", "Apple Inc.", "DEMO-NOT-REAL", "0", "0", "1.0.0",
-                            "DEMO", "DEMO-LEFT", "DEMO-RIGHT", "DEMO"),
-                        onNameChange = { name = it }, microphoneMode = microphone,
-                        onMicrophoneModeChange = { microphone = it },
-                        noiseCancellationSingleAirPod = single, onNoiseCancellationSingleAirPodChange = { single = it },
-                        deviceName = name,
-                        settings = if (unknown) emptyMap() else mapOf(
-                            PodsSettings.NOISE_MODE to anc.ordinal + 1,
-                            Key.PERSONLIZED_VOLUME to if (personalized) 1 else 2,
-                            Key.CONVERSATION_AWARENESS to if (conversation) 1 else 2,
-                            Key.ADJUST_VOLUME_BY_SWIPER to if (swipe) 1 else 2,
-                            Key.SINGLE_POD_ANC to if (single) 1 else 2,
-                            Key.MICROPHONE_MODE to (PodsSettings.microphoneValue(microphone) ?: 0),
-                            Key.ADAPTIVE_AUDIO_LEVEL to (100 - level * 100).toInt(),
-                            Key.LISTENING_MODE_BYTE to 6,
-                            Key.ALLOW_OFF_OPTION to 1,
-                        ))
+                    HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+                        if (page == 1) AboutPage(scroll, padding) else PodDetailPage(
+                            padding = padding,
+                            batteryParams = BatteryParams(
+                                PodBatteryParams(leftBattery, isConnected = !unknown, isInCase = inCase),
+                                PodBatteryParams(87, isConnected = !unknown, isInCase = inCase),
+                                PodBatteryParams(73, isConnected = caseConnected)),
+                            earDetectionParams = EarDetectionParams(
+                                if (inCase) EarDetectionStatus.IN_CASE else EarDetectionStatus.IN_EAR,
+                                if (inCase) EarDetectionStatus.IN_CASE else EarDetectionStatus.IN_EAR),
+                            earDetectionEnable = detection, onEarDetectionChanged = { detection = it },
+                            autoSwitchToSpeaker = speaker, onAutoSwitchToSpeakerChange = { speaker = it },
+                            personlizedVolume = personalized, onPersonlizedVolumeChange = { personalized = it },
+                            conversationAwareness = conversation, onConversationAwarenessChange = { conversation = it },
+                            adjustVolumeBySwiper = swipe, onAdjustVolumeBySwiperChange = { swipe = it },
+                            adaptiveAudioLevel = level, onAdaptiveAudioLevelChange = { level = it },
+                            onListeningModeChange = {}, ancMode = anc, onAncModeChange = { anc = it },
+                            podsInfo = if (unknown) null else AACPManager.Companion.AirPodsInformation(
+                                name, "A3049", "Apple Inc.", "DEMO-NOT-REAL", "0", "0", "1.0.0",
+                                "DEMO", "DEMO-LEFT", "DEMO-RIGHT", "DEMO"),
+                            onNameChange = { name = it }, microphoneMode = microphone,
+                            onMicrophoneModeChange = { microphone = it },
+                            noiseCancellationSingleAirPod = single, onNoiseCancellationSingleAirPodChange = { single = it },
+                            deviceName = name,
+                            isActive = pager.currentPage == 0,
+                            settings = if (unknown) emptyMap() else mapOf(
+                                PodsSettings.NOISE_MODE to anc.ordinal + 1,
+                                Key.PERSONLIZED_VOLUME to if (personalized) 1 else 2,
+                                Key.CONVERSATION_AWARENESS to if (conversation) 1 else 2,
+                                Key.ADJUST_VOLUME_BY_SWIPER to if (swipe) 1 else 2,
+                                Key.SINGLE_POD_ANC to if (single) 1 else 2,
+                                Key.MICROPHONE_MODE to (PodsSettings.microphoneValue(microphone) ?: 0),
+                                Key.ADAPTIVE_AUDIO_LEVEL to (100 - level * 100).toInt(),
+                                Key.LISTENING_MODE_BYTE to 6,
+                                Key.ALLOW_OFF_OPTION to 1,
+                            ))
+                    }
                 }
             }
         }

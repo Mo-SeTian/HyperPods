@@ -25,8 +25,9 @@ android {
         applicationId = "moe.chenxy.hyperpods"
         minSdk = 35
         targetSdk = 36
-        versionCode = 14
+        versionCode = 15
         versionName = "3.0.0-AAP-W-HyperOS4"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
                 cppFlags += ""
@@ -106,6 +107,9 @@ configurations.configureEach {
 }
 
 dependencies {
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.9.4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     testImplementation("org.mockito:mockito-core:5.20.0")

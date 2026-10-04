@@ -17,16 +17,12 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -45,10 +41,6 @@ import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.launch
 import moe.chenxy.hyperpods.MainActivity
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
@@ -82,7 +74,6 @@ fun sendPodsSetting(context: Context, prefKey: String, value: Int) {
 }
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
-@OptIn(FlowPreview::class)
 @Composable
 fun MainUI() {
     val topAppBarScrollBehavior0 = MiuixScrollBehavior(rememberTopAppBarState())
@@ -93,8 +84,6 @@ fun MainUI() {
     )
 
     val pagerState = rememberPagerState(pageCount = { 2 })
-    var targetPage by remember { mutableIntStateOf(pagerState.currentPage) }
-    val coroutineScope = rememberCoroutineScope()
 
     val currentScrollBehavior = when (pagerState.currentPage) {
         0 -> topAppBarScrollBehaviorList[0]
@@ -108,11 +97,6 @@ fun MainUI() {
         else -> aboutTitle
     }
 
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }.debounce(150).collectLatest {
-            targetPage = pagerState.currentPage
-        }
-    }
     val context = LocalContext.current
 
     val earDetectionEnable = remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.EAR_DETECTION, true)) }
@@ -326,17 +310,7 @@ fun MainUI() {
             }
         },
         bottomBar = {
-            DashboardNavigation(
-                selected = targetPage,
-                onSelect = { index ->
-                    if (index in 0..1) {
-                        targetPage = index
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(index)
-                        }
-                    }
-                }
-            )
+            DashboardNavigation(pagerState)
         },
     ) { padding ->
         AppHorizontalPager(
