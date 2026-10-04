@@ -5,6 +5,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PodsSettingsTest {
+    @Test fun timingOptionsMatchProtocolValuesAndHeadsetCapabilities() {
+        for (key in listOf(Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED)) {
+            for (value in 0..2) assertTrue(PodsSettings.validValue(key, value, AirPodsPro2USBC(), emptyMap()))
+            for (value in listOf(-1, 3, 255)) assertFalse(PodsSettings.knownValue(key, value))
+        }
+        assertFalse(PodsSettings.supports(Key.PRESS_SPEED, AirPods2()))
+        assertFalse(PodsSettings.supports(Key.SWIPE_SPEED, AirPodsPro1()))
+        assertFalse(PodsSettings.supports(Key.CHIME_VOLUME, null))
+        for (value in 0..100) assertTrue(PodsSettings.knownValue(Key.CHIME_VOLUME, value))
+        assertFalse(PodsSettings.validValue(Key.CHIME_VOLUME, 101, AirPodsPro2USBC(), emptyMap()))
+    }
     @Test fun unsupportedAndUnknownModelsDoNotExposeNoiseOrAdaptiveFeatures() {
         for (model in listOf(null, AirPods(), AirPods2())) {
             assertTrue(PodsSettings.allowedNoiseModes(model, emptyMap()).isEmpty())

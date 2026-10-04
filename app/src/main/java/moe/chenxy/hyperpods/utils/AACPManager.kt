@@ -318,6 +318,19 @@ class AACPManager(val socket: BluetoothSocket) {
 
     private var callback: PacketCallback? = null
 
+    enum class InitializationStage { HANDSHAKE, FEATURES, STATUS }
+    var initializationStage = InitializationStage.HANDSHAKE
+        private set
+    var receivedPacketCount = 0
+        private set
+
+    /** Retry the missing protocol step on this socket, without reconnecting Bluetooth profiles. */
+    fun requestInitialStatus(): Boolean = when (initializationStage) {
+        InitializationStage.HANDSHAKE -> sendHandshake()
+        InitializationStage.FEATURES -> sendSetFeatureFlagsPacket()
+        InitializationStage.STATUS -> sendNotificationRequest()
+    }
+
     fun setPacketCallback(callback: PacketCallback) {
         this.callback = callback
     }
@@ -346,6 +359,7 @@ class AACPManager(val socket: BluetoothSocket) {
     fun sendControlCommand(identifier: Byte, value: ByteArray): Boolean {
         val controlPacket = createControlCommandPacket(identifier, value)
         if (!sendDataPacket(controlPacket)) return false
+        Log.d(TAG, "Control command sent: ${"%02X".format(identifier)} - ${value.take(4).joinToString(" ") { "%02X".format(it) }}")
         // Match LibrePods' optimistic UI for these two listening toggles only.
         // Incoming reports remain authoritative; a failed write must not change the cache.
         val id = ControlCommandIdentifiers.fromByte(identifier)
@@ -415,12 +429,33 @@ class AACPManager(val socket: BluetoothSocket) {
 
     @OptIn(ExperimentalStdlibApi::class)
     fun receivePacket(packet: ByteArray) {
+        // The connect acknowledgement has its own header, not the normal message header.
+        if (packet.size >= 16 && packet.copyOfRange(0, 4).contentEquals(byteArrayOf(1, 0, 4, 0))) {
+            receivedPacketCount++
+            initializationStage = InitializationStage.FEATURES
+            Log.i(TAG, "Handshake acknowledged; configuring features")
+            sendSetFeatureFlagsPacket()
+            return
+        }
         if (packet.size < 6 || !packet.copyOfRange(0, 4).contentEquals(HEADER_BYTES)) {
             Log.w(TAG, "Ignoring invalid AACP header (${packet.size} bytes)")
             return
         }
         try {
+            if (packet[4] == 0x2b.toByte() && packet[5] == 0.toByte()) {
+                receivedPacketCount++
+                initializationStage = InitializationStage.STATUS
+                Log.i(TAG, "Features acknowledged; subscribing to headset status")
+                sendNotificationRequest()
+                return
+            }
             receiveValidatedPacket(packet)
+            receivedPacketCount++
+            // Some firmware reports state without a separate feature acknowledgement.
+            if (packet[4] in listOf(Opcodes.BATTERY_INFO, Opcodes.CONTROL_COMMAND,
+                    Opcodes.INFORMATION, Opcodes.EAR_DETECTION)) {
+                initializationStage = InitializationStage.STATUS
+            }
         } catch (_: IllegalArgumentException) {
             Log.w(TAG, "Ignoring malformed AACP opcode ${packet[4]} (${packet.size} bytes)")
         } catch (_: IndexOutOfBoundsException) {

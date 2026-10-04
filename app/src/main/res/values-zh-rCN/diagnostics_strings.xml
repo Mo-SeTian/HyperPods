@@ -1,0 +1,37 @@
+<resources>
+    <string name="diagnostics_title">连接诊断</string>
+    <string name="diagnostics_connection">耳机控制连接</string>
+    <string name="diagnostics_stage">状态同步阶段</string>
+    <string name="diagnostics_handshake">等待握手确认</string>
+    <string name="diagnostics_features">等待功能初始化确认</string>
+    <string name="diagnostics_status">等待完整耳机状态</string>
+    <string name="diagnostics_no_session">没有耳机控制连接</string>
+    <string name="diagnostics_connecting">连接中</string>
+    <string name="diagnostics_failed">连接失败</string>
+    <string name="diagnostics_packets">已收到协议包</string>
+    <string name="diagnostics_retries">状态恢复次数</string>
+    <string name="diagnostics_battery">电量状态</string>
+    <string name="diagnostics_wear">佩戴状态</string>
+    <string name="diagnostics_information">设备信息</string>
+    <string name="diagnostics_received">已收到</string>
+    <string name="diagnostics_no_report">尚未收到模块诊断信息，请检查 LSPosed 是否启用 HyperPods，并重新连接耳机。</string>
+    <string name="diagnostics_ready">耳机状态已同步。</string>
+    <string name="diagnostics_no_packets">尚未收到耳机回包，正在重试状态同步。</string>
+    <string name="diagnostics_incomplete">已收到部分数据，仍在等待剩余耳机状态。</string>
+    <string name="diagnostics_failed_summary">未完成状态恢复，可手动重试，或复制诊断报告排查。</string>
+    <string name="diagnostics_refresh">刷新诊断信息</string>
+    <string name="diagnostics_retry">重试状态同步</string>
+    <string name="diagnostics_retry_summary">在当前控制连接上重新请求尚未完成的同步步骤。</string>
+    <string name="diagnostics_copy">复制诊断报告</string>
+    <string name="diagnostics_copied">诊断报告已复制</string>
+    <string name="controls_timing">按压与滑动设置</string>
+    <string name="control_press_speed">按压速度</string>
+    <string name="control_hold_duration">长按触发时长</string>
+    <string name="control_swipe_speed">滑动调音量间隔</string>
+    <string name="control_default">默认</string>
+    <string name="control_slower">较慢</string>
+    <string name="control_slowest">最慢</string>
+    <string name="control_longer">较长</string>
+    <string name="control_longest">最长</string>
+    <string name="control_chime_volume">耳机提示音音量</string>
+</resources>

@@ -94,6 +94,45 @@ class AACPManagerTest {
         assertArrayEquals(byteArrayOf(0, 0, 4, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0), output.toByteArray())
     }
 
+    @Test fun initializationRetriesTheMissingStepAndAdvancesOnlyAfterReplies() {
+        val socket = mock(BluetoothSocket::class.java)
+        val output = ByteArrayOutputStream()
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(output)
+        val session = AACPManager(socket)
+        assertTrue(session.requestInitialStatus())
+        assertArrayEquals(session.createHandshakePacket(), output.toByteArray())
+        output.reset()
+        // A lost initial handshake must be retried, not followed by an ineffective subscription.
+        session.requestInitialStatus()
+        assertArrayEquals(session.createHandshakePacket(), output.toByteArray())
+        output.reset()
+        session.receivePacket(ByteArray(18).apply { this[0] = 1; this[2] = 4 })
+        assertEquals(AACPManager.InitializationStage.FEATURES, session.initializationStage)
+        assertArrayEquals(session.createDataPacket(session.createSetFeatureFlagsPacket()), output.toByteArray())
+        output.reset()
+        session.requestInitialStatus()
+        assertArrayEquals(session.createDataPacket(session.createSetFeatureFlagsPacket()), output.toByteArray())
+        output.reset()
+        session.receivePacket(packet(0x2b, 14))
+        assertEquals(AACPManager.InitializationStage.STATUS, session.initializationStage)
+        assertArrayEquals(session.createDataPacket(session.createRequestNotificationPacket()), output.toByteArray())
+        output.reset()
+        session.requestInitialStatus()
+        assertArrayEquals(session.createDataPacket(session.createRequestNotificationPacket()), output.toByteArray())
+        assertEquals(2, session.receivedPacketCount)
+    }
+
+    @Test fun shortAcknowledgementAndMalformedStateDoNotAdvanceInitialization() {
+        manager.receivePacket(byteArrayOf(1, 0, 4, 0))
+        manager.receivePacket(packet(0x09, 7))
+        assertEquals(AACPManager.InitializationStage.HANDSHAKE, manager.initializationStage)
+        assertEquals(0, manager.receivedPacketCount)
+        manager.receivePacket(packet(0x09, 11).apply { this[6] = 0x0d; this[7] = 4 })
+        assertEquals(AACPManager.InitializationStage.STATUS, manager.initializationStage)
+        assertEquals(1, manager.receivedPacketCount)
+    }
+
     @Test fun renameUsesUtf8ByteLengthAfterTheFixedField() {
         val name = "测试耳机"
         val result = manager.createRenamePacket(name)

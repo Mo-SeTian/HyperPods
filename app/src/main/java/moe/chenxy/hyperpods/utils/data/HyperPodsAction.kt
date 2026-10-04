@@ -17,5 +17,8 @@ object HyperPodsAction {
     const val ACTION_PODS_SETTINGS_CHANGED = "chen.action.hyperpods.preference_changed"
     const val ACTION_PODS_SETTINGS_STATE = "chen.action.hyperpods.settings_state"
     const val ACTION_PODS_SETTING_RESULT = "chen.action.hyperpods.setting_result"
+    const val ACTION_PODS_DIAGNOSTICS = "chen.action.hyperpods.diagnostics"
+    const val ACTION_PODS_DIAGNOSTICS_REQUEST = "chen.action.hyperpods.diagnostics_request"
+    const val ACTION_PODS_STATUS_RETRY = "chen.action.hyperpods.status_retry"
     const val ACTION_PODS_STATUS_CHANGED = "chen.action.hyperpods.pods_status_changed"
 }

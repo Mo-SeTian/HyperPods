@@ -17,6 +17,10 @@ object PodsSettings {
         Key.SINGLE_POD_ANC to Id.ONE_BUD_ANC_MODE,
         Key.MICROPHONE_MODE to Id.MIC_MODE,
         Key.ALLOW_OFF_OPTION to Id.ALLOW_OFF_OPTION,
+        Key.PRESS_SPEED to Id.DOUBLE_CLICK_INTERVAL,
+        Key.HOLD_DURATION to Id.CLICK_HOLD_INTERVAL,
+        Key.SWIPE_SPEED to Id.VOLUME_SWIPE_INTERVAL,
+        Key.CHIME_VOLUME to Id.CHIME_VOLUME,
     )
 
     fun keyFor(identifier: Byte): String? = identifiers.entries.find { it.value.value == identifier }?.key
@@ -25,6 +29,8 @@ object PodsSettings {
         NOISE_MODE -> value in 1..4
         Key.MICROPHONE_MODE -> value in 0..2
         Key.ADAPTIVE_AUDIO_LEVEL -> value in 0..100
+        Key.CHIME_VOLUME -> value in 0..100
+        Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED -> value in 0..2
         Key.LISTENING_MODE_BYTE -> value in 1..15
         else -> key in identifiers && (value == 1 || value == 2)
     }
@@ -39,6 +45,9 @@ object PodsSettings {
             Key.ADJUST_VOLUME_BY_SWIPER -> Capability.SWIPE_FOR_VOLUME in model.capabilities
             Key.ALLOW_OFF_OPTION -> Capability.LOUD_SOUND_REDUCTION in model.capabilities
             Key.MICROPHONE_MODE -> true
+            Key.PRESS_SPEED, Key.HOLD_DURATION -> model !is AirPods && model !is AirPods2
+            Key.SWIPE_SPEED -> Capability.SWIPE_FOR_VOLUME in model.capabilities
+            Key.CHIME_VOLUME -> true
             // Loud-sound reduction requires a separate ATT connection, which is not implemented.
             else -> false
         }
@@ -60,6 +69,8 @@ object PodsSettings {
             NOISE_MODE -> value in allowedNoiseModes(model, values)
             Key.MICROPHONE_MODE -> value in 0..2
             Key.ADAPTIVE_AUDIO_LEVEL -> value in 0..100
+            Key.CHIME_VOLUME -> value in 0..100
+            Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED -> value in 0..2
             Key.LISTENING_MODE_BYTE -> {
                 val mask = allowedNoiseModes(model, values).fold(0) { acc, mode -> acc or (1 shl (mode - 1)) }
                 value in 1..15 && value and mask == value && Integer.bitCount(value) >= 2

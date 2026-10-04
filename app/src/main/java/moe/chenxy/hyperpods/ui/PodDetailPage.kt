@@ -1,5 +1,7 @@
 package moe.chenxy.hyperpods.ui
 
+import android.os.Bundle
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -46,6 +48,7 @@ import moe.chenxy.hyperpods.ui.components.DashboardToggle
 import moe.chenxy.hyperpods.ui.components.PodsInfoPage
 import moe.chenxy.hyperpods.ui.components.PressAndHoldSettingPage
 import moe.chenxy.hyperpods.ui.components.RenamePod
+import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPodsModels.getModelByModelNumber
 import moe.chenxy.hyperpods.utils.AirPods
@@ -98,11 +101,14 @@ fun PodDetailPage(
     settings: Map<String, Int> = emptyMap(),
     pendingSettings: Set<String> = emptySet(),
     onAllowOffChange: (Boolean) -> Unit = {},
+    onSettingChange: (String, Int) -> Unit = { _, _ -> },
+    diagnostics: Bundle? = null,
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
     fun ready(key: String) = PodsSettings.supports(key, model) && key in settings && key !in pendingSettings
     val allowedModes = PodsSettings.allowedNoiseModes(model, settings)
     var adaptiveDraft by remember(settings[Key.ADAPTIVE_AUDIO_LEVEL]) { mutableFloatStateOf(adaptiveAudioLevel) }
+    var chimeDraft by remember(settings[Key.CHIME_VOLUME], Key.CHIME_VOLUME in pendingSettings) { mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat()) }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
     BackHandler(enabled = isActive && detailPage != 0) { detailPage = 0 }
     val listState = key(detailPage) { rememberLazyListState() }
@@ -162,6 +168,8 @@ fun PodDetailPage(
                     DashboardDivider()
                     DashboardLink(stringResource(R.string.dashboard_device_info),
                         if (podsInfo == null) stringResource(R.string.dashboard_info_pending) else null) { detailPage = 2 }
+                    DashboardDivider()
+                    DashboardLink(stringResource(R.string.diagnostics_title), null) { detailPage = 3 }
                 }
                 return@item
             }
@@ -169,8 +177,12 @@ fun PodDetailPage(
                 IconButton(onClick = { detailPage = 0 }, modifier = Modifier.size(48.dp)) {
                     Icon(MiuixIcons.Useful.Back, stringResource(R.string.dashboard_back))
                 }
-                Text(stringResource(if (detailPage == 1) R.string.dashboard_more else R.string.dashboard_device_info),
+                Text(stringResource(when (detailPage) { 1 -> R.string.dashboard_more; 3 -> R.string.diagnostics_title; else -> R.string.dashboard_device_info }),
                     fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+            if (detailPage == 3) {
+                Card(modifier = Modifier.padding(12.dp)) { ConnectionDiagnostics(diagnostics) }
+                return@item
             }
             if (detailPage == 2) {
                 podsInfo?.let { PodsInfoPage(Modifier, Modifier.padding(12.dp), it) }
@@ -188,11 +200,43 @@ fun PodDetailPage(
                 enabled = ready(Key.LISTENING_MODE_BYTE),
             )
 
+            SmallTitle(stringResource(R.string.controls_timing), modifier = titleModifier)
+            Card(modifier = cardModifier) {
+                listOf(Key.PRESS_SPEED to R.string.control_press_speed,
+                    Key.HOLD_DURATION to R.string.control_hold_duration,
+                    Key.SWIPE_SPEED to R.string.control_swipe_speed).forEach { (key, title) ->
+                    if (PodsSettings.supports(key, model)) {
+                        if (ready(key)) SuperDropdown(
+                            title = stringResource(title),
+                            items = listOf(stringResource(R.string.control_default),
+                                stringResource(if (key == Key.PRESS_SPEED) R.string.control_slower else R.string.control_longer),
+                                stringResource(if (key == Key.PRESS_SPEED) R.string.control_slowest else R.string.control_longest)),
+                            selectedIndex = settings.getValue(key),
+                            onSelectedIndexChange = { onSettingChange(key, it) },
+                        ) else top.yukonga.miuix.kmp.basic.BasicComponent(
+                            title = stringResource(title),
+                            summary = stringResource(if (key in pendingSettings) R.string.setting_pending else R.string.settings_reading),
+                            enabled = false,
+                        )
+                    }
+                }
+            }
+
             // Audio
             SmallTitle(stringResource(R.string.audio_title), modifier = titleModifier)
             Card(
                 modifier = cardModifier
             ) {
+                if (PodsSettings.supports(Key.CHIME_VOLUME, model)) Column(Modifier.padding(16.dp)) {
+                    Text(stringResource(R.string.control_chime_volume), fontWeight = FontWeight.Medium)
+                    Text(if (ready(Key.CHIME_VOLUME)) "${chimeDraft.toInt()}%" else
+                        stringResource(if (Key.CHIME_VOLUME in pendingSettings) R.string.setting_pending else R.string.settings_reading),
+                        fontSize = 13.sp)
+                    Slider(value = chimeDraft, valueRange = 0f..100f,
+                        onValueChange = { chimeDraft = it },
+                        onValueChangeFinished = { onSettingChange(Key.CHIME_VOLUME, chimeDraft.toInt()) },
+                        enabled = ready(Key.CHIME_VOLUME), modifier = Modifier.fillMaxWidth())
+                }
                 if (Capability.LOUD_SOUND_REDUCTION in model?.capabilities.orEmpty()) SuperSwitch(
                     title = stringResource(R.string.loud_sound_reduction_title),
                     summary = stringResource(R.string.loud_sound_unavailable),

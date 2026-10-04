@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -119,6 +120,7 @@ fun MainUI() {
     val autoSwitchToSpeaker = remember { mutableStateOf(context.prefs().getBoolean(HyperPodsPrefsKey.EAR_DETECTION_SWITCH_SPEAKER, true)) }
     val settings = remember { mutableStateMapOf<String, Int>() }
     var pendingSettings by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var diagnostics by remember { mutableStateOf<Bundle?>(null) }
     val personlizedVolume = remember { mutableStateOf(false) }
     val adaptiveAudioLevel = remember { mutableFloatStateOf(0.5f) }
     val adjustVolumeBySwiper = remember { mutableStateOf(false) }
@@ -133,6 +135,9 @@ fun MainUI() {
             override fun onReceive(p0: Context?, p1: Intent?) {
                 if (!HyperPodsBroadcasts.isTrusted(context, this, HyperPodsBroadcasts.BLUETOOTH)) return
                 when (p1?.action) {
+                    HyperPodsAction.ACTION_PODS_DIAGNOSTICS -> {
+                        diagnostics = p1.getBundleExtra("diagnostics")
+                    }
                     HyperPodsAction.ACTION_PODS_ANC_CHANGED -> {
                         val status = p1.getIntExtra("status", 0)
                         if (status !in 1..NoiseControlMode.entries.size) return
@@ -183,7 +188,9 @@ fun MainUI() {
                     HyperPodsAction.ACTION_PODS_DISCONNECTED -> {
                         mainTitle.value = ""
                         canShowDetailPage.value = false
-                        if (p0 is MainActivity) {
+                        settings.clear()
+                        pendingSettings = emptySet()
+                        if (p0 is MainActivity && !p1.getBooleanExtra("initialization_failed", false)) {
                             p0.finish()
                         }
                     }
@@ -199,6 +206,7 @@ fun MainUI() {
             this.addAction(HyperPodsAction.ACTION_PODS_DISCONNECTED)
             this.addAction(HyperPodsAction.ACTION_PODS_SETTINGS_STATE)
             this.addAction(HyperPodsAction.ACTION_PODS_SETTING_RESULT)
+            this.addAction(HyperPodsAction.ACTION_PODS_DIAGNOSTICS)
         }, Context.RECEIVER_EXPORTED)
 
         HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_UI_INIT), HyperPodsBroadcasts.BLUETOOTH)
@@ -362,7 +370,9 @@ fun MainUI() {
             },
             noiseCancellationSingleAirPod = noiseCancellationSingleAirPod.value,
             settings = settings.toMap(), pendingSettings = pendingSettings,
-            onAllowOffChange = { sendBooleanSetting(context, HyperPodsPrefsKey.ALLOW_OFF_OPTION, it) }
+            onAllowOffChange = { sendBooleanSetting(context, HyperPodsPrefsKey.ALLOW_OFF_OPTION, it) },
+            onSettingChange = { key, value -> sendPodsSetting(context, key, value) },
+            diagnostics = diagnostics,
         )
     }
 }
@@ -400,6 +410,8 @@ fun AppHorizontalPager(
     settings: Map<String, Int> = emptyMap(),
     pendingSettings: Set<String> = emptySet(),
     onAllowOffChange: (Boolean) -> Unit = {},
+    onSettingChange: (String, Int) -> Unit = { _, _ -> },
+    diagnostics: Bundle? = null,
 ) {
     HorizontalPager(
         state = pagerState,
@@ -410,6 +422,7 @@ fun AppHorizontalPager(
                         if (value) {
                             PodDetailPage(
                                 settings = settings, pendingSettings = pendingSettings, onAllowOffChange = onAllowOffChange,
+                                onSettingChange = onSettingChange, diagnostics = diagnostics,
                                 padding = padding,
                                 batteryParams = batteryParams,
                                 earDetectionParams = earDetectionParams,
@@ -443,6 +456,7 @@ fun AppHorizontalPager(
                     }
 
                 1 -> AboutPage(
+                    diagnostics = diagnostics,
                     topAppBarScrollBehavior = topAppBarScrollBehaviorList[1],
                     padding = padding
                 )

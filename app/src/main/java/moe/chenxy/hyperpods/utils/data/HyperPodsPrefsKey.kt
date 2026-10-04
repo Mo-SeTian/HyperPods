@@ -15,4 +15,8 @@ object HyperPodsPrefsKey {
     const val LONG_PRESS_MODE_RIGHT = "long_press_mode_right"
     const val SINGLE_POD_ANC = "single_pod_anc"
     const val ALLOW_OFF_OPTION = "allow_off_option"
+    const val PRESS_SPEED = "press_speed"
+    const val HOLD_DURATION = "hold_duration"
+    const val SWIPE_SPEED = "swipe_speed"
+    const val CHIME_VOLUME = "chime_volume"
 }

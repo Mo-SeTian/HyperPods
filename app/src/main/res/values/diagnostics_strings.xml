@@ -1,0 +1,37 @@
+<resources>
+    <string name="diagnostics_title">Connection diagnostics</string>
+    <string name="diagnostics_connection">Control connection</string>
+    <string name="diagnostics_stage">Initialization step</string>
+    <string name="diagnostics_handshake">Waiting for handshake confirmation</string>
+    <string name="diagnostics_features">Waiting for feature confirmation</string>
+    <string name="diagnostics_status">Waiting for complete headset status</string>
+    <string name="diagnostics_no_session">No active control session</string>
+    <string name="diagnostics_connecting">Connecting</string>
+    <string name="diagnostics_failed">Connection failed</string>
+    <string name="diagnostics_packets">Protocol packets received</string>
+    <string name="diagnostics_retries">Status recovery attempts</string>
+    <string name="diagnostics_battery">Battery status</string>
+    <string name="diagnostics_wear">Wearing status</string>
+    <string name="diagnostics_information">Device information</string>
+    <string name="diagnostics_received">Received</string>
+    <string name="diagnostics_no_report">No report from the module. Check that HyperPods is enabled in LSPosed and reconnect the headset.</string>
+    <string name="diagnostics_ready">Headset status is synchronized.</string>
+    <string name="diagnostics_no_packets">No headset response yet. Protocol initialization is being retried.</string>
+    <string name="diagnostics_incomplete">Some headset status is still missing.</string>
+    <string name="diagnostics_failed_summary">Status recovery did not finish. Retry, or copy this report for diagnosis.</string>
+    <string name="diagnostics_refresh">Refresh report</string>
+    <string name="diagnostics_retry">Retry status synchronization</string>
+    <string name="diagnostics_retry_summary">Request the missing initialization step on the existing control connection.</string>
+    <string name="diagnostics_copy">Copy diagnostic report</string>
+    <string name="diagnostics_copied">Diagnostic report copied</string>
+    <string name="controls_timing">Press and swipe timing</string>
+    <string name="control_press_speed">Press speed</string>
+    <string name="control_hold_duration">Press and hold duration</string>
+    <string name="control_swipe_speed">Volume swipe interval</string>
+    <string name="control_default">Default</string>
+    <string name="control_slower">Slower</string>
+    <string name="control_slowest">Slowest</string>
+    <string name="control_longer">Longer</string>
+    <string name="control_longest">Longest</string>
+    <string name="control_chime_volume">Earbud tone volume</string>
+</resources>

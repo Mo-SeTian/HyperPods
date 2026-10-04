@@ -2,6 +2,7 @@ package moe.chenxy.hyperpods.ui
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import moe.chenxy.hyperpods.R
+import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
@@ -33,12 +35,13 @@ import top.yukonga.miuix.kmp.utils.getWindowSize
 @Composable
 fun AboutPage(
     topAppBarScrollBehavior: ScrollBehavior,
-    padding: PaddingValues
+    padding: PaddingValues,
+    diagnostics: Bundle? = null,
 ) {
     val context = LocalContext.current
     LazyColumn(
         modifier = Modifier.height(getWindowSize().height.dp).padding(12.dp).nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
-        contentPadding = PaddingValues(top = padding.calculateTopPadding()),
+        contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding()),
     ) {
         item {
             Row(modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -95,6 +98,10 @@ fun AboutPage(
                     },
                     enabled = true
                 )
+            }
+
+            Card(modifier = Modifier.padding(top = 12.dp)) {
+                ConnectionDiagnostics(diagnostics)
             }
 
         }

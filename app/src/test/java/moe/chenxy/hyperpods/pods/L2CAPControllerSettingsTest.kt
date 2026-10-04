@@ -180,6 +180,37 @@ class L2CAPControllerSettingsTest {
         assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
     }
 
+    @Test fun timingRequestsUseZeroBasedValuesAndStillWaitForTheHeadset() {
+        for (key in listOf(Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED)) {
+            val id = PodsSettings.identifiers.getValue(key)
+            receive(id.value, 1)
+            request(key, 0)
+            assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, id.value, 0, 0, 0, 0), output.toByteArray())
+            assertTrue(pending().containsKey(key))
+            assertEquals(1.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+            receive(id.value, 0)
+            assertTrue(pending().isEmpty())
+            output.reset()
+        }
+    }
+
+    @Test fun chimeVolumePreservesTheSecondByteAndNeedsConfirmation() {
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 80, 67, 0, 0))
+        request(Key.CHIME_VOLUME, 35)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 35, 67, 0, 0), output.toByteArray())
+        assertTrue(pending().containsKey(Key.CHIME_VOLUME))
+        receive(0x1f, 35)
+        assertTrue(pending().isEmpty())
+    }
+
+    @Test fun manualRecoveryRestartsHandshakeBeforeSubscriptionWithoutOpeningAnotherSocket() {
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
+        controller.handleUIEvent(intent)
+        assertArrayEquals(manager.createHandshakePacket(), output.toByteArray())
+        verify(socket, never()).connect()
+    }
+
     @Test fun listeningTogglesUpdateWithoutRepliesAndCanBeToggledAgainImmediately() {
         for (key in listOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS)) {
             val id = PodsSettings.identifiers.getValue(key)
