@@ -1,12 +1,18 @@
 package moe.chenxy.hyperpods.hook
 
+import android.annotation.SuppressLint
 import android.util.Log
+import android.service.notification.StatusBarNotification
 import android.view.View
 import android.widget.FrameLayout
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.factory.method
 import de.robv.android.xposed.XposedHelpers
+import moe.chenxy.hyperpods.BuildConfig
+import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
+import moe.chenxy.hyperpods.utils.PodsFocusCardSpacing
 import moe.chenxy.hyperpods.utils.PodsIslandData
+import kotlin.math.roundToInt
 
 
 object SystemUIPluginHook : YukiBaseHooker() {
@@ -20,6 +26,38 @@ object SystemUIPluginHook : YukiBaseHooker() {
 
         fun initPluginHook() {
             loadPluginHooker(DeviceCardHook)
+            val cardHolder = runCatching {
+                Class.forName("miui.systemui.notification.focus.moduleV3.ModuleTextViewHolder", false, pluginLoaderClassLoader)
+            }.getOrNull()
+            if (cardHolder != null) cardHolder.method { name = "bind"; paramCount = 2 }.hook {
+                before {
+                    runCatching {
+                        val view = XposedHelpers.getObjectField(this.instance, "titleContainer") as? View ?: return@runCatching
+                        // Remove only our previous change before the system binds the next card.
+                        // Its own requested margins must remain authoritative for other apps.
+                        PodsFocusCardSpacing.restore(view)
+                    }.onFailure { Log.w("Art_Chen", "Unable to restore HyperPods focus card spacing") }
+                }
+                after {
+                    runCatching {
+                        val sbn = this.args[1] as? StatusBarNotification ?: return@runCatching
+                        val own = sbn.packageName == HyperPodsBroadcasts.XIAOMI_BLUETOOTH &&
+                            sbn.notification.extras.getCharSequence("miui.targetPkg")?.toString() == BuildConfig.APPLICATION_ID
+                        val view = XposedHelpers.getObjectField(this.instance, "titleContainer") as? View ?: return@runCatching
+                        val content = if (own) XposedHelpers.callMethod(this.args[0], "getBaseInfo")?.let {
+                            XposedHelpers.callMethod(it, "getContent") as? String
+                        } else null
+                        val gap = if (own) {
+                            val resources = view.context.resources
+                            // This dimension belongs to the system plugin, not our resource table.
+                            @SuppressLint("DiscouragedApi")
+                            val id = resources.getIdentifier("focus_notify_button_without_icon_margin_start", "dimen", "miui.systemui.plugin")
+                            if (id != 0) resources.getDimensionPixelSize(id) else (12 * resources.displayMetrics.density).roundToInt()
+                        } else 0
+                        PodsFocusCardSpacing.apply(view, own, content, gap)
+                    }.onFailure { Log.w("Art_Chen", "Unable to adjust HyperPods focus card spacing") }
+                }
+            }
             // OS4 reserves an extra half-small-island width on the left when a
             // music bubble coexists. Native type-1 START alignment leaves that
             // space next to the camera. Anchor only our two modules inward.
