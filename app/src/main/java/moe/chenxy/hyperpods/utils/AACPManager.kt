@@ -36,7 +36,8 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  * This class is responsible for handling the L2CAP socket management,
  * constructing and parsing packets for communication with AirPods.
  */
-class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = System::currentTimeMillis) {
+class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) -> Boolean)? = null,
+    private val now: () -> Long = System::currentTimeMillis) {
     companion object {
         private const val TAG = "AACPManager"
 
@@ -325,6 +326,7 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
     enum class InitializationStage { HANDSHAKE, FEATURES, STATUS }
     var initializationStage = InitializationStage.HANDSHAKE
         private set
+    private var featuresSent = false
     var receivedPacketCount = 0
         private set
     var lastPacketAt = 0L
@@ -338,11 +340,14 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
     var settingsReceivedAt = 0L
         private set
 
-    /** Retry the missing protocol step on this socket, without reconnecting Bluetooth profiles. */
-    fun requestInitialStatus(): Boolean = when (initializationStage) {
+    /** Feature acknowledgements are not guaranteed. A bounded retry also subscribes,
+     * as LibrePods Android does, instead of waiting forever for opcode 0x2b. */
+    fun requestInitialStatus(full: Boolean = false): Boolean = if (full) {
+        sendHandshake() && sendSetFeatureFlagsPacket() && sendNotificationRequest()
+    } else when (initializationStage) {
         InitializationStage.HANDSHAKE -> sendHandshake()
-        InitializationStage.FEATURES -> sendSetFeatureFlagsPacket()
-        InitializationStage.STATUS -> sendNotificationRequest()
+        InitializationStage.FEATURES -> sendSetFeatureFlagsPacket() && sendNotificationRequest()
+        InitializationStage.STATUS -> (featuresSent || sendSetFeatureFlagsPacket()) && sendNotificationRequest()
     }
 
     fun setPacketCallback(callback: PacketCallback) {
@@ -447,9 +452,11 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
         if (packet.size >= 16 && packet.copyOfRange(0, 4).contentEquals(byteArrayOf(1, 0, 4, 0))) {
             receivedPacketCount++
             lastPacketAt = now()
-            initializationStage = InitializationStage.FEATURES
+            val subscribed = initializationStage == InitializationStage.STATUS
+            if (!subscribed) initializationStage = InitializationStage.FEATURES
             Log.i(TAG, "Handshake acknowledged; configuring features")
             sendSetFeatureFlagsPacket()
+            if (subscribed) sendNotificationRequest()
             return
         }
         if (packet.size < 6 || !packet.copyOfRange(0, 4).contentEquals(HEADER_BYTES)) {
@@ -461,6 +468,7 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
                 receivedPacketCount++
                 lastPacketAt = now()
                 initializationStage = InitializationStage.STATUS
+                featuresSent = true
                 Log.i(TAG, "Features acknowledged; subscribing to headset status")
                 sendNotificationRequest()
                 return
@@ -638,7 +646,9 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
     }
 
     fun sendNotificationRequest(): Boolean {
-        return sendDataPacket(createRequestNotificationPacket())
+        return sendDataPacket(createRequestNotificationPacket()).also {
+            if (it) initializationStage = InitializationStage.STATUS
+        }
     }
 
     fun createRequestNotificationPacket(): ByteArray {
@@ -650,7 +660,7 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
     }
 
     fun sendSetFeatureFlagsPacket(): Boolean {
-        return sendDataPacket(createSetFeatureFlagsPacket())
+        return sendDataPacket(createSetFeatureFlagsPacket()).also { if (it) featuresSent = true }
     }
 
     fun createSetFeatureFlagsPacket(): ByteArray {
@@ -1137,6 +1147,7 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
 
     @OptIn(ExperimentalStdlibApi::class)
     fun sendPacket(packet: ByteArray): Boolean {
+        writer?.let { return it(packet) }
         try {
             if (packet.isEmpty()) return false
             Log.d(TAG, "Sending packet (${packet.size} bytes)")
@@ -1267,11 +1278,16 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
             val start = index
             // find next 0x00 byte
             while (index < data.size && data[index] != 0x00.toByte()) index++
+            require(index < data.size) { "Information string is not terminated" }
             val str = data.sliceArray(start until index).decodeToString()
             strings.add(str)
         }
 
-        require(strings.isNotEmpty()) { "Information packet contains no strings" }
+        // The first string is a protocol field; name and model are required.
+        // Older models may omit trailing optional metadata, but not their identity.
+        require(strings.size >= 3 && strings[1].isNotBlank() && strings[2].isNotBlank()) {
+            "Information packet has no complete device identity"
+        }
         strings.removeAt(0)
 
         return AirPodsInformation(

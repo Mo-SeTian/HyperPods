@@ -14,6 +14,7 @@
     <string name="head_test_stopping">正在请求停止…</string>
     <string name="head_test_stop_unconfirmed">尚未确认停止。停止发送心跳后，蓝牙端会自动超时释放采集。</string>
     <string name="head_test_stopped">测试已停止</string>
+    <string name="head_test_stop_failed">停止指令发送失败，正在重试；恢复失败将关闭控制通道。</string>
     <string name="head_test_unavailable">无法开始或未收到更新。请检查模块启用状态和控制连接；来电手势也可能正在占用采集通道。</string>
     <string name="head_test_packets">有效姿态数据包：%1$d</string>
     <string name="head_test_pose">相对头部姿态示意</string>

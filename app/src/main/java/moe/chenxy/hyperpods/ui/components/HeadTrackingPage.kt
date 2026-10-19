@@ -255,6 +255,7 @@ private fun headTestStatus(state: String) = when (state) {
     "background" -> R.string.head_test_background
     "stopping" -> R.string.head_test_stopping
     "stop_unconfirmed" -> R.string.head_test_stop_unconfirmed
+    "stop_failed" -> R.string.head_test_stop_failed
     "stopped" -> R.string.head_test_stopped
     "unavailable" -> R.string.head_test_unavailable
     else -> R.string.head_test_idle

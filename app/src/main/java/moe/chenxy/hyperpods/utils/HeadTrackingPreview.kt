@@ -16,6 +16,7 @@ class HeadTrackingPreview(private val stream: HeadTrackingStream, private val em
     private var lastPacket = 0L
     private var lastEmit = 0L
     private var lastGesture: Long? = null
+    private var stoppingReason: String? = null
 
     private fun publish() {
         snapshot = snapshot.copy(sequence = snapshot.sequence + 1)
@@ -27,6 +28,12 @@ class HeadTrackingPreview(private val stream: HeadTrackingStream, private val em
         if (session == snapshot.session) return // A delayed duplicate must not resurrect a stopped session.
         if (active) stop("stopped")
         snapshot = Snapshot(session, 0, "starting")
+        if (stream.stopPending) {
+            stoppingReason = "stopped"
+            snapshot = snapshot.copy(state = "stop_failed")
+            publish()
+            return
+        }
         val failure = when {
             !connected -> "disconnected"
             !supported -> "unsupported"
@@ -71,6 +78,14 @@ class HeadTrackingPreview(private val stream: HeadTrackingStream, private val em
     }
 
     fun tick(at: Long) {
+        if (stoppingReason != null) {
+            if (!stream.stopPending) {
+                snapshot = snapshot.copy(state = stoppingReason!!, sample = null)
+                stoppingReason = null
+                publish()
+            }
+            return
+        }
         if (!active) return
         when {
             at - heartbeat >= 7000 -> stop("expired") // App death cannot leave tracking on.
@@ -100,12 +115,13 @@ class HeadTrackingPreview(private val stream: HeadTrackingStream, private val em
     }
 
     fun stop(reason: String) {
-        if (!active) return
+        if (!active && stoppingReason == null) return
         active = false
-        stream.release(HeadTrackingStream.Owner.PREVIEW)
+        val released = stream.release(HeadTrackingStream.Owner.PREVIEW)
+        stoppingReason = reason.takeUnless { released }
         detector.reset()
         pose.reset()
-        snapshot = snapshot.copy(state = reason, sample = null)
+        snapshot = snapshot.copy(state = if (released) reason else "stop_failed", sample = null)
         publish()
     }
 }

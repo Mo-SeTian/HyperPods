@@ -51,6 +51,9 @@
     <string name="diagnostics_last_packet">最近一次协议回包</string>
     <string name="diagnostics_settings_time">最近一次耳机设置回报</string>
     <string name="diagnostics_missing_settings">尚未收到的设置项数量</string>
+    <string name="diagnostics_model_unknown">等待识别型号，暂无法统计</string>
+    <string name="diagnostics_control_syncing">通道已连接，状态尚未同步完成</string>
+    <string name="diagnostics_sync_pending">状态同步尚未完成，暂不能确认控制功能就绪。</string>
     <string name="diagnostics_last_setting">最近一次设置操作</string>
     <string name="diagnostics_failure">失败原因</string>
     <string name="diagnostics_never">本次连接尚未收到</string>

@@ -14,6 +14,7 @@
     <string name="head_test_stopping">Requesting stop…</string>
     <string name="head_test_stop_unconfirmed">Stop not confirmed. The Bluetooth-side lease will expire automatically if heartbeats stop.</string>
     <string name="head_test_stopped">Test stopped</string>
+    <string name="head_test_stop_failed">Stop command failed. Retrying; the control channel will be closed if recovery fails.</string>
     <string name="head_test_unavailable">Unable to start or receive updates. Check module activation and the control connection; call gestures may also be using the stream.</string>
     <string name="head_test_packets">Valid motion packets: %1$d</string>
     <string name="head_test_pose">Relative head pose illustration</string>

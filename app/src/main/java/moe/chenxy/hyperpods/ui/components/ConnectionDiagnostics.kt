@@ -56,7 +56,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         else -> R.string.diagnostics_no_session
     }
     val connection = when (snapshot?.getString("connection")) {
-        "connected" -> R.string.dashboard_connected
+        "connected" -> if (snapshot.getBoolean("ready")) R.string.dashboard_connected else R.string.diagnostics_control_syncing
         "connecting" -> R.string.diagnostics_connecting
         "failed" -> R.string.diagnostics_failed
         else -> R.string.diagnostics_no_session
@@ -89,9 +89,16 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         stringResource(R.string.diagnostics_right_update) to time(snapshot?.getLong("right_battery_at")),
         stringResource(R.string.diagnostics_case_update) to time(snapshot?.getLong("case_battery_at")),
         stringResource(R.string.diagnostics_wear_update) to time(snapshot?.getLong("wear_report_at")),
-        stringResource(R.string.diagnostics_missing_settings) to (snapshot?.getInt("missing_settings") ?: 0).toString(),
+        stringResource(R.string.diagnostics_missing_settings) to
+            (snapshot?.takeIf { it.getBoolean("information") }?.getInt("missing_settings", -1)?.takeIf { it >= 0 }?.toString()
+                ?: stringResource(R.string.diagnostics_model_unknown)),
         stringResource(R.string.diagnostics_last_setting) to (stringResource(settingTitle(snapshot?.getString("setting_key"))) + "\n" + stringResource(settingStatus(snapshot?.getString("setting_status")))),
-        stringResource(R.string.diagnostics_failure) to stringResource(failureReason(snapshot?.getString("failure"))),
+        stringResource(R.string.diagnostics_failure) to stringResource(when {
+            snapshot == null -> R.string.module_no_report
+            !snapshot.getString("failure").isNullOrEmpty() -> failureReason(snapshot.getString("failure"))
+            !snapshot.getBoolean("ready") -> R.string.diagnostics_sync_pending
+            else -> R.string.diagnostics_no_failure
+        }),
     )
     val historyReport = history?.let {
         listOf(

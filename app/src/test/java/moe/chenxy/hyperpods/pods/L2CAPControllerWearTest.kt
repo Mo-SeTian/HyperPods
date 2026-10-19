@@ -3,9 +3,11 @@ package moe.chenxy.hyperpods.pods
 import android.bluetooth.BluetoothDevice
 import android.app.BroadcastOptions
 import android.content.ContextWrapper
+import android.content.Context
 import android.content.Intent
 import android.bluetooth.BluetoothSocket
 import android.media.MediaRoute2Info
+import android.media.AudioManager
 import android.media.MediaRouter2
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -15,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.MediaControl
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.After
@@ -423,6 +426,40 @@ class L2CAPControllerWearTest {
         `when`(this.id).thenReturn(id)
         `when`(this.type).thenReturn(routeType)
         `when`(this.name).thenReturn("Test headset")
+    }
+
+    @Test fun automaticPauseOnlyAppliesWhenThisHeadsetIsTheSelectedMediaOutput() = synchronized(controller) {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.isMusicActive).thenReturn(true)
+        field("mContext").set(controller, context)
+        MediaControl.mContext = context
+        `when`(device.name).thenReturn("Test headset")
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        `when`(router.systemController).thenReturn(routing)
+        field("mediaRouter").set(controller, router)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val other = route("other", MediaRoute2Info.TYPE_BLUETOOTH_A2DP).apply {
+            `when`(name).thenReturn("Other headphones")
+        }
+        settings(true, false)
+        try {
+            for (selected in listOf(speaker, other)) {
+                `when`(routing.selectedRoutes).thenReturn(listOf(selected))
+                wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+                wear(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.OUT_OF_EAR)
+                assertFalse(field("pausedAudio").getBoolean(controller))
+            }
+            verify(audio, never()).dispatchMediaKeyEvent(any())
+            `when`(routing.selectedRoutes).thenReturn(listOf(headset))
+            wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+            wear(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.OUT_OF_EAR)
+            assertTrue(field("pausedAudio").getBoolean(controller))
+            verify(audio, times(2)).dispatchMediaKeyEvent(any())
+        } finally { MediaControl.mContext = null }
     }
 
     @Test fun removingEarbudsCannotTakeOverAnotherSelectedOutput() {

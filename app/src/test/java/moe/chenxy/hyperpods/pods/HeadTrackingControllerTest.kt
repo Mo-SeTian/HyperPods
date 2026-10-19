@@ -10,6 +10,7 @@ import android.telephony.TelephonyManager
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.AACPWriter
 import moe.chenxy.hyperpods.utils.HeadTrackingPreview
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
@@ -19,6 +20,9 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.MockedStatic
 import org.mockito.Mockito.*
+import java.io.OutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Real controller commands/callbacks, with synthetic sockets and no platform calls. */
 class HeadTrackingControllerTest {
@@ -115,5 +119,48 @@ class HeadTrackingControllerTest {
         command("start", "no-control")
         assertFalse(preview.active)
         assertEquals(0, output.size())
+    }
+
+    @Test fun queuedProductionWriterCannotHoldControllerLockDuringABlockedSensorStart() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        `when`(socket.outputStream).thenReturn(object : OutputStream() {
+            override fun write(b: Int) {
+                entered.countDown()
+                release.await(2, TimeUnit.SECONDS)
+            }
+        })
+        AACPWriter(socket) {}.use { writer ->
+            field("aacpManager").set(controller, AACPManager(socket, writer::send))
+            try {
+                command("start")
+                assertTrue(entered.await(1, TimeUnit.SECONDS))
+                val acquired = CountDownLatch(1)
+                Thread { synchronized(controller) { acquired.countDown() } }.start()
+                assertTrue("Lifecycle cleanup must not wait for output.write", acquired.await(1, TimeUnit.SECONDS))
+            } finally {
+                release.countDown()
+                command("stop")
+            }
+        }
+    }
+
+    @Test fun failedPreviewStopRetainsRecoveryEvenAfterRecognitionHasStopped() {
+        command("start")
+        `when`(socket.isConnected).thenReturn(false)
+        command("stop")
+        assertFalse(preview.active)
+        val retry = field("headStopRetryJob").get(controller) as kotlinx.coroutines.Job
+        assertTrue(retry.isActive)
+        // Timer IPC is not the subject of this JVM test.
+        field("mContext").set(controller, null)
+        `when`(socket.isConnected).thenReturn(true)
+        verify(socket, timeout(2000).atLeast(2)).getOutputStream()
+        kotlinx.coroutines.runBlocking { retry.join() }
+        val snapshot = preview.javaClass.getDeclaredField("snapshot").apply { isAccessible = true }
+            .get(preview) as HeadTrackingPreview.Snapshot
+        assertEquals("stopped", snapshot.state)
+        assertArrayEquals(manager.createDataPacket(manager.createAlternateStartHeadTrackingPacket()) +
+            manager.createDataPacket(manager.createAlternateStopHeadTrackingPacket()), output.toByteArray())
     }
 }

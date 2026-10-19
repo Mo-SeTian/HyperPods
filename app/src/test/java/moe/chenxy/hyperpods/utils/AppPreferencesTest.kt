@@ -19,6 +19,8 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class AppPreferencesTest {
     @get:Rule val temporary = TemporaryFolder()
@@ -137,6 +139,34 @@ class AppPreferencesTest {
         assertEquals(snapshot, AppPreferences.readRemote(context))
         `when`(resolver.call(AppPreferences.AUTHORITY, AppPreferences.READ, null, null)).thenThrow(SecurityException())
         assertNull(AppPreferences.readRemote(context))
+    }
+
+    @Test fun blockedRemoteReadDoesNotBlockCallersOrCreateMoreBinderReadsAndLateReplyUsesLatestCallback() {
+        val context = mock(Context::class.java)
+        val resolver = mock(ContentResolver::class.java)
+        val reply = mock(Bundle::class.java)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val completed = CountDownLatch(1)
+        var staleCalled = false
+        var result: AppPreferences.Snapshot? = null
+        `when`(context.contentResolver).thenReturn(resolver)
+        `when`(reply.getString(AppPreferences.EXTRA)).thenReturn(snapshot.encode())
+        `when`(resolver.call(AppPreferences.AUTHORITY, AppPreferences.READ, null, null)).thenAnswer {
+            entered.countDown()
+            release.await(3, TimeUnit.SECONDS)
+            reply
+        }
+        try {
+            AppPreferences.requestRemote(context) { staleCalled = true }
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            AppPreferences.requestRemote(context) { result = it; completed.countDown() }
+            verify(resolver, times(1)).call(AppPreferences.AUTHORITY, AppPreferences.READ, null, null)
+            release.countDown()
+            assertTrue(completed.await(2, TimeUnit.SECONDS))
+            assertFalse(staleCalled)
+            assertEquals(snapshot, result)
+        } finally { release.countDown() }
     }
 
     @Test fun providerRejectsOtherUidsBeforeReadingAnySettings() {

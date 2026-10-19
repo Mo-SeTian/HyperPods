@@ -423,12 +423,61 @@ class L2CAPControllerSettingsTest {
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 35, 0, 0, 0), output.toByteArray())
     }
 
-    @Test fun manualRecoveryRestartsHandshakeBeforeSubscriptionWithoutOpeningAnotherSocket() {
+    @Test fun manualRecoveryDiscardsASilentControlSocketButKeepsTheAudioDeviceSession() {
+        field("socket").set(controller, socket)
+        val generation = field("sessionId").getLong(controller)
+        val context = field("mContext").get(controller)
         val intent = mock(Intent::class.java)
         `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
         controller.handleUIEvent(intent)
-        assertArrayEquals(manager.createHandshakePacket(), output.toByteArray())
+        assertEquals(0, output.size())
+        assertEquals(generation + 1, field("sessionId").getLong(controller))
+        assertSame(context, field("mContext").get(controller))
+        assertSame(device, controller.mDevice)
+        assertNull(field("aacpManager").get(controller))
+        verify(socket, timeout(1000)).close()
         verify(socket, never()).connect()
+        (field("connectionJob").get(controller) as Job?)?.cancel()
+    }
+
+    @Test fun malformedDeviceInformationCannotEraseTheCurrentModelOrAdvanceItsTimestamp() {
+        val previous = controller.currentPodsInfo
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x1d, 0, 0, 65, 0))
+        assertSame(previous, controller.currentPodsInfo)
+        assertEquals(0L, manager.informationReceivedAt)
+        assertEquals(0, manager.receivedPacketCount)
+    }
+
+    private fun finishInitialStatus(generation: Long = field("sessionId").getLong(controller)) {
+        type.getDeclaredMethod("finishInitialStatus", AACPManager::class.java, Long::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller, manager, generation)
+    }
+
+    @Test fun missingCoreStatusAtSyncTimeoutClosesOnlyTheControlSocket() {
+        field("socket").set(controller, socket)
+        field("connectionState").set(controller, "connected")
+        finishInitialStatus()
+        verify(socket).close()
+        assertEquals("status_timeout", field("lastStatusFailure").get(controller))
+        assertEquals("failed", field("connectionState").get(controller))
+        assertNotNull(field("mContext").get(controller))
+        assertSame(device, controller.mDevice)
+    }
+
+    @Test fun missingSettingReportAloneDoesNotCloseAWorkingCoreSession() {
+        field("socket").set(controller, socket)
+        field("batteryStateValid").setBoolean(controller, true)
+        field("earDetectionStateValid").setBoolean(controller, true)
+        finishInitialStatus()
+        verify(socket, never()).close()
+        assertEquals("status_timeout", field("lastStatusFailure").get(controller))
+    }
+
+    @Test fun obsoleteTimeoutCannotCloseANewerSession() {
+        field("socket").set(controller, socket)
+        finishInitialStatus(field("sessionId").getLong(controller) - 1)
+        verify(socket, never()).close()
+        assertEquals("", field("lastStatusFailure").get(controller))
     }
 
     @Test fun reopeningUiAfterControlFailureStillPublishesThePhysicalDeviceSession() {

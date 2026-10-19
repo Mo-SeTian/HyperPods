@@ -47,6 +47,24 @@ class ConnectionDiagnosticsTest {
         assertEquals(R.string.diagnostics_audio_no_control_report, dashboardConnectionStatus(null))
     }
 
+    @Test fun unknownModelAndIncompleteInitializationNeverLookLikeZeroMissingSettingsAndReady() {
+        val status = Bundle().apply {
+            putString("connection", "connected")
+            putString("stage", "FEATURES")
+            putInt("received", 1)
+            putInt("missing_settings", -1)
+        }
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AppTheme(1) { Column(Modifier.verticalScroll(rememberScrollState())) { ConnectionDiagnostics(status) } }
+            }
+        }
+        compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_control_syncing)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_model_unknown)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_sync_pending)).performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText(compose.activity.getString(R.string.diagnostics_no_failure)).assertCountEquals(0)
+    }
+
     @Test fun pendingEarHasACacheLabelAndConnectedCaseIsVisible() {
         val at = 1000L
         val status = Bundle().apply {

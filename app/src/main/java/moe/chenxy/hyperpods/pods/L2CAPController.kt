@@ -27,9 +27,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.AACPWriter
 import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.AirPodsInstance
 import moe.chenxy.hyperpods.utils.MediaControl
@@ -54,6 +56,7 @@ import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.collections.get
 import kotlin.experimental.or
 
@@ -135,8 +138,10 @@ object L2CAPController {
         val sent = manager?.sendDataPacket(if (start) manager.createAlternateStartHeadTrackingPacket()
             else manager.createAlternateStopHeadTrackingPacket()) == true
         if (!sent) Log.w(TAG, "Head-tracking stream command was not sent")
+        if (!sent && !start) recoverHeadTrackingStop()
         sent
     }
+    private var headStopRetryJob: Job? = null
     private var headPreviewWatchdog: Job? = null
     private val headPreview = HeadTrackingPreview(headTrackingStream) { snapshot ->
         HyperPodsBroadcasts.send(mContext, Intent(HyperPodsAction.ACTION_HEAD_TRACKING_SAMPLE).apply {
@@ -162,6 +167,40 @@ object L2CAPController {
     }
 
     private fun headPreviewActive(state: String) = state in setOf("starting", "calibrating", "tracking")
+
+    private fun recoverHeadTrackingStop() {
+        if (headStopRetryJob?.isActive == true) return
+        val manager = aacpManager ?: return
+        val generation = sessionId
+        headStopRetryJob = CoroutineScope(Dispatchers.Default).launch {
+            repeat(3) {
+                delay(1000)
+                val finished = synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId != generation || aacpManager !== manager) true
+                    else {
+                        val stopped = headTrackingStream.retryStop()
+                        headPreview.tick(SystemClock.elapsedRealtime())
+                        stopped
+                    }
+                }
+                if (finished) return@launch
+            }
+            failControlChannel(manager.socket, generation, "write_failed")
+        }
+    }
+
+    private fun clearHeadTracking() {
+        headPreview.stop("disconnected")
+        headGestureCalls?.close()
+        headGestureCalls = null
+        headTrackingStream.reset()
+        headPreview.tick(SystemClock.elapsedRealtime())
+        headStopRetryJob?.cancel()
+        headStopRetryJob = null
+        headPreviewWatchdog?.cancel()
+        headPreviewWatchdog = null
+    }
 
     private fun headTrackingSupported() = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
         ?.capabilities?.contains(Capability.HEAD_GESTURES) == true
@@ -289,11 +328,17 @@ object L2CAPController {
                 sendDiagnostics(force = true)
             }
             HyperPodsAction.ACTION_PODS_STATUS_RETRY -> {
-                if (aacpManager != null) {
+                if (aacpManager != null && initialStatusReady()) {
                     initialStatusRetries++
                     recordEvent("sync", "request")
-                    lastStatusFailure = if (aacpManager?.requestInitialStatus() == true) "" else "write_failed"
-                } else if (connectionJob?.isActive != true) {
+                    lastStatusFailure = if (aacpManager?.requestInitialStatus(full = true) == true) "" else "write_failed"
+                } else {
+                    // A silent connected socket cannot be repaired by another identical write.
+                    val previous = socket
+                    connectionJob?.cancel()
+                    connectionJob = null
+                    socket = null
+                    if (previous != null) CoroutineScope(Dispatchers.IO).launch { runCatching { previous.close() } }
                     connectPod(mContext!!, mDevice)
                 }
                 sendDiagnostics()
@@ -401,7 +446,8 @@ object L2CAPController {
         putBoolean("wear", earDetectionStateValid)
         putBoolean("information", currentPodsInfo != null)
         putBoolean("ready", connectionState == "connected" && initialStatusReady())
-        putInt("missing_settings", missingSettings().size)
+        putInt("missing_settings", if (currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) == null)
+            -1 else missingSettings().size)
         putString("failure", lastStatusFailure)
         putLong("last_packet_at", aacpManager?.lastPacketAt ?: 0)
         putLong("battery_at", aacpManager?.batteryReceivedAt ?: 0)
@@ -618,7 +664,9 @@ object L2CAPController {
 
         val audioIsPlaying = audioManager?.isMusicActive == true
         // Remember pauses made by us even when both earbuds are removed.
-        if (!inEar && audioIsPlaying && !pausedAudio) {
+        val usingThisHeadset = ::mediaRouter.isInitialized &&
+            findHeadphoneRoute(mediaRouter.systemController.selectedRoutes) != null
+        if (!inEar && audioIsPlaying && usingThisHeadset && !pausedAudio) {
             MediaControl.sendPause()
             pausedAudio = true
         }
@@ -1132,15 +1180,18 @@ object L2CAPController {
         val requestRevision = appSettingsRevision
         connectionJob = CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Overlap IPC with the existing connection delay; never block the Bluetooth main thread.
-                val settingsRequest = async { AppPreferences.readRemote(context) }
+                // Binder may ignore cancellation. A single detached read delivers late policy
+                // only if this session and revision still match; it cannot stall socket setup.
+                val settingsRequest = CompletableDeferred<Unit>()
+                AppPreferences.requestRemote(context) { policy ->
+                    synchronized(this@L2CAPController) { applyInitialPolicy(thisSession, requestRevision, policy) }
+                    settingsRequest.complete(Unit)
+                }
                 delay(500)
-                val policy = settingsRequest.await()
+                withTimeoutOrNull(1000) { settingsRequest.await() }
                 synchronized(this@L2CAPController) {
                     ensureActive()
                     if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
-                    // A newer UI edit wins over a cold-start provider response.
-                    applyInitialPolicy(thisSession, requestRevision, policy)
                 }
                 recoverControlSession(context, device, thisSession, ::getBtSocket)
             } finally {
@@ -1154,6 +1205,33 @@ object L2CAPController {
                 }
             }
         }
+    }
+
+    private fun failControlChannel(expectedSocket: BluetoothSocket, generation: Long, reason: String) {
+        val current = synchronized(this@L2CAPController) {
+            if (sessionId != generation || socket !== expectedSocket ||
+                reason == "status_timeout" && coreStatusReady()) false else {
+                connectionState = "failed"
+                lastStatusFailure = reason
+                sendDiagnostics()
+                true
+            }
+        }
+        if (current) runCatching { expectedSocket.close() }
+    }
+
+    private fun coreStatusReady() = batteryStateValid && earDetectionStateValid && currentPodsInfo != null
+
+    private fun finishInitialStatus(manager: AACPManager, generation: Long) {
+        val reconnect = synchronized(this@L2CAPController) {
+            if (sessionId != generation || aacpManager !== manager || initialStatusReady()) false else {
+                lastStatusFailure = "status_timeout"
+                sendDiagnostics()
+                // Keep a working session when only some setting reports are missing.
+                !coreStatusReady()
+            }
+        }
+        if (reconnect) failControlChannel(manager.socket, generation, "status_timeout")
     }
 
     internal suspend fun CoroutineScope.recoverControlSession(context: Context, device: BluetoothDevice,
@@ -1228,7 +1306,9 @@ object L2CAPController {
 
         Log.d(TAG, "connected!")
         val connectedSocket = connectingSocket
-        val manager = AACPManager(connectedSocket)
+        val writeFailed = AtomicBoolean()
+        val writer = AACPWriter(connectedSocket) { writeFailed.set(true) }
+        val manager = AACPManager(connectedSocket, writer::send)
         var statusRequestJob: Job? = null
         try {
             synchronized(this@L2CAPController) {
@@ -1236,6 +1316,7 @@ object L2CAPController {
                 if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
                 aacpManager = manager
                 connectionState = "connected"
+                lastStatusFailure = ""
                 manager.setPacketCallback(packetCallback)
                 updateHeadGestures()
                 MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings,
@@ -1243,9 +1324,9 @@ object L2CAPController {
                 sendConnectedStatus()
             }
             if (!manager.requestInitialStatus()) throw java.io.IOException("Initial handshake write failed")
-            statusRequestJob = launch {
+            statusRequestJob = launch(Dispatchers.Default) {
                 // Retry the missing protocol step on this socket. The reader is already active.
-                for (waitMs in listOf(1000L, 2000L, 4000L, 8000L, 15000L)) {
+                for ((index, waitMs) in listOf(1000L, 2000L, 4000L, 8000L, 15000L).withIndex()) {
                     delay(waitMs)
                     val stop = synchronized(this@L2CAPController) {
                         ensureActive()
@@ -1254,7 +1335,7 @@ object L2CAPController {
                             initialStatusRetries++
                             recordEvent("sync", "request")
                             Log.i(TAG, "Initial headset status incomplete; retrying ${manager.initializationStage}")
-                            lastStatusFailure = if (manager.requestInitialStatus()) "" else "write_failed"
+                            lastStatusFailure = if (manager.requestInitialStatus(full = index >= 2)) "" else "write_failed"
                             sendDiagnostics()
                             false
                         }
@@ -1262,13 +1343,8 @@ object L2CAPController {
                     if (stop) return@launch
                 }
                 delay(3000)
-                synchronized(this@L2CAPController) {
-                    ensureActive()
-                    if (sessionId == thisSession && !initialStatusReady()) {
-                        lastStatusFailure = "status_timeout"
-                        sendDiagnostics()
-                    }
-                }
+                ensureActive()
+                finishInitialStatus(manager, thisSession)
             }
             // Read handshake and feature acknowledgements immediately, without fixed sleeps.
             while (connectedSocket.isConnected) {
@@ -1294,18 +1370,17 @@ object L2CAPController {
             synchronized(this@L2CAPController) {
                 if (sessionId == thisSession) {
                     connectionState = "failed"
-                    lastStatusFailure = "status_session_ended"
+                    if (writeFailed.get()) lastStatusFailure = "write_failed"
+                    else if (lastStatusFailure !in setOf("status_timeout", "write_failed")) lastStatusFailure = "status_session_ended"
                     sendDiagnostics()
                 }
             }
         } finally {
             statusRequestJob?.cancel()
-            runCatching { connectedSocket.close() }
+            writer.close()
             synchronized(this@L2CAPController) {
                 if (aacpManager === manager) {
-                    headPreview.stop("disconnected")
-                    headGestureCalls?.close()
-                    headGestureCalls = null
+                    clearHeadTracking()
                     aacpManager = null
                 }
                 if (socket === connectedSocket) socket = null
@@ -1328,9 +1403,7 @@ object L2CAPController {
     }
 
     private fun resetControlState() {
-        headPreview.stop("disconnected")
-        headGestureCalls?.close()
-        headGestureCalls = null
+        clearHeadTracking()
         clearPendingSettings()
         resetConversationVolume()
         batteryStateValid = false
@@ -1352,9 +1425,7 @@ object L2CAPController {
     @Synchronized
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
         if (::mDevice.isInitialized && device != mDevice) return
-        headPreview.stop("disconnected")
-        headGestureCalls?.close()
-        headGestureCalls = null
+        clearHeadTracking()
         ++sessionId
         clearPendingSettings()
         resetConversationVolume()

@@ -194,4 +194,35 @@ class HeadTrackingPreviewTest {
         assertEquals(0, latest.packets)
         assertEquals("", latest.gesture)
     }
+
+    @Test fun failedStopIsNotReportedAsStoppedAndKeepsOwnershipUntilRecovery() {
+        start()
+        writesAccepted = false
+        preview.command("test", "stop", 100)
+        assertFalse(preview.active)
+        assertEquals("stop_failed", latest.state)
+        assertTrue(stream.stopPending)
+        assertFalse(stream.acquire(HeadTrackingStream.Owner.CALL))
+        writesAccepted = true
+        assertTrue(stream.retryStop())
+        preview.tick(1000)
+        assertEquals("stopped", latest.state)
+        assertFalse(stream.stopPending)
+    }
+
+    @Test fun movementDuringCalibrationNeedsTenNewStableSamples() {
+        val pose = HeadPose()
+        repeat(20) { assertFalse(pose.process(packet(o2 = it * 1000))!!.calibrated) }
+        repeat(9) { assertFalse(pose.process(packet(o2 = 0))!!.calibrated) }
+        assertTrue(pose.process(packet(o2 = 0))!!.calibrated)
+    }
+
+    @Test fun signedBoundaryJumpInvalidatesCalibrationRatherThanInventingAFullRotation() {
+        val pose = HeadPose()
+        repeat(10) { pose.process(packet(o2 = 32760, o3 = 32760)) }
+        val sample = pose.process(packet(o2 = -32760, o3 = -32760))!!
+        assertFalse(sample.calibrated)
+        assertEquals(0f, sample.pitch, 0f)
+        assertEquals(0f, sample.yaw, 0f)
+    }
 }

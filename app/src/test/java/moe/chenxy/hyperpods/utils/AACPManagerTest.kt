@@ -124,6 +124,33 @@ class AACPManagerTest {
         }
     }
 
+    @Test fun truncatedInformationCannotBecomeAnEmptyDeviceIdentity() {
+        val header = byteArrayOf(4, 0, 4, 0, 0x1d, 0, 0)
+        for (payload in listOf("ignored\u0000", "ignored\u0000Demo\u0000", "ignored\u0000Demo\u0000A3049")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                manager.parseInformationPacket(header + payload.toByteArray())
+            }
+        }
+        val complete = header + "ignored\u0000Demo\u0000A3049\u0000Apple\u0000".toByteArray()
+        assertEquals("Demo", manager.parseInformationPacket(complete).name)
+        assertEquals("A3049", manager.parseInformationPacket(complete).modelNumber)
+    }
+
+    @Test fun missingFeatureAcknowledgementDoesNotBlockStatusSubscription() {
+        val socket = mock(BluetoothSocket::class.java)
+        val output = ByteArrayOutputStream()
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(output)
+        val session = AACPManager(socket)
+        session.requestInitialStatus()
+        session.receivePacket(ByteArray(16).apply { this[0] = 1; this[2] = 4 })
+        output.reset()
+        session.requestInitialStatus()
+        assertArrayEquals(session.createDataPacket(session.createSetFeatureFlagsPacket()) +
+            session.createDataPacket(session.createRequestNotificationPacket()), output.toByteArray())
+        assertEquals(AACPManager.InitializationStage.STATUS, session.initializationStage)
+    }
+
     @Test fun renameMatchesTheIndependentAsciiProtocolFrame() {
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 0x1a, 0, 1, 4, 0, 0x44, 0x65, 0x6d, 0x6f),
             manager.createDataPacket(manager.createRenamePacket("Demo")))
@@ -138,7 +165,7 @@ class AACPManagerTest {
         assertArrayEquals(byteArrayOf(0, 0, 4, 0, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0), output.toByteArray())
     }
 
-    @Test fun initializationRetriesTheMissingStepAndAdvancesOnlyAfterReplies() {
+    @Test fun initializationRetriesHandshakeThenSubscribesWithoutRequiringFeatureReplies() {
         val socket = mock(BluetoothSocket::class.java)
         val output = ByteArrayOutputStream()
         `when`(socket.isConnected).thenReturn(true)
@@ -156,7 +183,8 @@ class AACPManagerTest {
         assertArrayEquals(session.createDataPacket(session.createSetFeatureFlagsPacket()), output.toByteArray())
         output.reset()
         session.requestInitialStatus()
-        assertArrayEquals(session.createDataPacket(session.createSetFeatureFlagsPacket()), output.toByteArray())
+        assertArrayEquals(session.createDataPacket(session.createSetFeatureFlagsPacket()) +
+            session.createDataPacket(session.createRequestNotificationPacket()), output.toByteArray())
         output.reset()
         session.receivePacket(packet(0x2b, 14))
         assertEquals(AACPManager.InitializationStage.STATUS, session.initializationStage)
@@ -165,6 +193,25 @@ class AACPManagerTest {
         session.requestInitialStatus()
         assertArrayEquals(session.createDataPacket(session.createRequestNotificationPacket()), output.toByteArray())
         assertEquals(2, session.receivedPacketCount)
+    }
+
+    @Test fun earlyStateDoesNotSkipFeaturesAndFullRetryIncludesTheWholeSequence() {
+        val socket = mock(BluetoothSocket::class.java)
+        val output = ByteArrayOutputStream()
+        `when`(socket.isConnected).thenReturn(true)
+        `when`(socket.outputStream).thenReturn(output)
+        val session = AACPManager(socket)
+        session.receivePacket(packet(9, 11).apply { this[6] = 13; this[7] = 4 })
+        assertTrue(session.requestInitialStatus())
+        assertArrayEquals(session.createDataPacket(session.createSetFeatureFlagsPacket()) +
+            session.createDataPacket(session.createRequestNotificationPacket()), output.toByteArray())
+        output.reset()
+        assertTrue(session.requestInitialStatus(full = true))
+        assertArrayEquals(session.createHandshakePacket() + session.createDataPacket(session.createSetFeatureFlagsPacket()) +
+            session.createDataPacket(session.createRequestNotificationPacket()), output.toByteArray())
+        session.receivePacket(ByteArray(16).apply { this[0] = 1; this[2] = 4 })
+        assertEquals("A late handshake must not regress a subscribed session",
+            AACPManager.InitializationStage.STATUS, session.initializationStage)
     }
 
     @Test fun shortAcknowledgementAndMalformedStateDoNotAdvanceInitialization() {

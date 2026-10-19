@@ -21,6 +21,8 @@ object AppPreferences {
     private const val FILE = "app_settings.json"
     private const val PRIVATE_MARKER = "hyperpods_private_migration"
     private var legacySecuredDir: File? = null
+    private var remoteReading = false
+    private var remoteCallback: ((Snapshot?) -> Unit)? = null
 
     data class Snapshot(
         val earDetection: Boolean = true,
@@ -121,6 +123,24 @@ object AppPreferences {
     } catch (_: Exception) {
         Log.w("HyperPods-Preferences", "Settings provider unavailable; retaining current policy")
         null
+    }
+
+    /** Binder IPC may ignore interruption. Keep at most one outstanding read, and
+     * deliver a late reply to the latest session's guarded callback, not an old one. */
+    fun requestRemote(context: Context, callback: (Snapshot?) -> Unit) {
+        synchronized(this) {
+            remoteCallback = callback
+            if (remoteReading) return
+            remoteReading = true
+        }
+        Thread({
+            val result = readRemote(context)
+            val deliver = synchronized(this) {
+                remoteReading = false
+                remoteCallback.also { remoteCallback = null }
+            }
+            deliver?.invoke(result)
+        }, "HyperPods-settings-reader").apply { isDaemon = true }.start()
     }
 
     fun publish(context: Context, snapshot: Snapshot) {

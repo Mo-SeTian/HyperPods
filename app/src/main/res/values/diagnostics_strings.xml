@@ -51,6 +51,9 @@
     <string name="diagnostics_last_packet">Last protocol packet</string>
     <string name="diagnostics_settings_time">Last headset settings report</string>
     <string name="diagnostics_missing_settings">Settings still awaiting a report</string>
+    <string name="diagnostics_model_unknown">Awaiting device identification; cannot count yet</string>
+    <string name="diagnostics_control_syncing">Channel connected; status synchronization incomplete</string>
+    <string name="diagnostics_sync_pending">Status synchronization is incomplete; control readiness is not yet confirmed.</string>
     <string name="diagnostics_last_setting">Latest setting change</string>
     <string name="diagnostics_failure">Failure reason</string>
     <string name="diagnostics_never">Not received in this session</string>
