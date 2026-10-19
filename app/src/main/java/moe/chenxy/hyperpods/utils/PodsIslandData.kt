@@ -9,10 +9,11 @@ object PodsIslandData {
     const val LEFT_ICON = "miui.focus.pic_left_pod"
     const val RIGHT_ICON = "miui.focus.pic_right_pod"
 
-    // Only the newly supported variants change artwork; preserve existing devices' icons.
+    fun displayName(alias: String?, name: String?): String =
+        alias?.takeIf { it.isNotBlank() } ?: name?.takeIf { it.isNotBlank() } ?: "AirPods"
+
     fun modelForIcons(modelNumber: String?): AirPodsBase? =
         AirPodsModels.getModelByModelNumber(modelNumber.orEmpty())
-            ?.takeIf { it is AirPods5 || it is AirPods5WCC }
 
     fun contentGravity(icon: String?, gravity: Int): Int? {
         val horizontal = when (icon) {

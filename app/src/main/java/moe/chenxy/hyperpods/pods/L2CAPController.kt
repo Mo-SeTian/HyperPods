@@ -120,9 +120,10 @@ object L2CAPController {
     private var conversationTimeout: Job? = null
     private var conversationRestoreJob: Job? = null
     private var headphoneRouteId: String? = null
+    private var conversationRouteId: String? = null
     private val conversationVolume = ConversationVolume(
         { audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0 },
-        { audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, it, 0) },
+        { if (conversationRouteIsSelected()) audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, it, 0) },
         { audioManager?.isMusicActive == true },
     )
 
@@ -710,6 +711,7 @@ object L2CAPController {
     @Synchronized
     private fun handleAudioRouteChanged() {
         if (mContext == null) return
+        if (conversationRouteId != null && !conversationRouteIsSelected()) resetConversationVolume()
         val selected = mediaRouter.systemController.selectedRoutes
         pendingAudioRoute?.let { pending ->
             if (selected.any { it.id == pending.id }) {
@@ -976,10 +978,14 @@ object L2CAPController {
             val status = AirPodsNotifications.ConversationalAwarenessNotification.status.toInt()
             if (!conversationPhoneVolume || confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
             if (status !in 1..3 && status !in 6..9) return
+            if (conversationRouteId != null && !conversationRouteIsSelected()) resetConversationVolume()
             if (status in 1..3) {
+                // AACP reports can arrive while music is routed to the phone or
+                // another headset. Bind both ducking and restoration to our route.
+                conversationRouteId = selectedHeadphoneRouteId() ?: return
                 conversationRestoreJob?.cancel()
                 conversationRestoreJob = null
-            }
+            } else if (conversationRouteId == null) return
             runCatching { conversationVolume.onStatus(status, smoothRestore = true) }
                 .onFailure { Log.w(TAG, "Unable to adjust conversation volume") }
             conversationTimeout?.cancel()
@@ -1222,12 +1228,12 @@ object L2CAPController {
 
     private fun coreStatusReady(): Boolean {
         if (!batteryStateValid || !earDetectionStateValid || currentPodsInfo == null ||
-            !::currentEarDetectionParams.isInitialized || AirPodsNotifications.BatteryNotification.needsRefresh) return false
+            !::currentEarDetectionParams.isInitialized) return false
         val wear = listOf(currentEarDetectionParams.left, currentEarDetectionParams.right)
         // An out-of-case ear must have its own reading. A disconnected in-case peer
         // and the case itself are not required for a valid single-ear session.
         return AirPodsNotifications.BatteryNotification.getBattery().take(2).zip(wear).all { (battery, status) ->
-            isInCaseStatus(status) || battery.isAvailable
+            isInCaseStatus(status) || (battery.isAvailable && battery.status != BatteryStatus.NEED_AGAIN)
         }
     }
 
@@ -1584,13 +1590,22 @@ object L2CAPController {
         return match
     }
 
+    private fun selectedHeadphoneRouteId(): String? {
+        if (!::mediaRouter.isInitialized || !::mDevice.isInitialized) return null
+        return findHeadphoneRoute(mediaRouter.systemController.selectedRoutes)?.id
+    }
+
+    private fun conversationRouteIsSelected(): Boolean =
+        conversationRouteId != null && selectedHeadphoneRouteId() == conversationRouteId
+
     private fun resetConversationVolume() {
         conversationTimeout?.cancel()
         conversationTimeout = null
         conversationRestoreJob?.cancel()
         conversationRestoreJob = null
-        runCatching { conversationVolume.reset() }
+        runCatching { conversationVolume.reset(restore = conversationRouteIsSelected()) }
             .onFailure { Log.w(TAG, "Unable to restore conversation volume") }
+        conversationRouteId = null
     }
 
     private fun smoothlyRestoreConversationVolume() {
@@ -1601,7 +1616,11 @@ object L2CAPController {
                 delay(50)
                 val more = synchronized(this@L2CAPController) {
                     ensureActive()
-                    sessionId == generation && runCatching { conversationVolume.restoreStep() }
+                    if (sessionId != generation) false
+                    else if (!conversationRouteIsSelected()) {
+                        resetConversationVolume()
+                        false
+                    } else runCatching { conversationVolume.restoreStep() }
                         .onFailure { Log.w(TAG, "Unable to restore conversation volume") }.getOrDefault(false)
                 }
                 if (!more) return@launch

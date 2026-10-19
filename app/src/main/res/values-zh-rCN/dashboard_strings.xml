@@ -12,7 +12,11 @@
     <string name="dashboard_listening">智能聆听</string>
     <string name="dashboard_operation">佩戴与操作</string>
     <string name="dashboard_more">更多控制</string>
-    <string name="dashboard_more_summary">按压操作 · 麦克风 · 扬声器切换</string>
+    <string name="dashboard_more_summary">按压操作 · 手势与入睡检测</string>
+    <string name="dashboard_more_basic_summary">按压操作 · 更多设置</string>
+    <string name="dashboard_support">设备与支持</string>
+    <string name="dashboard_project">项目</string>
+    <string name="dashboard_author">原作者</string>
     <string name="dashboard_device_info">设备信息</string>
     <string name="dashboard_info_pending">正在获取设备信息</string>
     <string name="dashboard_back">返回</string>

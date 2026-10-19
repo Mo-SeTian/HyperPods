@@ -41,7 +41,7 @@ class DashboardPreviewActivity : ComponentActivity() {
         setContent {
             AppTheme(colorMode = intent.getIntExtra("theme", 1)) {
                 var anc by remember { mutableStateOf(NoiseControlMode.NOISE_CANCELLATION) }
-                var personalized by remember { mutableStateOf(false) }
+                var personalized by remember { mutableStateOf(intent.getBooleanExtra("personalized", false)) }
                 var conversation by remember { mutableStateOf(false) }
                 var detection by remember { mutableStateOf(true) }
                 var headGestures by remember { mutableStateOf(false) }
@@ -54,13 +54,12 @@ class DashboardPreviewActivity : ComponentActivity() {
                 var name by remember { mutableStateOf(if (modelNumber == "A3049") "AirPods Pro"
                     else AirPodsModels.getModelByModelNumber(modelNumber)?.name ?: "AirPods") }
                 val pager = rememberPagerState(pageCount = { 2 })
-                val scroll = MiuixScrollBehavior(rememberTopAppBarState())
                 Scaffold(
                     topBar = { DashboardTopBar { onBackPressedDispatcher.onBackPressed() } },
                     bottomBar = { DashboardNavigation(pager) }
                 ) { padding ->
                     HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
-                        if (page == 1) AboutPage(scroll, padding) else PodDetailPage(
+                        if (page == 1) AboutPage(padding = padding) else PodDetailPage(
                             padding = padding,
                             batteryParams = BatteryParams(
                                 PodBatteryParams(leftBattery, isConnected = !unknown, isInCase = inCase),
@@ -71,7 +70,15 @@ class DashboardPreviewActivity : ComponentActivity() {
                                 if (inCase) EarDetectionStatus.IN_CASE else EarDetectionStatus.IN_EAR),
                             earDetectionEnable = detection, onEarDetectionChanged = { detection = it },
                             headGestures = headGestures, onHeadGesturesChange = { headGestures = it },
-                            diagnostics = Bundle().apply { putString("head_gestures", if (headGestures) "waiting" else "disabled") },
+                            diagnostics = Bundle().apply {
+                                putString("head_gestures", if (headGestures) "waiting" else "disabled")
+                                putString("connection", "connected")
+                                putBoolean("ready", !unknown)
+                                putBoolean("wear", !unknown)
+                                putLong("wear_report_at", System.currentTimeMillis())
+                                for (key in listOf("left_battery_at", "right_battery_at", "case_battery_at"))
+                                    putLong(key, System.currentTimeMillis())
+                            },
                             onSettingChange = { key, value -> if (key == Key.SLEEP_DETECTION) sleepDetection = value == 1 },
                             autoSwitchToSpeaker = speaker, onAutoSwitchToSpeakerChange = { speaker = it },
                             personlizedVolume = personalized, onPersonlizedVolumeChange = { personalized = it },
@@ -98,6 +105,8 @@ class DashboardPreviewActivity : ComponentActivity() {
                                 Key.ADAPTIVE_AUDIO_LEVEL to (100 - level * 100).toInt(),
                                 Key.LISTENING_MODE_BYTE to 6,
                                 Key.ALLOW_OFF_OPTION to 1,
+                                Key.PRESS_SPEED to 0, Key.HOLD_DURATION to 0,
+                                Key.SWIPE_SPEED to 0, Key.CHIME_VOLUME to 50,
                             ))
                     }
                 }

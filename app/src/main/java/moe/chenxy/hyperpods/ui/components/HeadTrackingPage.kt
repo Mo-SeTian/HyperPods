@@ -37,7 +37,7 @@ import moe.chenxy.hyperpods.utils.HeadTrackingPreview.Snapshot
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Card
+import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.UUID

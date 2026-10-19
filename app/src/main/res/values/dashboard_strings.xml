@@ -12,7 +12,11 @@
     <string name="dashboard_listening">Smart listening</string>
     <string name="dashboard_operation">Wearing &amp; controls</string>
     <string name="dashboard_more">More controls</string>
-    <string name="dashboard_more_summary">Press and hold · Microphone · Speaker switching</string>
+    <string name="dashboard_more_summary">Press and hold · Gestures &amp; sleep detection</string>
+    <string name="dashboard_more_basic_summary">Press and hold · More settings</string>
+    <string name="dashboard_support">Device &amp; support</string>
+    <string name="dashboard_project">Project</string>
+    <string name="dashboard_author">Original author</string>
     <string name="dashboard_device_info">Device information</string>
     <string name="dashboard_info_pending">Waiting for device information</string>
     <string name="dashboard_back">Back</string>

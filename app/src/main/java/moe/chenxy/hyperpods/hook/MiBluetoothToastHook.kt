@@ -149,10 +149,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             initResources(context)
 
             val address: String = bluetoothDevice.address
-            var alias: String? = bluetoothDevice.alias
-            if (alias?.isEmpty() == true) {
-                alias = bluetoothDevice.name
-            }
+            val alias = PodsIslandData.displayName(bluetoothDevice.alias, bluetoothDevice.name)
 
             val notificationManager = context.getSystemService("notification") as NotificationManager
             notificationManager.createNotificationChannel(
@@ -217,11 +214,9 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val notificationManager = context.getSystemService("notification") as NotificationManager
             val connectedStrID = context.resources.getIdentifier("headset_autoswitch_connected", "string", "com.xiaomi.bluetooth")
             val channelId = "BTHeadset${bluetoothDevice.address}"
-            val deviceName = bluetoothDevice.alias?.takeIf { it.isNotEmpty() }
-                ?: bluetoothDevice.name
-                ?: "AirPods"
+            val deviceName = PodsIslandData.displayName(bluetoothDevice.alias, bluetoothDevice.name)
 
-            val baseInfo = focusApi.baseinfo(title = bluetoothDevice.name,
+            val baseInfo = focusApi.baseinfo(title = deviceName,
                 basetype = 0, content = context.getString(connectedStrID))
             val api = focusApi.sendFocus(
                 title = "BTHeadset${bluetoothDevice.address}-connect",
@@ -291,12 +286,14 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             bundle.putParcelable("miui.focus.action_disconnect", action)
             val model = PodsIslandData.modelForIcons(modelNumber)
             val cardIcon = model?.let { Icon.createWithResource(BuildConfig.APPLICATION_ID, it.budsRes) }
-                ?: Icon.createWithResource(context, earphone_drawable)
+                ?: Icon.createWithResource(BuildConfig.APPLICATION_ID, R.drawable.dashboard_headphones)
             val islandPics = Bundle().apply {
                 putParcelable(PodsIslandData.LEFT_ICON,
-                    Icon.createWithResource(BuildConfig.APPLICATION_ID, model?.leftBudsRes ?: R.drawable.airpods_pro_2_left))
+                    Icon.createWithResource(BuildConfig.APPLICATION_ID, model?.leftBudsRes ?: R.drawable.dashboard_headphones)
+                        .apply { if (model == null) setTint(android.graphics.Color.WHITE) })
                 putParcelable(PodsIslandData.RIGHT_ICON,
-                    Icon.createWithResource(BuildConfig.APPLICATION_ID, model?.rightBudsRes ?: R.drawable.airpods_pro_2_right))
+                    Icon.createWithResource(BuildConfig.APPLICATION_ID, model?.rightBudsRes ?: R.drawable.dashboard_headphones)
+                        .apply { if (model == null) setTint(android.graphics.Color.WHITE) })
             }
 
             val caseBattStr = if (shouldShowCaseBattery(batteryParams))
@@ -316,7 +313,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 basetype = 1, content = (if (warning.isEmpty()) "" else "$warning\n") + caseBattStr)
             val hintInfo = focusApi.hintInfo(type = 2,
                 titleLineCount = 1,
-                title = bluetoothDevice.name,
+                title = PodsIslandData.displayName(bluetoothDevice.alias, bluetoothDevice.name),
                 content = "HyperPods",
                 actionInfo = actionObject)
             val api = focusApi.sendFocus(
@@ -335,7 +332,8 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 picInfotype = 2,
                 timeout = 1000,
                 ticker = buildIslandTicker(batteryParams),
-                picticker = cardIcon
+                picticker = if (model == null) Icon.createWithResource(BuildConfig.APPLICATION_ID, R.drawable.dashboard_headphones)
+                    .apply { setTint(android.graphics.Color.WHITE) } else cardIcon
             )
             api.getString("miui.focus.param")?.let { focusParam ->
                 val focusJson = JSONObject(focusParam)

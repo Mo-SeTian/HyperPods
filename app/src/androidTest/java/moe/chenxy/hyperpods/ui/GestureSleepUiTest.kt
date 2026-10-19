@@ -2,11 +2,10 @@ package moe.chenxy.hyperpods.ui
 
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import moe.chenxy.hyperpods.R
 import org.junit.Before
 import org.junit.Rule
@@ -29,12 +28,16 @@ class GestureSleepUiTest(private val number: String, private val supported: Bool
         compose.runOnUiThread { compose.activity.intent.putExtra("model_number", number) }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
+        compose.revealSetting(text(if (supported) R.string.dashboard_more_summary
+            else R.string.dashboard_more_basic_summary)).assertExists()
+        compose.revealSetting(text(R.string.dashboard_more)).performClick()
+        compose.waitForIdle()
     }
 
     @Test fun onlyCapableModelsOfferTheTwoControls() {
         for (label in listOf(R.string.head_gestures_title, R.string.sleep_detection_title)) {
             if (supported) {
-                compose.onNodeWithContentDescription(text(label)).performScrollTo().assertIsEnabled().performClick().assertIsOn()
+                compose.revealSetting(hasContentDescription(text(label))).assertIsEnabled().performClick().assertIsOn()
             } else compose.onNodeWithText(text(label)).assertDoesNotExist()
         }
     }
@@ -42,14 +45,14 @@ class GestureSleepUiTest(private val number: String, private val supported: Bool
     @Test fun choicesSurviveNavigatingToSecondaryPageAndBack() {
         if (!supported) return
         for (label in listOf(R.string.head_gestures_title, R.string.sleep_detection_title)) {
-            compose.onNodeWithContentDescription(text(label)).performScrollTo().performClick()
+            compose.revealSetting(hasContentDescription(text(label))).performClick()
         }
-        compose.onNodeWithText(text(R.string.dashboard_more)).performScrollTo().performClick()
+        compose.revealSetting(text(R.string.head_test_title)).performClick()
         compose.waitForIdle()
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
         for (label in listOf(R.string.head_gestures_title, R.string.sleep_detection_title)) {
-            compose.onNodeWithContentDescription(text(label)).performScrollTo().assertIsOn()
+            compose.revealSetting(hasContentDescription(text(label))).assertIsOn()
         }
     }
 }

@@ -86,7 +86,7 @@ class AirPods5SupportTest {
         assertTrue(AirPodsModels.getModelByModelNumber("A3065") is AirPodsPro3)
     }
 
-    @Test fun dashboardAndIslandUseTheVariantArtworkWithoutChangingOtherModels() {
+    @Test fun dashboardAndIslandUseTheVariantArtwork() {
         standard.forEach { number ->
             val model = model(number)
             assertEquals(R.drawable.airpods_5_buds, model.budsRes)
@@ -103,7 +103,16 @@ class AirPods5SupportTest {
             assertEquals(R.drawable.airpods_4_case, model.caseRes)
             assertSame(model, PodsIslandData.modelForIcons(number))
         }
-        for (number in listOf(null, "", "unknown", "A3049", "A3057", "A3065"))
+        for (number in listOf(null, "", "unknown"))
             assertNull(PodsIslandData.modelForIcons(number))
+    }
+
+    @Test fun allRegisteredModelsShareTheirArtworkWithTheIsland() {
+        AirPodsModels.models.forEach { model ->
+            model.modelNumber.forEach { number ->
+                assertSame("Island artwork differs for $number", model, PodsIslandData.modelForIcons(number))
+            }
+        }
+        assertNull(PodsIslandData.modelForIcons("A9999"))
     }
 }

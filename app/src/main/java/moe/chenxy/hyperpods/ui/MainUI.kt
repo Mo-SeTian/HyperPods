@@ -1,6 +1,5 @@
 package moe.chenxy.hyperpods.ui
 
-import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,7 +7,6 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -24,22 +22,12 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.lerp
-import dev.chrisbanes.haze.HazeProgressive
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.haze
-import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
 import moe.chenxy.hyperpods.MainActivity
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
@@ -54,13 +42,7 @@ import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
 import moe.chenxy.hyperpods.ui.components.DashboardTopBar
 import moe.chenxy.hyperpods.ui.components.DashboardNavigation
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 var currentPodsInfo by mutableStateOf<AACPManager.Companion.AirPodsInformation?>(null)
 
@@ -73,22 +55,9 @@ fun sendPodsSetting(context: Context, prefKey: String, value: Int) {
         .putExtra("key", prefKey).putExtra("value", value), HyperPodsBroadcasts.BLUETOOTH)
 }
 
-@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun MainUI() {
-    val topAppBarScrollBehavior0 = MiuixScrollBehavior(rememberTopAppBarState())
-    val topAppBarScrollBehavior1 = MiuixScrollBehavior(rememberTopAppBarState())
-
-    val topAppBarScrollBehaviorList = listOf(
-        topAppBarScrollBehavior0, topAppBarScrollBehavior1
-    )
-
     val pagerState = rememberPagerState(pageCount = { 2 })
-
-    val currentScrollBehavior = when (pagerState.currentPage) {
-        0 -> topAppBarScrollBehaviorList[0]
-        else -> topAppBarScrollBehaviorList[1]
-    }
 
     val mainTitle = remember { mutableStateOf("") }
     val aboutTitle = stringResource(R.string.about_hyperpods)
@@ -266,53 +235,11 @@ fun MainUI() {
         sendBooleanSetting(context, HyperPodsPrefsKey.SINGLE_POD_ANC, it)
     }
 
-    val hazeState = remember { HazeState() }
-    val hazeStyle = HazeStyle(
-        backgroundColor = if (currentScrollBehavior.state.heightOffset > -1) Color.Transparent else MiuixTheme.colorScheme.background,
-        tint = HazeTint(
-            MiuixTheme.colorScheme.background.copy(
-                if (currentScrollBehavior.state.heightOffset > -1) 1f
-                else lerp(1f, 0.85f, (currentScrollBehavior.state.heightOffset + 1) / -143f)
-            )
-        )
-    )
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            BoxWithConstraints {
-                if (pagerState.currentPage == 0) {
-                    DashboardTopBar { (context as? MainActivity)?.onBackPressedDispatcher?.onBackPressed() }
-                } else if (maxWidth > 840.dp) {
-                    SmallTopAppBar(
-                        color = Color.Transparent,
-                        title = currentTitle,
-                        modifier = Modifier
-                            .hazeEffect(
-                                hazeState
-                            ) {
-                                style = hazeStyle
-                                blurRadius = 25.dp
-                                noiseFactor = 0f
-                                progressive = HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0.5f)
-                            },
-                        scrollBehavior = currentScrollBehavior
-                    )
-                } else {
-                    TopAppBar(
-                        color = Color.Transparent,
-                        title = currentTitle,
-                        scrollBehavior = currentScrollBehavior,
-                        modifier = Modifier
-                            .hazeEffect(
-                                hazeState
-                            ) {
-                                style = hazeStyle
-                                blurRadius = 25.dp
-                                noiseFactor = 0f
-                                progressive = HazeProgressive.verticalGradient(startIntensity = 1f, endIntensity = 0f)
-                            }
-                    )
-                }
+            DashboardTopBar(title = currentTitle) {
+                (context as? MainActivity)?.onBackPressedDispatcher?.onBackPressed()
             }
         },
         bottomBar = {
@@ -320,11 +247,8 @@ fun MainUI() {
         },
     ) { padding ->
         AppHorizontalPager(
-            modifier = Modifier
-                .imePadding()
-                .hazeSource(state = hazeState),
+            modifier = Modifier.imePadding(),
             pagerState = pagerState,
-            topAppBarScrollBehaviorList = topAppBarScrollBehaviorList,
             padding = padding,
             canShowDetailPage = canShowDetailPage.value,
             deviceName = mainTitle.value,
@@ -397,7 +321,6 @@ fun MainUI() {
 fun AppHorizontalPager(
     modifier: Modifier = Modifier,
     pagerState: PagerState,
-    topAppBarScrollBehaviorList: List<ScrollBehavior>,
     padding: PaddingValues,
     canShowDetailPage: Boolean,
     batteryParams: BatteryParams,
@@ -484,7 +407,6 @@ fun AppHorizontalPager(
 
                 1 -> AboutPage(
                     diagnostics = diagnostics,
-                    topAppBarScrollBehavior = topAppBarScrollBehaviorList[1],
                     padding = padding
                 )
             }

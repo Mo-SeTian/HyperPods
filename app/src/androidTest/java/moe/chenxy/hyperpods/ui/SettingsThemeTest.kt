@@ -25,6 +25,7 @@ class SettingsThemeTest(private val colorMode: Int) {
 
     @Test fun accentsAreBlueAndSelectedTextRemainsReadable() {
         var pairs = emptyList<Pair<Color, Color>>()
+        var readingPairs = emptyList<Pair<Color, Color>>()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AppTheme(colorMode) {
@@ -32,6 +33,9 @@ class SettingsThemeTest(private val colorMode: Int) {
                     SideEffect {
                         pairs = listOf(colors.primary to colors.onPrimary,
                             colors.primaryVariant to colors.onPrimaryVariant)
+                        readingPairs = listOf(colors.surface to colors.onSurfaceVariantSummary,
+                            colors.background to colors.onSurfaceVariantSummary,
+                            colors.background to colors.onBackgroundVariant)
                     }
                 }
             }
@@ -41,9 +45,11 @@ class SettingsThemeTest(private val colorMode: Int) {
             pairs.forEach { (background, foreground) ->
                 assertTrue("Accent must be blue, not green",
                     background.blue > background.green && background.blue > background.red)
+            }
+            (pairs + readingPairs).forEach { (background, foreground) ->
                 val brighter = maxOf(background.luminance(), foreground.luminance())
                 val darker = minOf(background.luminance(), foreground.luminance())
-                assertTrue("Selected text needs at least 4.5:1 contrast",
+                assertTrue("Selected and secondary text need at least 4.5:1 contrast",
                     (brighter + .05f) / (darker + .05f) >= 4.5f)
             }
         }

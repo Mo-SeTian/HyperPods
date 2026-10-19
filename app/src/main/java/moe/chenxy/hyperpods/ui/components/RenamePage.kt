@@ -80,7 +80,7 @@ fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName
             ) {
                 Icon(
                     imageVector = MiuixIcons.Useful.Cancel,
-                    contentDescription = "Cancel"
+                    contentDescription = stringResource(android.R.string.cancel)
                 )
 
             }
@@ -97,7 +97,7 @@ fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName
             ) {
                 Icon(
                     imageVector = MiuixIcons.Useful.Confirm,
-                    contentDescription = "Confirm"
+                    contentDescription = stringResource(android.R.string.ok)
                 )
             }
         },

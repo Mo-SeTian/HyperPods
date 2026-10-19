@@ -4,7 +4,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +19,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -39,7 +39,7 @@ import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AACPManager.Companion.ListeningMode
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.Card
+import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.CheckboxColors
 import top.yukonga.miuix.kmp.basic.Icon
@@ -112,9 +112,9 @@ fun PressAndHoldSettingPage(
     )
     var settingModeIndex by remember { mutableIntStateOf(0) }
     val allowedMask = allowedModes.fold(0) { mask, mode -> mask or (1 shl (mode - 1)) }
-    val listeningModeConfigByte = remember { mutableStateOf(0.toByte()) }
+    val listeningModeConfigByte = rememberSaveable { mutableStateOf(0.toByte()) }
 
-    val showBottomSheet = remember { mutableStateOf(false) }
+    val showBottomSheet = rememberSaveable { mutableStateOf(false) }
 
     SmallTitle(stringResource(R.string.long_press_shared), modifier = titleModifier.padding(top = 12.dp))
     Card(
@@ -142,7 +142,7 @@ fun PressAndHoldSettingPage(
             ) {
                 Icon(
                     imageVector = MiuixIcons.Useful.Cancel,
-                    contentDescription = "Cancel"
+                    contentDescription = stringResource(android.R.string.cancel)
                 )
             }
         },
@@ -158,7 +158,7 @@ fun PressAndHoldSettingPage(
             ) {
                 Icon(
                     imageVector = MiuixIcons.Useful.Confirm,
-                    contentDescription = "Confirm"
+                    contentDescription = stringResource(android.R.string.ok)
                 )
             }
         },
@@ -241,33 +241,32 @@ fun PressAndHoldSettingPage(
                 if (1 in allowedModes) ListeningModeItem(
                     check = ListeningMode.OFF.value,
                     title = stringResource(R.string.off),
-                    image = painterResource(id = R.drawable.noise_cancellation),
-                    tint = if (isSystemInDarkTheme()) Color.LightGray else Color.Gray,
+                    image = painterResource(id = R.drawable.dashboard_mode_off),
                     bytes = listeningModeConfigByte
                 )
                 if (2 in allowedModes) ListeningModeItem(
                     check = ListeningMode.NC.value,
                     title = stringResource(R.string.noise_cancellation_title),
-                    image = painterResource(id = R.drawable.noise_cancellation),
+                    image = painterResource(id = R.drawable.dashboard_mode_anc),
                     bytes = listeningModeConfigByte
                 )
                 if (3 in allowedModes) ListeningModeItem(
                     check = ListeningMode.TRANSPARENCY.value,
                     title = stringResource(R.string.transparency_title),
-                    image = painterResource(id = R.drawable.transparency),
+                    image = painterResource(id = R.drawable.dashboard_mode_transparency),
                     bytes = listeningModeConfigByte
                 )
                 if (4 in allowedModes) ListeningModeItem(
                     check = ListeningMode.ADAPTIVE.value,
                     title = stringResource(R.string.adaptive_title),
-                    image = painterResource(id = R.drawable.adaptive),
+                    image = painterResource(id = R.drawable.dashboard_mode_adaptive),
                     bytes = listeningModeConfigByte
                 )
             }
         }
         Text(stringResource(R.string.long_press_shared_summary), modifier = Modifier.padding(16.dp).alpha(animateAlpha).graphicsLayer(scaleX = animateScale, scaleY = animateScale), color = MiuixTheme.colorScheme.secondary, fontSize = 12.sp)
 
-        Spacer(modifier = Modifier.height(200.dp))
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 

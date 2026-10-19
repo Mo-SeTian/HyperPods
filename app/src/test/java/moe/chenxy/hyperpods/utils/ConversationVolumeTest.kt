@@ -42,6 +42,19 @@ class ConversationVolumeTest {
         assertEquals(10, volume)
     }
 
+    @Test fun changingOutputsDiscardsTheOldTargetEvenWhenVolumesHappenToMatch() {
+        controller.onStatus(1)
+        controller.onStatus(6, smoothRestore = true)
+        controller.reset(restore = false)
+        assertEquals(2, volume)
+        assertFalse(controller.restoreStep())
+        volume = 15
+        controller.onStatus(1)
+        assertEquals(3, volume)
+        controller.reset()
+        assertEquals(15, volume)
+    }
+
     @Test fun idleMediaAndUnknownEventsDoNotChangeVolume() {
         playing = false
         controller.onStatus(1)

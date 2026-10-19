@@ -7,6 +7,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PodsIslandDataTest {
+    @Test fun confirmedAliasIsUsedByEveryNotificationTitle() {
+        assertEquals("New name", PodsIslandData.displayName("New name", "Old name"))
+        assertEquals("Old name", PodsIslandData.displayName(null, "Old name"))
+        assertEquals("Old name", PodsIslandData.displayName("   ", "Old name"))
+        assertEquals("AirPods", PodsIslandData.displayName(null, ""))
+    }
     @Test fun modulesAnchorTowardTheCameraWhenMusicAddsExtraLeftSpace() {
         val vertical = Gravity.CENTER_VERTICAL
         assertEquals(Gravity.END or vertical, PodsIslandData.contentGravity(PodsIslandData.LEFT_ICON, Gravity.START or vertical))

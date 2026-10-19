@@ -44,7 +44,7 @@ fun ModuleSelfCheck(onReport: (String) -> Unit) {
     }
     LaunchedEffect(request) { delay(2500); waiting = false }
     BasicComponent(title = stringResource(R.string.module_self_check),
-        summary = stringResource(R.string.module_installed, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION), enabled = false)
+        summary = stringResource(R.string.module_installed, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION))
     val fields = ModuleStatus.packages.map { host ->
         val report = reports[host]
         val title = stringResource(when (host) {
@@ -66,7 +66,7 @@ fun ModuleSelfCheck(onReport: (String) -> Unit) {
             })
         title to summary
     }
-    fields.forEach { (title, summary) -> BasicComponent(title = title, summary = summary, enabled = false) }
+    fields.forEach { (title, summary) -> BasicComponent(title = title, summary = summary) }
     val reportText = fields.joinToString("\n") { (title, summary) -> "$title: $summary" }
     LaunchedEffect(reportText) { onReport(reportText) }
     BasicComponent(title = stringResource(R.string.module_check_again), onClick = { request = UUID.randomUUID().toString() })

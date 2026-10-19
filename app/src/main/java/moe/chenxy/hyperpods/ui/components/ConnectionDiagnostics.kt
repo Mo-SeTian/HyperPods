@@ -124,13 +124,14 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         else -> R.string.diagnostics_incomplete
     }
     ModuleSelfCheck { moduleReport = it }
-    BasicComponent(title = stringResource(R.string.diagnostics_title), summary = stringResource(explanation), enabled = false)
-    fields.forEach { (label, value) -> BasicComponent(title = label, summary = value, enabled = false) }
+    // Read-only information is not a disabled action; keep its text contrast intact.
+    BasicComponent(title = stringResource(R.string.diagnostics_title), summary = stringResource(explanation))
+    fields.forEach { (label, value) -> BasicComponent(title = label, summary = value) }
     BasicComponent(title = stringResource(R.string.diagnostics_history),
-        summary = historyReport ?: stringResource(R.string.diagnostics_no_history), enabled = false)
+        summary = historyReport ?: stringResource(R.string.diagnostics_no_history))
     val timeline = events.map { event -> time(event.at) + " · " + eventSummary(event) }
         .joinToString("\n").ifEmpty { stringResource(R.string.diagnostics_no_events) }
-    BasicComponent(title = stringResource(R.string.diagnostics_timeline), summary = timeline, enabled = false)
+    BasicComponent(title = stringResource(R.string.diagnostics_timeline), summary = timeline)
     val report = "HyperPods ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_REVISION})\n" +
         moduleReport + "\n\n" + fields.joinToString("\n") { (label, value) -> "$label: $value" } +
         "\n\n" + (historyReport ?: context.getString(R.string.diagnostics_no_history)) + "\n\n" + timeline

@@ -7,7 +7,11 @@ import android.content.ContextWrapper
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.media.MediaRoute2Info
+import android.media.MediaRouter2
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPods5
 import moe.chenxy.hyperpods.utils.AppPreferences
@@ -26,6 +30,7 @@ import org.junit.Test
 import org.mockito.MockedStatic
 import org.mockito.Mockito.*
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Exercises the real broadcast handler, writer, incoming parser and acknowledgement lifecycle. */
 class L2CAPControllerSettingsTest {
@@ -518,6 +523,18 @@ class L2CAPControllerSettingsTest {
         assertEquals("", field("lastStatusFailure").get(controller))
     }
 
+    @Test fun pendingBatteryOfInCasePeerDoesNotCloseAWorkingSingleEarSession() {
+        field("mContext").set(controller, null)
+        field("socket").set(controller, socket)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 80, 2, 0, 2, 1, 0, 3, 0))
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 2))
+        receiveRemainingSettings()
+        assertTrue(initialReady())
+        finishInitialStatus()
+        verify(socket, never()).close()
+        assertEquals("", field("lastStatusFailure").get(controller))
+    }
+
     @Test fun obsoleteTimeoutCannotCloseANewerSession() {
         field("socket").set(controller, socket)
         finishInitialStatus(field("sessionId").getLong(controller) - 1)
@@ -630,7 +647,62 @@ class L2CAPControllerSettingsTest {
         }
     }
 
+    private fun selectedHeadset(): MediaRouter2.RoutingController {
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val headset = mock(MediaRoute2Info::class.java)
+        `when`(device.name).thenReturn("Test headset")
+        `when`(headset.id).thenReturn("headset")
+        `when`(headset.name).thenReturn("Test headset")
+        `when`(headset.type).thenReturn(MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(headset))
+        field("mediaRouter").set(controller, router)
+        return routing
+    }
+
+    @Test fun conversationVolumeNeverDucksOrRestoresOntoAnotherOutput() = synchronized(controller) {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        var volume = 10
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.isMusicActive).thenReturn(true)
+        `when`(audio.getStreamVolume(AudioManager.STREAM_MUSIC)).thenAnswer { volume }
+        doAnswer { volume = it.getArgument(1); null }.`when`(audio).setStreamVolume(eq(AudioManager.STREAM_MUSIC), anyInt(), eq(0))
+        field("mContext").set(controller, context)
+        val routing = selectedHeadset()
+        val headset = routing.selectedRoutes
+        receive(0x28, 1)
+        val speech = byteArrayOf(4, 0, 4, 0, 0x4b, 0, 2, 0, 0, 1)
+        val end = speech.copyOf().apply { this[9] = 6 }
+        for (routeType in listOf(MediaRoute2Info.TYPE_BUILTIN_SPEAKER, MediaRoute2Info.TYPE_BLUETOOTH_A2DP)) {
+            val other = mock(MediaRoute2Info::class.java)
+            `when`(other.id).thenReturn("other")
+            `when`(other.name).thenReturn("Other output")
+            `when`(other.type).thenReturn(routeType)
+            `when`(routing.selectedRoutes).thenReturn(listOf(other))
+            manager.receivePacket(speech)
+            assertEquals(10, volume)
+            `when`(routing.selectedRoutes).thenReturn(headset)
+            manager.receivePacket(speech)
+            assertEquals(2, volume)
+            `when`(routing.selectedRoutes).thenReturn(listOf(other))
+            volume = 2 // A different output can have exactly the same volume as the ducked headset.
+            manager.receivePacket(end)
+            type.getDeclaredMethod("resetConversationVolume").apply { isAccessible = true }.invoke(controller)
+            assertEquals(2, volume)
+            `when`(routing.selectedRoutes).thenReturn(headset)
+            volume = 10
+        }
+        manager.receivePacket(speech)
+        assertEquals(2, volume)
+        manager.receivePacket(end)
+        type.getDeclaredMethod("resetConversationVolume").apply { isAccessible = true }.invoke(controller)
+        assertEquals(10, volume)
+    }
+
     @Test fun disablingPhoneDuckingRestoresVolumeAndDoesNotDisableHeadsetConversationAwareness() = synchronized(controller) {
+        selectedHeadset()
         val context = mock(Context::class.java)
         val audio = mock(AudioManager::class.java)
         var volume = 10
@@ -659,7 +731,32 @@ class L2CAPControllerSettingsTest {
         verify(socket, never()).connect()
     }
 
+    @Test fun fadeStopsOnRouteChangeEvenBeforeARouterCallbackArrives() {
+        val volume = AtomicInteger(10)
+        val fade = synchronized(controller) {
+            val context = mock(Context::class.java)
+            val audio = mock(AudioManager::class.java)
+            `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+            `when`(audio.isMusicActive).thenReturn(true)
+            `when`(audio.getStreamVolume(AudioManager.STREAM_MUSIC)).thenAnswer { volume.get() }
+            doAnswer { volume.set(it.getArgument(1)); null }.`when`(audio).setStreamVolume(eq(AudioManager.STREAM_MUSIC), anyInt(), eq(0))
+            field("mContext").set(controller, context)
+            val routing = selectedHeadset()
+            receive(0x28, 1)
+            val speech = byteArrayOf(4, 0, 4, 0, 0x4b, 0, 2, 0, 0, 1)
+            manager.receivePacket(speech)
+            manager.receivePacket(speech.copyOf().apply { this[9] = 6 })
+            val job = field("conversationRestoreJob").get(controller) as Job
+            `when`(routing.selectedRoutes).thenReturn(emptyList())
+            job
+        }
+        runBlocking { withTimeout(2000) { fade.join() } }
+        assertEquals(2, volume.get())
+        assertNull(field("conversationRouteId").get(controller))
+    }
+
     @Test fun duplicateEndEventsReuseTheFadeAndNewSpeechCancelsIt() = synchronized(controller) {
+        selectedHeadset()
         val context = mock(Context::class.java)
         val audio = mock(AudioManager::class.java)
         var volume = 10

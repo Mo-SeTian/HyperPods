@@ -25,8 +25,14 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
         ParcelUuid.fromString("74ec2172-0bad-4d01-8f77-997b2be0722a"),
         ParcelUuid.fromString("2a72e02b-7b99-778f-014d-ad0b7221ec74")
     )
-    private var waitingForUuids: BluetoothDevice? = null
-    private var uuidReceiverRegistered = false
+    private val uuidDiscovery = HeadsetUuidDiscovery(::isPods,
+        { service, device ->
+            XposedHelpers.callMethod(service, "getConnectionState", device) == BluetoothProfile.STATE_CONNECTED && nativeGetHookResult()
+        },
+        { service, device ->
+            showPodConnectingByMiuiBt(service, device)
+            L2CAPController.connectPod(service, device)
+        })
 
     @SuppressLint("PrivateApi")
     private fun getBooleanProp(prop: String, def: Boolean): Boolean {
@@ -61,7 +67,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
                             )
                             val context = this.instance as ContextWrapper
                             if (currState == BluetoothProfile.STATE_DISCONNECTING || currState == BluetoothProfile.STATE_DISCONNECTED) {
-                                if (waitingForUuids == device) waitingForUuids = null
+                                uuidDiscovery.disconnected(context, device)
                                 // UUIDs may be absent again during teardown.
                                 L2CAPController.disconnectedPod(context, device)
                             }
@@ -69,32 +75,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
                                 // UUID discovery can finish after the A2DP event.
                                 // Inspect its result once instead of dropping this connection.
                                 if (currState == BluetoothProfile.STATE_CONNECTED && device.uuids == null) {
-                                    if (!uuidReceiverRegistered) {
-                                        context.registerReceiver(object : android.content.BroadcastReceiver() {
-                                            override fun onReceive(receiverContext: Context?, intent: android.content.Intent?) {
-                                                if (intent?.action != BluetoothDevice.ACTION_UUID) return
-                                                val resolved = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) ?: return
-                                                if (resolved != waitingForUuids) return
-                                                try {
-                                                    if (!isPods(resolved)) {
-                                                        waitingForUuids = null
-                                                        return
-                                                    }
-                                                    val state = XposedHelpers.callMethod(context, "getConnectionState", resolved) as Int
-                                                    if (state == BluetoothProfile.STATE_CONNECTED && nativeGetHookResult()) {
-                                                        waitingForUuids = null
-                                                        showPodConnectingByMiuiBt(context, resolved)
-                                                        L2CAPController.connectPod(context, resolved)
-                                                    }
-                                                } catch (error: Exception) {
-                                                    Log.e("Art_Chen", "Unable to complete headset UUID discovery", error)
-                                                }
-                                            }
-                                        }, android.content.IntentFilter(BluetoothDevice.ACTION_UUID), Context.RECEIVER_EXPORTED)
-                                        uuidReceiverRegistered = true
-                                    }
-                                    waitingForUuids = device
-                                    device.fetchUuidsWithSdp()
+                                    uuidDiscovery.discover(context, device)
                                 }
                                 return@post
                             }

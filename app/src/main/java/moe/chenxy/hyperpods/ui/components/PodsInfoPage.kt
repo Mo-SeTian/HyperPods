@@ -16,8 +16,7 @@ import androidx.compose.ui.res.stringResource
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPodsModels.getModelByModelNumber
-import top.yukonga.miuix.kmp.basic.BasicComponentColors
-import top.yukonga.miuix.kmp.basic.Card
+import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -42,11 +41,6 @@ fun PodsInfoPage(titleModifier: Modifier,
     Card(
         modifier = cardModifier
     ) {
-        val infoColor = BasicComponentColors(
-            color = MiuixTheme.colorScheme.onSurface,
-            disabledColor = MiuixTheme.colorScheme.onSurface
-        )
-
         InfoItem(title = stringResource(R.string.product_manufacturer),
             summary = info.manufacturer)
 

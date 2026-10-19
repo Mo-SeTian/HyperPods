@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,6 +30,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,6 +46,7 @@ import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.SwitchDefaults
@@ -58,37 +61,45 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun DashboardDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(MiuixTheme.colorScheme.dividerLine))
+fun DashboardDivider(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(1.dp).background(MiuixTheme.colorScheme.dividerLine))
+}
+
+@Composable
+fun DashboardGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Card(modifier = modifier.fillMaxWidth(), cornerRadius = 24.dp, content = content)
 }
 
 @Composable
 fun DashboardSection(title: String) {
     Text(title, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+        modifier = Modifier.padding(start = 8.dp, top = 16.dp, bottom = 8.dp))
 }
 
 @Composable
-fun DashboardBattery(params: BatteryParams, ears: EarDetectionParams, model: AirPodsBase, diagnostics: Bundle? = null) {
+fun DashboardBattery(params: BatteryParams, ears: EarDetectionParams, model: AirPodsBase?, diagnostics: Bundle? = null) {
     val showCase = params.case?.let { it.isConnected && it.battery in 0..100 } == true
-    Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
+    Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        BatteryColumn(params.left, ears.left, model.leftBudsRes,
-            stringResource(R.string.dashboard_left), Modifier.weight(1f), diagnostics, "left_battery_at")
-        BatteryColumn(params.right, ears.right, model.rightBudsRes,
-            stringResource(R.string.dashboard_right), Modifier.weight(1f), diagnostics, "right_battery_at")
-        if (showCase) BatteryColumn(params.case, null, model.caseRes,
-            stringResource(R.string.dashboard_case), Modifier.weight(1f), diagnostics, "case_battery_at")
+        BatteryColumn(params.left, ears.left, model?.leftBudsRes ?: R.drawable.dashboard_headphones,
+            stringResource(R.string.dashboard_left), Modifier.weight(1f), diagnostics, "left_battery_at", model == null)
+        BatteryColumn(params.right, ears.right, model?.rightBudsRes ?: R.drawable.dashboard_headphones,
+            stringResource(R.string.dashboard_right), Modifier.weight(1f), diagnostics, "right_battery_at", model == null)
+        if (showCase) BatteryColumn(params.case, null, model?.caseRes ?: R.drawable.airpods_pro_case_notification,
+            stringResource(R.string.dashboard_case), Modifier.weight(1f), diagnostics, "case_battery_at", model == null)
     }
 }
 
 @Composable
 private fun BatteryColumn(params: PodBatteryParams?, ear: Byte?, image: Int, title: String, modifier: Modifier,
-    diagnostics: Bundle?, timeKey: String) {
+    diagnostics: Bundle?, timeKey: String, generic: Boolean) {
     val available = params?.isConnected == true && params.battery in 0..100
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Image(painterResource(image), title, modifier = Modifier.size(112.dp))
+        Box(Modifier.height(104.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Image(painterResource(image), title, modifier = Modifier.size(if (generic) 48.dp else 104.dp),
+                colorFilter = if (generic) ColorFilter.tint(MiuixTheme.colorScheme.onSurfaceVariantSummary) else null)
+        }
         Text(title, fontSize = 14.sp, lineHeight = 18.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -114,10 +125,10 @@ private fun BatteryColumn(params: PodBatteryParams?, ear: Byte?, image: Int, tit
             modifier = Modifier.padding(top = 5.dp))
         val at = diagnostics?.getLong(timeKey) ?: 0
         val freshness = StatusFreshness.battery(params, at, diagnostics?.getString("connection"))
-        val label = if (freshness == StatusFreshness.State.UNKNOWN) stringResource(R.string.freshness_unknown)
-        else stringResource(if (freshness == StatusFreshness.State.RETAINED) R.string.freshness_retained else R.string.freshness_reported,
-            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(at)))
-        Text(label, fontSize = 10.sp, lineHeight = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        // Exact report times remain in diagnostics. Only stale data needs a daily-use warning.
+        if (freshness == StatusFreshness.State.RETAINED) Text(stringResource(R.string.freshness_retained,
+            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(at))),
+            fontSize = 10.sp, lineHeight = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(top = 3.dp))
     }
 }
@@ -140,14 +151,14 @@ private fun IconBattery(available: Boolean, charging: Boolean) {
 }
 
 @Composable
-fun DashboardTopBar(onBack: () -> Unit) {
+fun DashboardTopBar(title: String = "HyperPods", onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)
         .statusBarsPadding().height(48.dp).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
             Icon(MiuixIcons.Useful.Back, stringResource(R.string.dashboard_back), modifier = Modifier.size(22.dp))
         }
-        Text("HyperPods", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(title, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
@@ -175,7 +186,7 @@ fun DashboardNavigation(selected: Int, onSelect: (Int) -> Unit) {
                     if (selected == index) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     animationSpec = tween(180), label = "DashboardTabTint")
                 Column(Modifier.weight(1f).selectable(selected == index, role = Role.Tab,
-                    onClick = { onSelect(index) }).padding(vertical = 10.dp),
+                    onClick = { onSelect(index) }).padding(vertical = 5.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     if (index == 0) Icon(painterResource(R.drawable.dashboard_headphones), null,
                         tint = tint, modifier = Modifier.size(24.dp))
@@ -190,16 +201,20 @@ fun DashboardNavigation(selected: Int, onSelect: (Int) -> Unit) {
 
 @Composable
 fun DashboardToggle(title: String, summary: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp),
+    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+        .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+        .semantics { contentDescription = title }
+        .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, fontSize = 16.sp, lineHeight = 22.sp,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else .45f))
             Text(summary, fontSize = 12.sp, lineHeight = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 5.dp))
+                modifier = Modifier.padding(top = 4.dp))
         }
-        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled,
-            modifier = Modifier.semantics { contentDescription = title },
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled,
+            modifier = Modifier.clearAndSetSemantics {},
             colors = SwitchDefaults.switchColors(
                 checkedTrackColor = MiuixTheme.colorScheme.primaryVariant,
                 checkedThumbColor = Color.White))
@@ -209,11 +224,11 @@ fun DashboardToggle(title: String, summary: String, checked: Boolean, onChange: 
 @Composable
 fun DashboardLink(title: String, summary: String? = null, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick)
-        .heightIn(min = if (summary == null) 48.dp else 56.dp).padding(vertical = 4.dp),
+        .heightIn(min = if (summary == null) 56.dp else 64.dp).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, fontSize = 16.sp, lineHeight = 22.sp)
             summary?.let { Text(it, fontSize = 12.sp, lineHeight = 16.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(top = 5.dp)) }
@@ -230,18 +245,22 @@ fun DashboardNoise(mode: NoiseControlMode?, onSelect: (NoiseControlMode) -> Unit
         R.string.dashboard_transparency, R.string.adaptive_title)
     val icons = listOf(R.drawable.dashboard_mode_off, R.drawable.dashboard_mode_anc,
         R.drawable.dashboard_mode_transparency, R.drawable.dashboard_mode_adaptive)
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-        .background(MiuixTheme.colorScheme.surfaceVariant).padding(3.dp).selectableGroup()) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp))
+        .background(MiuixTheme.colorScheme.surface).padding(4.dp).selectableGroup()) {
         modes.forEachIndexed { index, value ->
             val selected = value == mode
             val enabled = index + 1 in allowedModes
-            val foreground = if (selected) MiuixTheme.colorScheme.onPrimaryVariant
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary
-            Column(Modifier.weight(1f).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(10.dp))
-                .background(if (selected) MiuixTheme.colorScheme.primaryVariant else Color.Transparent)
+            val foreground by animateColorAsState(
+                if (selected) MiuixTheme.colorScheme.onPrimaryVariant else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                animationSpec = tween(160), label = "NoiseModeForeground")
+            val background by animateColorAsState(
+                if (selected) MiuixTheme.colorScheme.primaryVariant else Color.Transparent,
+                animationSpec = tween(160), label = "NoiseModeBackground")
+            Column(Modifier.weight(1f).alpha(if (enabled) 1f else 0.4f).clip(RoundedCornerShape(20.dp))
+                .background(background)
                 .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = { onSelect(value) })
-                .padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Image(painterResource(icons[index]), null, modifier = Modifier.size(26.dp),
+                .padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Image(painterResource(icons[index]), null, modifier = Modifier.size(24.dp),
                     colorFilter = ColorFilter.tint(foreground))
                 Text(stringResource(labels[index]), color = foreground, fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,

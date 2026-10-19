@@ -12,7 +12,6 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import moe.chenxy.hyperpods.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -44,7 +43,7 @@ class SettingsNavigationTest(private val durationScale: Float) {
         .config[SemanticsProperties.VerticalScrollAxisRange].value()
 
     private fun reveal(id: Int) {
-        compose.onNodeWithText(text(id)).performScrollTo()
+        compose.revealSetting(text(id))
         compose.waitForIdle()
     }
 
@@ -62,7 +61,7 @@ class SettingsNavigationTest(private val durationScale: Float) {
 
     @Test
     fun returningFromEveryDetailRestoresHomeScroll() {
-        listOf(R.string.dashboard_more, R.string.dashboard_device_info, R.string.diagnostics_title, R.string.head_test_title).forEach { id ->
+        listOf(R.string.dashboard_more, R.string.dashboard_device_info, R.string.diagnostics_title).forEach { id ->
             reveal(id)
             val before = scrollPosition()
             compose.onNodeWithText(text(id)).performClick()
@@ -75,11 +74,27 @@ class SettingsNavigationTest(private val durationScale: Float) {
     }
 
     @Test
+    fun gestureTestReturnsToMoreControlsAndKeepsBothScrollPositions() {
+        reveal(R.string.dashboard_more)
+        val homePosition = scrollPosition()
+        compose.onNodeWithText(text(R.string.dashboard_more)).performClick()
+        reveal(R.string.head_test_title)
+        val morePosition = scrollPosition()
+        compose.onNodeWithText(text(R.string.head_test_title)).performClick()
+        compose.waitForIdle()
+        back()
+        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_more))).assertExists()
+        assertEquals(morePosition, scrollPosition(), 0.000001f)
+        back()
+        assertEquals(homePosition, scrollPosition(), 0.000001f)
+    }
+
+    @Test
     fun detailScrollIsIndependentAndSurvivesRecreation() {
         open(R.string.dashboard_more)
         // Use a non-boundary offset: on recreation, Android delivers window
         // insets after the first measure and may clamp a bottom-most offset.
-        compose.onNodeWithText(text(R.string.audio_title)).performScrollTo()
+        compose.revealSetting(text(R.string.audio_title))
         val before = scrollPosition()
         assertTrue(before > 0f)
         compose.activityRule.scenario.recreate()
@@ -139,7 +154,7 @@ class SettingsNavigationTest(private val durationScale: Float) {
     @Test
     fun cancelledSystemBackKeepsTheCurrentPageAndScroll() {
         open(R.string.dashboard_more)
-        compose.onNodeWithText(text(R.string.audio_title)).performScrollTo()
+        compose.revealSetting(text(R.string.audio_title))
         val before = scrollPosition()
         compose.runOnIdle {
             val dispatcher = compose.activity.onBackPressedDispatcher

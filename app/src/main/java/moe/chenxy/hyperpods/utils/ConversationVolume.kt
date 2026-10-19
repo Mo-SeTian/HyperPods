@@ -51,10 +51,10 @@ class ConversationVolume(
         return true
     }
 
-    fun reset() {
-        val restore = original
+    fun reset(restore: Boolean = true) {
+        val target = original
         original = null
-        if (restore != null && getVolume() == applied) setVolume(restore)
+        if (restore && target != null && getVolume() == applied) setVolume(target)
         applied = null
         restoring = false
     }

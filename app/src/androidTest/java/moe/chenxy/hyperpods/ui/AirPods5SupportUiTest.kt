@@ -44,24 +44,24 @@ class AirPods5SupportUiTest(private val number: String, private val wireless: Bo
 
     @Test fun personalizedVolumeAndConversationSwitchesAreAvailable() {
         for (label in listOf(R.string.personlized_volume_title, R.string.dashboard_conversation_title)) {
-            compose.onNodeWithText(text(label)).performScrollTo()
+            compose.revealSetting(text(label))
             compose.onNodeWithContentDescription(text(label)).assertIsEnabled().performClick().assertIsOn()
         }
     }
 
     @Test fun onlyWirelessVariantExposesSwipeControls() {
-        compose.onNodeWithText(text(R.string.dashboard_more)).performScrollTo().performClick()
+        compose.revealSetting(text(R.string.dashboard_more)).performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(text(R.string.control_press_speed)).assertExists()
-        compose.onNodeWithText(text(R.string.control_hold_duration)).assertExists()
+        compose.revealSetting(text(R.string.control_press_speed)).assertExists()
+        compose.revealSetting(text(R.string.control_hold_duration)).assertExists()
         for (label in listOf(R.string.adjust_volume_by_swiper_title, R.string.control_swipe_speed)) {
-            if (wireless) compose.onNodeWithText(text(label)).assertExists()
+            if (wireless) compose.revealSetting(text(label)).assertExists()
             else compose.onNodeWithText(text(label)).assertDoesNotExist()
         }
     }
 
     @Test fun informationPageShowsTheCorrectVariantAndModelNumber() {
-        compose.onNodeWithText(text(R.string.dashboard_device_info)).performScrollTo().performClick()
+        compose.revealSetting(text(R.string.dashboard_device_info)).performClick()
         compose.waitForIdle()
         val name = if (wireless) "AirPods 5 with Wireless Charging Case" else "AirPods 5"
         compose.onNodeWithText(name).performScrollTo().assertIsDisplayed()

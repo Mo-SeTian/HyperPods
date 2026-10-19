@@ -53,8 +53,8 @@ class SettingsDraftTest {
                 }
             }
         }
-        compose.onNodeWithText(compose.activity.getString(R.string.dashboard_more)).performScrollTo().performClick()
-        compose.onNodeWithText(compose.activity.getString(R.string.adaptive_audio_title)).performScrollTo()
+        compose.revealSetting(compose.activity.getString(R.string.dashboard_more)).performClick()
+        compose.revealSetting(compose.activity.getString(R.string.adaptive_audio_title))
         val slider = compose.onNode(SemanticsMatcher("Adaptive slider") {
             it.config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.range?.endInclusive == 1f
         })

@@ -97,7 +97,8 @@ class HeadTrackingUiTest(private val mode: Int, private val motionScale: Float) 
     }
 
     @Test fun realSettingsPageOffersEntryWithoutEnablingCallGestures() {
-        compose.onNodeWithText(text(R.string.head_test_title)).performScrollTo().performClick()
+        compose.revealSetting(text(R.string.dashboard_more)).performClick()
+        compose.revealSetting(text(R.string.head_test_title)).performClick()
         compose.onNodeWithText(text(R.string.head_test_safety)).assertExists()
         compose.onNodeWithText(text(R.string.head_test_idle)).assertExists()
         compose.onNodeWithText(text(R.string.head_test_start)).performScrollTo().assertIsEnabled()
@@ -107,7 +108,8 @@ class HeadTrackingUiTest(private val mode: Int, private val motionScale: Float) 
     }
 
     @Test fun backgroundingStopsTheUiSessionAndDoesNotAutoRestartOnResume() {
-        compose.onNodeWithText(text(R.string.head_test_title)).performScrollTo().performClick()
+        compose.revealSetting(text(R.string.dashboard_more)).performClick()
+        compose.revealSetting(text(R.string.head_test_title)).performClick()
         compose.onNodeWithText(text(R.string.head_test_start)).performScrollTo().performClick()
         compose.onNodeWithText(text(R.string.head_test_starting)).assertExists()
         val started = SystemClock.elapsedRealtime()
