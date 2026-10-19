@@ -16,6 +16,8 @@ import android.media.MediaRouter2.ScanToken
 import android.media.RouteDiscoveryPreference
 import android.os.ParcelUuid
 import android.os.Bundle
+import android.os.SystemClock
+import android.telephony.TelephonyManager
 import android.util.Log
 import de.robv.android.xposed.XposedHelpers
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +34,8 @@ import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.AirPodsInstance
 import moe.chenxy.hyperpods.utils.MediaControl
 import moe.chenxy.hyperpods.utils.HeadGestureCalls
+import moe.chenxy.hyperpods.utils.HeadTrackingStream
+import moe.chenxy.hyperpods.utils.HeadTrackingPreview
 import moe.chenxy.hyperpods.utils.Capability
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.PodsIslandData
@@ -126,21 +130,68 @@ object L2CAPController {
     private var lowBatterySettings = LowBatterySettings()
     private var headGestures = false
     private var headGestureCalls: HeadGestureCalls? = null
+    private val headTrackingStream = HeadTrackingStream { start ->
+        val manager = aacpManager
+        val sent = manager?.sendDataPacket(if (start) manager.createAlternateStartHeadTrackingPacket()
+            else manager.createAlternateStopHeadTrackingPacket()) == true
+        if (!sent) Log.w(TAG, "Head-tracking stream command was not sent")
+        sent
+    }
+    private var headPreviewWatchdog: Job? = null
+    private val headPreview = HeadTrackingPreview(headTrackingStream) { snapshot ->
+        HyperPodsBroadcasts.send(mContext, Intent(HyperPodsAction.ACTION_HEAD_TRACKING_SAMPLE).apply {
+            putExtra("session", snapshot.session)
+            putExtra("sequence", snapshot.sequence)
+            putExtra("state", snapshot.state)
+            putExtra("packets", snapshot.packets)
+            putExtra("nods", snapshot.nods)
+            putExtra("shakes", snapshot.shakes)
+            putExtra("gesture", snapshot.gesture)
+            snapshot.sample?.let {
+                putExtra("pitch", it.pitch)
+                putExtra("yaw", it.yaw)
+                putExtra("calibrated", it.calibrated)
+                putExtra("horizontal", it.horizontal)
+                putExtra("vertical", it.vertical)
+            }
+        })
+        if (!headPreviewActive(snapshot.state)) {
+            headPreviewWatchdog?.cancel()
+            headPreviewWatchdog = null
+        }
+    }
+
+    private fun headPreviewActive(state: String) = state in setOf("starting", "calibrating", "tracking")
+
+    private fun headTrackingSupported() = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
+        ?.capabilities?.contains(Capability.HEAD_GESTURES) == true
+
+    private fun headTrackingWorn() = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
+        (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR || currentEarDetectionParams.right == EarDetectionStatus.IN_EAR)
+
+    private fun phoneInCall() = runCatching {
+        mContext?.getSystemService(TelephonyManager::class.java)?.callState?.let { it != TelephonyManager.CALL_STATE_IDLE } == true
+    }.getOrDefault(false)
 
     private fun updateHeadGestures() {
         val context = mContext ?: return
-        val calls = headGestureCalls ?: HeadGestureCalls(context, this) { sendDiagnostics() }
+        val calls = headGestureCalls ?: HeadGestureCalls(context, this, headTrackingStream) { sendDiagnostics() }
             .also { headGestureCalls = it }
-        val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
-        val worn = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
-            (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR || currentEarDetectionParams.right == EarDetectionStatus.IN_EAR)
-        calls.update(aacpManager, headGestures, model?.capabilities?.contains(Capability.HEAD_GESTURES) == true, worn)
+        calls.update(aacpManager, headGestures, headTrackingSupported(), headTrackingWorn())
+        if (!headTrackingWorn()) headPreview.stop("not_worn")
     }
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(p0: Context?, p1: Intent?) {
             val context = p0 ?: return
             val intent = p1 ?: return
+            // Protected system broadcast; re-read state instead of trusting extras.
+            if (intent.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
+                synchronized(this@L2CAPController) {
+                    if (phoneInCall()) headPreview.stop("interrupted")
+                }
+                return
+            }
             val sender = if (intent.action == HyperPodsAction.ACTION_GET_PODS_MAC)
                 HyperPodsBroadcasts.SYSTEM_UI else BuildConfig.APPLICATION_ID
             if (!HyperPodsBroadcasts.isTrusted(context, this, sender)) return
@@ -193,6 +244,25 @@ object L2CAPController {
     fun handleUIEvent(intent: Intent) {
         if (mContext == null) return
         when (intent.action) {
+            HyperPodsAction.ACTION_HEAD_TRACKING_COMMAND -> {
+                val id = intent.getStringExtra("session") ?: return
+                if (id.length !in 1..64) return
+                val command = intent.getStringExtra("command") ?: return
+                val at = SystemClock.elapsedRealtime()
+                if (command == "start") {
+                    headPreviewWatchdog?.cancel()
+                    headPreview.start(id, at, aacpManager != null, headTrackingSupported(), headTrackingWorn(), phoneInCall())
+                    if (headPreview.active) headPreviewWatchdog = CoroutineScope(Dispatchers.Default).launch {
+                        while (true) {
+                            delay(1000)
+                            synchronized(this@L2CAPController) {
+                                ensureActive()
+                                headPreview.tick(SystemClock.elapsedRealtime())
+                            }
+                        }
+                    }
+                } else headPreview.command(id, command, at)
+            }
             HyperPodsAction.ACTION_APP_SETTINGS_CHANGED -> {
                 AppPreferences.decode(intent.getStringExtra(AppPreferences.EXTRA))?.let {
                     appSettingsRevision++
@@ -933,6 +1003,7 @@ object L2CAPController {
 
         override fun onHeadTrackingReceived(headTracking: ByteArray) {
             headGestureCalls?.onPacket(headTracking)
+            headPreview.onPacket(headTracking, SystemClock.elapsedRealtime())
         }
 
         override fun onUnknownPacketReceived(packet: ByteArray) {
@@ -997,6 +1068,8 @@ object L2CAPController {
             this.addAction(HyperPodsAction.ACTION_PODS_RENAME)
             this.addAction(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
             this.addAction(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST)
+            this.addAction(HyperPodsAction.ACTION_HEAD_TRACKING_COMMAND)
+            this.addAction(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
         }, Context.RECEIVER_EXPORTED)
         sendDiagnostics()
 
@@ -1230,6 +1303,7 @@ object L2CAPController {
             runCatching { connectedSocket.close() }
             synchronized(this@L2CAPController) {
                 if (aacpManager === manager) {
+                    headPreview.stop("disconnected")
                     headGestureCalls?.close()
                     headGestureCalls = null
                     aacpManager = null
@@ -1254,6 +1328,7 @@ object L2CAPController {
     }
 
     private fun resetControlState() {
+        headPreview.stop("disconnected")
         headGestureCalls?.close()
         headGestureCalls = null
         clearPendingSettings()
@@ -1277,6 +1352,7 @@ object L2CAPController {
     @Synchronized
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
         if (::mDevice.isInitialized && device != mDevice) return
+        headPreview.stop("disconnected")
         headGestureCalls?.close()
         headGestureCalls = null
         ++sessionId

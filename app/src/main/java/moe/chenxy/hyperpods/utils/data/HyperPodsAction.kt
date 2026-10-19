@@ -25,5 +25,7 @@ object HyperPodsAction {
     const val ACTION_MODULE_STATUS = "chen.action.hyperpods.module_status"
     const val ACTION_PODS_DIAGNOSTICS_REQUEST = "chen.action.hyperpods.diagnostics_request"
     const val ACTION_PODS_STATUS_RETRY = "chen.action.hyperpods.status_retry"
+    const val ACTION_HEAD_TRACKING_COMMAND = "chen.action.hyperpods.head_tracking_command"
+    const val ACTION_HEAD_TRACKING_SAMPLE = "chen.action.hyperpods.head_tracking_sample"
     const val ACTION_PODS_STATUS_CHANGED = "chen.action.hyperpods.pods_status_changed"
 }

@@ -254,4 +254,38 @@ class HeadGestureCallsTest {
             verifyNoInteractions(telecom)
         }
     }
+
+    @Test fun previewWorksWithCallToggleDisabledAndNoCallPermissions() {
+        val stream = HeadTrackingStream { start -> manager.sendDataPacket(if (start)
+            manager.createAlternateStartHeadTrackingPacket() else manager.createAlternateStopHeadTrackingPacket()) }
+        calls = HeadGestureCalls(context, lock, stream) {}
+        `when`(context.checkSelfPermission(anyString())).thenReturn(PackageManager.PERMISSION_DENIED)
+        update(enabled = false)
+        val reports = mutableListOf<HeadTrackingPreview.Snapshot>()
+        val preview = HeadTrackingPreview(stream) { reports.add(it) }
+        preview.start("test", 0, true, true, true, false)
+        repeat(100) { index ->
+            val packet = byteArrayOf(4, 0, 4, 0, 0x17, 0) + ByteArray(64)
+            ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN)
+                .putShort(53, (1200 * sin(2 * PI * index / 24)).toInt().toShort())
+            preview.onPacket(packet, (index + 1) * 20L)
+            calls.onPacket(packet)
+        }
+        assertTrue(reports.last().nods > 0)
+        verifyNoInteractions(telecom)
+        preview.stop("stopped")
+    }
+
+    @Test fun incomingCallTakesOverPreviewWithoutBeingStoppedByItsCleanup() {
+        val stream = HeadTrackingStream { start -> manager.sendDataPacket(if (start)
+            manager.createAlternateStartHeadTrackingPacket() else manager.createAlternateStopHeadTrackingPacket()) }
+        calls = HeadGestureCalls(context, lock, stream) {}
+        val preview = HeadTrackingPreview(stream) {}
+        preview.start("test", 0, true, true, true, false)
+        update()
+        assertFalse(preview.active)
+        preview.command("test", "stop", 100)
+        motion()
+        verify(telecom).acceptRingingCall()
+    }
 }

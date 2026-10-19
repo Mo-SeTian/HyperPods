@@ -1,0 +1,34 @@
+<resources>
+    <string name="head_test_title">Pose and gesture test</string>
+    <string name="head_test_summary">View relative head motion and test nods and head shakes</string>
+    <string name="head_test_safety">Independent test: does not answer or decline calls or change audio settings. No incoming call is needed. Leave this page or put the app in the background to stop.</string>
+    <string name="head_test_idle">Wear your AirPods, face forward, then start the test</string>
+    <string name="head_test_starting">Start requested; waiting for actual motion data</string>
+    <string name="head_test_calibrating">Centering: keep your head still briefly</string>
+    <string name="head_test_tracking">Receiving motion data</string>
+    <string name="head_test_stale">Motion data paused; waiting for updates</string>
+    <string name="head_test_disconnected">Control connection lost; reconnect before retrying</string>
+    <string name="head_test_interrupted">Test stopped for a phone call; retry after the call</string>
+    <string name="head_test_expired">Test session ended; start again to continue</string>
+    <string name="head_test_background">Test stopped when leaving the page or app</string>
+    <string name="head_test_stopping">Requesting stop…</string>
+    <string name="head_test_stop_unconfirmed">Stop not confirmed. The Bluetooth-side lease will expire automatically if heartbeats stop.</string>
+    <string name="head_test_stopped">Test stopped</string>
+    <string name="head_test_unavailable">Unable to start or receive updates. Check module activation and the control connection; call gestures may also be using the stream.</string>
+    <string name="head_test_packets">Valid motion packets: %1$d</string>
+    <string name="head_test_pose">Relative head pose illustration</string>
+    <string name="head_test_pose_waiting">Relative pose: —</string>
+    <string name="head_test_angles">Estimated pitch %1$d° · yaw %2$d°</string>
+    <string name="head_test_estimated">Relative estimates based on LibrePods, not precise physical angles. Face forward and recenter if the illustration drifts. A successful test does not verify real call-control permissions.</string>
+    <string name="head_test_center">Recenter</string>
+    <string name="head_test_motion">Motion signals</string>
+    <string name="head_test_legend">Thick blue: horizontal · thin gray: vertical\nRaw range −6000…6000, not degrees. Last 100 received UI samples.</string>
+    <string name="head_test_graph">Horizontal and vertical motion signal chart</string>
+    <string name="head_test_instruction">Gently nod or shake your head several times. Do not move both axes at once.</string>
+    <string name="head_test_nod">Nod detected</string>
+    <string name="head_test_shake">Head shake detected</string>
+    <string name="head_test_no_gesture">No gesture detected yet</string>
+    <string name="head_test_counts">This session: %1$d nods · %2$d head shakes</string>
+    <string name="head_test_start">Start test</string>
+    <string name="head_test_stop">Stop test</string>
+</resources>

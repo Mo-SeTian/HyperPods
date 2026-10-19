@@ -62,7 +62,7 @@ class SettingsNavigationTest(private val durationScale: Float) {
 
     @Test
     fun returningFromEveryDetailRestoresHomeScroll() {
-        listOf(R.string.dashboard_more, R.string.dashboard_device_info, R.string.diagnostics_title).forEach { id ->
+        listOf(R.string.dashboard_more, R.string.dashboard_device_info, R.string.diagnostics_title, R.string.head_test_title).forEach { id ->
             reveal(id)
             val before = scrollPosition()
             compose.onNodeWithText(text(id)).performClick()

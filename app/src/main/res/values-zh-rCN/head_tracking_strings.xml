@@ -1,0 +1,34 @@
+<resources>
+    <string name="head_test_title">姿态与手势测试</string>
+    <string name="head_test_summary">查看相对头部姿态，独立测试点头与摇头</string>
+    <string name="head_test_safety">独立测试，不会接听、挂断电话或修改音频设置，无需实际来电。离开页面或切到后台后停止采集。</string>
+    <string name="head_test_idle">请佩戴耳机，面向正前方后开始测试</string>
+    <string name="head_test_starting">已请求开始，等待耳机实际回传数据</string>
+    <string name="head_test_calibrating">正在居中，请短暂保持头部静止</string>
+    <string name="head_test_tracking">正在接收姿态数据</string>
+    <string name="head_test_stale">姿态数据暂时中断，等待更新</string>
+    <string name="head_test_disconnected">控制连接已断开，请重新连接后重试</string>
+    <string name="head_test_interrupted">因电话来电或通话中断测试，请在通话结束后重试</string>
+    <string name="head_test_expired">本次测试已结束，可重新开始</string>
+    <string name="head_test_background">离开页面或切到后台，已停止测试</string>
+    <string name="head_test_stopping">正在请求停止…</string>
+    <string name="head_test_stop_unconfirmed">尚未确认停止。停止发送心跳后，蓝牙端会自动超时释放采集。</string>
+    <string name="head_test_stopped">测试已停止</string>
+    <string name="head_test_unavailable">无法开始或未收到更新。请检查模块启用状态和控制连接；来电手势也可能正在占用采集通道。</string>
+    <string name="head_test_packets">有效姿态数据包：%1$d</string>
+    <string name="head_test_pose">相对头部姿态示意</string>
+    <string name="head_test_pose_waiting">相对姿态：—</string>
+    <string name="head_test_angles">估算俯仰 %1$d° · 转头 %2$d°</string>
+    <string name="head_test_estimated">基于 LibrePods 的相对估算，不代表精确物理角度。示意偏移时请面向正前方重新居中。测试成功不代表真实通话控制权限正常。</string>
+    <string name="head_test_center">重新居中</string>
+    <string name="head_test_motion">运动信号</string>
+    <string name="head_test_legend">蓝色粗线：水平 · 灰色细线：垂直\n原始值范围 −6000…6000，非角度。展示最近 100 次界面采样。</string>
+    <string name="head_test_graph">水平与垂直运动信号曲线</string>
+    <string name="head_test_instruction">请轻轻连续点头或摇头几次，避免同时大幅转动两个方向。</string>
+    <string name="head_test_nod">已识别：点头</string>
+    <string name="head_test_shake">已识别：摇头</string>
+    <string name="head_test_no_gesture">尚未识别到手势</string>
+    <string name="head_test_counts">本次累计：点头 %1$d 次 · 摇头 %2$d 次</string>
+    <string name="head_test_start">开始测试</string>
+    <string name="head_test_stop">停止测试</string>
+</resources>

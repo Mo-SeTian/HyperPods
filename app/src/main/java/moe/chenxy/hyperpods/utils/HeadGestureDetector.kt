@@ -17,7 +17,7 @@ import kotlin.math.min
 
 /** LibrePods' three-sample smoothing, extremes, speed and confidence recognition,
  * without its service/UI/audio dependencies or polling coroutine. Feed only during
- * a ringing-call window. All calls are serialized by the connection owner.
+ * a ringing-call or explicit preview window. All calls are serialized by the connection owner.
  */
 class HeadGestureDetector {
     enum class Gesture { NOD, SHAKE }

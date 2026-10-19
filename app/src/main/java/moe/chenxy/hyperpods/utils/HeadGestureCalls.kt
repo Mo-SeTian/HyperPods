@@ -11,7 +11,6 @@ import android.os.SystemClock
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
 import android.telephony.SubscriptionManager
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,10 +24,14 @@ import kotlinx.coroutines.launch
  */
 @SuppressLint("MissingPermission")
 @Suppress("DEPRECATION") // Same accept/reject API as LibrePods; no default-dialer role takeover.
-class HeadGestureCalls(private val context: Context, private val lock: Any,
+class HeadGestureCalls(private val context: Context, private val lock: Any, sharedStream: HeadTrackingStream? = null,
     private val onStateChanged: () -> Unit) {
     private val detector = HeadGestureDetector()
     private var manager: AACPManager? = null
+    private val stream = sharedStream ?: HeadTrackingStream { start ->
+        manager?.let { it.sendDataPacket(if (start) it.createAlternateStartHeadTrackingPacket()
+            else it.createAlternateStopHeadTrackingPacket()) } == true
+    }
     private var enabled = false
     private var supported = false
     private var worn = false
@@ -118,8 +121,8 @@ class HeadGestureCalls(private val context: Context, private val lock: Any,
         }
         if (tracking || handled) return
         // LibrePods defaults to the alternate head-tracking packet pair.
-        val current = manager ?: return
-        if (!current.sendDataPacket(current.createAlternateStartHeadTrackingPacket())) {
+        if (manager == null) return
+        if (!stream.acquire(HeadTrackingStream.Owner.CALL)) {
             handled = true // Do not retry on every battery/wear packet.
             state("write_failed")
             return
@@ -181,10 +184,7 @@ class HeadGestureCalls(private val context: Context, private val lock: Any,
     private fun stop() {
         timeout?.cancel()
         timeout = null
-        if (tracking) manager?.let { current ->
-            if (!current.sendDataPacket(current.createAlternateStopHeadTrackingPacket()))
-                Log.w("HyperPods-HeadGestures", "Unable to stop head-tracking stream")
-        }
+        if (tracking) stream.release(HeadTrackingStream.Owner.CALL)
         tracking = false
         detector.reset()
     }

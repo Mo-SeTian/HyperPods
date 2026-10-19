@@ -65,6 +65,7 @@ import moe.chenxy.hyperpods.ui.components.PressAndHoldSettingPage
 import moe.chenxy.hyperpods.ui.components.RenamePod
 import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
 import moe.chenxy.hyperpods.ui.components.headGestureStatus
+import moe.chenxy.hyperpods.ui.components.HeadTrackingPage
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPodsModels.getModelByModelNumber
 import moe.chenxy.hyperpods.utils.AirPods
@@ -152,7 +153,7 @@ fun PodDetailPage(
     // Keep every page's saveable state outside the animated content. Switching the
     // content key must not discard the previous page's scroll position.
     val listStates = listOf(rememberLazyListState(), rememberLazyListState(),
-        rememberLazyListState(), rememberLazyListState())
+        rememberLazyListState(), rememberLazyListState(), rememberLazyListState())
     val travel = with(LocalDensity.current) { 28.dp.roundToPx() }
     AnimatedContent(
         targetState = detailPage,
@@ -169,6 +170,7 @@ fun PodDetailPage(
             1 -> R.string.dashboard_more
             2 -> R.string.dashboard_device_info
             3 -> R.string.diagnostics_title
+            4 -> R.string.head_test_title
             else -> R.string.dashboard_headphones
         })
         val interaction = if (page == detailPage) Modifier.semantics { paneTitle = pageTitle }
@@ -238,6 +240,9 @@ fun PodDetailPage(
                                     stringResource(headGestureStatus(diagnostics?.getString("head_gestures"))),
                                 headGestures, onHeadGesturesChange)
                             DashboardDivider()
+                            DashboardLink(stringResource(R.string.head_test_title),
+                                stringResource(R.string.head_test_summary)) { detailPage = 4 }
+                            DashboardDivider()
                         }
                         if (PodsSettings.supports(Key.SLEEP_DETECTION, model)) {
                             DashboardToggle(stringResource(R.string.sleep_detection_title),
@@ -265,8 +270,11 @@ fun PodDetailPage(
                     IconButton(onClick = { detailPage = 0 }, modifier = Modifier.size(48.dp)) {
                         Icon(MiuixIcons.Useful.Back, stringResource(R.string.dashboard_back))
                     }
-                    Text(stringResource(when (page) { 1 -> R.string.dashboard_more; 3 -> R.string.diagnostics_title; else -> R.string.dashboard_device_info }),
-                        fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(pageTitle, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                if (page == 4) {
+                    HeadTrackingPage(isActive && page == detailPage)
+                    return@item
                 }
                 if (page == 3) {
                     Card(modifier = Modifier.padding(12.dp)) { ConnectionDiagnostics(diagnostics) }
