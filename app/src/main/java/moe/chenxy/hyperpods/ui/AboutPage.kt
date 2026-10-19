@@ -102,6 +102,31 @@ fun AboutPage(
                             }
                         }
                     )
+                    BasicComponent(
+                        title = stringResource(R.string.dashboard_fork_author),
+                        summary = "Mo-SeTian",
+                        enabled = true
+                    )
+                    DashboardLink(
+                        title = stringResource(R.string.dashboard_fork_repository),
+                        summary = "https://github.com/Mo-SeTian/HyperPods",
+                        onClick = {
+                            Intent(Intent.ACTION_VIEW).apply {
+                                this.data = Uri.parse("https://github.com/Mo-SeTian/HyperPods")
+                                context.startActivity(this)
+                            }
+                        }
+                    )
+                    DashboardLink(
+                        title = stringResource(R.string.dashboard_fork_donate),
+                        summary = "https://afdian.com/a/mosetian",
+                        onClick = {
+                            Intent(Intent.ACTION_VIEW).apply {
+                                this.data = Uri.parse("https://afdian.com/a/mosetian")
+                                context.startActivity(this)
+                            }
+                        }
+                    )
                 }
             }
             item(key = "diagnostics") {

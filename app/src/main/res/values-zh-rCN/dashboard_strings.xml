@@ -17,6 +17,9 @@
     <string name="dashboard_support">设备与支持</string>
     <string name="dashboard_project">项目</string>
     <string name="dashboard_author">原作者</string>
+    <string name="dashboard_fork_author">二改作者</string>
+    <string name="dashboard_fork_repository">二改仓库</string>
+    <string name="dashboard_fork_donate">支持二改作者</string>
     <string name="dashboard_device_info">设备信息</string>
     <string name="dashboard_info_pending">正在获取设备信息</string>
     <string name="dashboard_back">返回</string>

@@ -17,6 +17,9 @@
     <string name="dashboard_support">Device &amp; support</string>
     <string name="dashboard_project">Project</string>
     <string name="dashboard_author">Original author</string>
+    <string name="dashboard_fork_author">Fork maintainer</string>
+    <string name="dashboard_fork_repository">Fork repository</string>
+    <string name="dashboard_fork_donate">Support fork maintainer</string>
     <string name="dashboard_device_info">Device information</string>
     <string name="dashboard_info_pending">Waiting for device information</string>
     <string name="dashboard_back">Back</string>
