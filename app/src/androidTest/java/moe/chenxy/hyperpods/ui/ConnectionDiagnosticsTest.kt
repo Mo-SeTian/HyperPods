@@ -1,6 +1,7 @@
 package moe.chenxy.hyperpods.ui
 
 import android.content.ClipboardManager
+import android.content.ClipData
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.platform.app.InstrumentationRegistry
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.BatteryStatus
 import moe.chenxy.hyperpods.utils.AirPodsPro2USBC
@@ -92,19 +94,32 @@ class ConnectionDiagnosticsTest {
             putString("mac", "PRIVATE_SENTINEL")
             putString("serial", "PRIVATE_SENTINEL")
             putString("packet", "PRIVATE_SENTINEL")
+            putString("head_gestures", "PRIVATE_SENTINEL")
         }
         compose.runOnUiThread {
             compose.activity.setContent {
                 AppTheme(1) { Column(Modifier.verticalScroll(rememberScrollState())) { ConnectionDiagnostics(status) } }
             }
         }
-        compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_copy)).performScrollTo().performClick()
         compose.runOnIdle {
-            val report = compose.activity.getSystemService(ClipboardManager::class.java).primaryClip
-                ?.getItemAt(0)?.text?.toString()
-            assertNotNull(report)
-            assertTrue(report!!.contains("HyperPods"))
-            assertFalse(report.contains("PRIVATE_SENTINEL"))
+            compose.activity.getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newPlainText("test", "PRIVATE_SENTINEL"))
+        }
+        compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_copy)).performScrollTo().performClick()
+        // Only the test assertion needs background clipboard access when the
+        // emulator's clipboard overlay takes focus. No app permission is changed.
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.adoptShellPermissionIdentity("android.permission.READ_CLIPBOARD_IN_BACKGROUND")
+        try {
+            compose.runOnIdle {
+                val report = compose.activity.getSystemService(ClipboardManager::class.java).primaryClip
+                    ?.getItemAt(0)?.text?.toString()
+                assertNotNull(report)
+                assertTrue(report!!.contains("HyperPods"))
+                assertFalse(report.contains("PRIVATE_SENTINEL"))
+            }
+        } finally {
+            automation.dropShellPermissionIdentity()
         }
     }
 }

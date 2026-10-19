@@ -71,7 +71,7 @@ class AppPreferencesStorageTest {
     @Test fun editsAndReopeningReadTheNewPrivateStoreNotStaleLegacyValues() {
         populateLegacy()
         assertEquals(snapshot, AppPreferences.read(context))
-        val changed = snapshot.copy(earDetection = true, lowBattery = LowBatterySettings(true, 50, false, 10))
+        val changed = snapshot.copy(earDetection = true, headGestures = true, lowBattery = LowBatterySettings(true, 50, false, 10))
         assertTrue(AppPreferences.save(context, changed))
         assertEquals(changed, AppPreferences.read(context))
         val reopened = object : ContextWrapper(context) {

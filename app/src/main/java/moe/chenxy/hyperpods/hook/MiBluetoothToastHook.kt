@@ -267,7 +267,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
         }
 
         fun createPodsIslandNotification(bluetoothDevice: BluetoothDevice, context: Context, batteryParams: BatteryParams,
-            warning: String = "") {
+            warning: String = "", modelNumber: String? = null) {
             val sendNotification = buildNotification(bluetoothDevice, context, batteryParams, warning)
 //            val actions = focusApi.actionInfo(actionIntent = actionIntent, actionIntentType = "2", actionTitle = context.resources
 //                .getString(miheadset_notification_Disconnect))
@@ -289,11 +289,14 @@ object MiBluetoothToastHook : YukiBaseHooker(){
 
             val bundle = Bundle()
             bundle.putParcelable("miui.focus.action_disconnect", action)
+            val model = PodsIslandData.modelForIcons(modelNumber)
+            val cardIcon = model?.let { Icon.createWithResource(BuildConfig.APPLICATION_ID, it.budsRes) }
+                ?: Icon.createWithResource(context, earphone_drawable)
             val islandPics = Bundle().apply {
                 putParcelable(PodsIslandData.LEFT_ICON,
-                    Icon.createWithResource(BuildConfig.APPLICATION_ID, R.drawable.airpods_pro_2_left))
+                    Icon.createWithResource(BuildConfig.APPLICATION_ID, model?.leftBudsRes ?: R.drawable.airpods_pro_2_left))
                 putParcelable(PodsIslandData.RIGHT_ICON,
-                    Icon.createWithResource(BuildConfig.APPLICATION_ID, R.drawable.airpods_pro_2_right))
+                    Icon.createWithResource(BuildConfig.APPLICATION_ID, model?.rightBudsRes ?: R.drawable.airpods_pro_2_right))
             }
 
             val caseBattStr = if (shouldShowCaseBattery(batteryParams))
@@ -328,11 +331,11 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 islandFirstFloat = false,
                 enableFloat = false,
                 reopen = "true", // allow notify again after notification cleaned
-                picInfo = Icon.createWithResource(context, earphone_drawable),
+                picInfo = cardIcon,
                 picInfotype = 2,
                 timeout = 1000,
                 ticker = buildIslandTicker(batteryParams),
-                picticker = Icon.createWithResource(context, earphone_drawable)
+                picticker = cardIcon
             )
             api.getString("miui.focus.param")?.let { focusParam ->
                 val focusJson = JSONObject(focusParam)
@@ -358,14 +361,14 @@ object MiBluetoothToastHook : YukiBaseHooker(){
 
         @SuppressLint("WrongConstant")
         fun createPodsNotification(bluetoothDevice: BluetoothDevice?, context: Context, batteryParams: BatteryParams,
-            warning: String = ""): Boolean {
+            warning: String = "", modelNumber: String? = null): Boolean {
             if (bluetoothDevice == null) {
                 Log.e("Art_Chen", "createPodsNotification: btDevice null");
                 return false
             }
             if (supportsIsland(context)) {
                 try {
-                    createPodsIslandNotification(bluetoothDevice, context, batteryParams, warning)
+                    createPodsIslandNotification(bluetoothDevice, context, batteryParams, warning, modelNumber)
                     return true
                 } catch (error: Exception) {
                     Log.w("Art_Chen", "Unable to create headset island; using notification", error)
@@ -441,6 +444,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                             "chen.action.hyperpods.updatepodsnotification" -> {
                                 val params = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
                                 val device = intent.getParcelableExtra("device", BluetoothDevice::class.java) ?: return
+                                val modelNumber = intent.getStringExtra("modelNumber")
                                 val settings = intent.getParcelableExtra("lowBatterySettings", LowBatterySettings::class.java)
                                     ?.takeIf { it.valid } ?: LowBatterySettings()
                                 MiuiStrongToastUtil.updateCaseBatteryState(params)
@@ -449,7 +453,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                                     val warning = BatteryReminderText.format(resources, params, LowBatteryReminder.lowComponents(params, settings))
                                     val store = BatteryReminderStore(context.getSharedPreferences("hyperpods_battery_reminders", Context.MODE_PRIVATE), device.address)
                                     val decisions = LowBatteryReminder.evaluate(params, intent.getIntArrayExtra("freshComponents") ?: intArrayOf(), settings, store::state)
-                                    val posted = createPodsNotification(device, context, params, warning)
+                                    val posted = createPodsNotification(device, context, params, warning, modelNumber)
                                     store.commit(decisions, posted)
                                     if (warningDevice != device) cancelWarning()
                                     warningDevice = device
@@ -474,7 +478,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                                     // An optional reminder failure must not remove the normal battery/settings entry.
                                     Log.w("Art_Chen", "Low battery reminder unavailable; retaining headset notification")
                                     cancelWarning()
-                                    createPodsNotification(device, context, params)
+                                    createPodsNotification(device, context, params, modelNumber = modelNumber)
                                 }
                             }
                             "chen.action.hyperpods.cancelpodsnotification" ->

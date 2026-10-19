@@ -64,6 +64,7 @@ import moe.chenxy.hyperpods.ui.components.PodsInfoPage
 import moe.chenxy.hyperpods.ui.components.PressAndHoldSettingPage
 import moe.chenxy.hyperpods.ui.components.RenamePod
 import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
+import moe.chenxy.hyperpods.ui.components.headGestureStatus
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPodsModels.getModelByModelNumber
 import moe.chenxy.hyperpods.utils.AirPods
@@ -122,6 +123,8 @@ fun PodDetailPage(
     onLowBatterySettingsChange: (LowBatterySettings) -> Unit = {},
     conversationPhoneVolume: Boolean = true,
     onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
+    headGestures: Boolean = false,
+    onHeadGesturesChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
     onSettingChange: (String, Int) -> Unit = { _, _ -> },
     diagnostics: Bundle? = null,
@@ -229,6 +232,25 @@ fun PodDetailPage(
                         DashboardToggle(stringResource(R.string.dashboard_detection_title),
                             stringResource(R.string.dashboard_detection_summary), earDetectionEnable, onEarDetectionChanged)
                         DashboardDivider()
+                        if (model?.capabilities?.contains(Capability.HEAD_GESTURES) == true) {
+                            DashboardToggle(stringResource(R.string.head_gestures_title),
+                                stringResource(R.string.head_gestures_summary) + "\n" +
+                                    stringResource(headGestureStatus(diagnostics?.getString("head_gestures"))),
+                                headGestures, onHeadGesturesChange)
+                            DashboardDivider()
+                        }
+                        if (PodsSettings.supports(Key.SLEEP_DETECTION, model)) {
+                            DashboardToggle(stringResource(R.string.sleep_detection_title),
+                                feedback(Key.SLEEP_DETECTION, R.string.sleep_detection_summary),
+                                settings[Key.SLEEP_DETECTION] == 1,
+                                { onSettingChange(Key.SLEEP_DETECTION, if (it) 1 else 2) },
+                                enabled = Key.SLEEP_DETECTION !in pendingSettings &&
+                                    (Key.SLEEP_DETECTION in settings || diagnostics?.getString("connection") == "connected"))
+                            // Keep the firmware requirement visible even before its first report.
+                            if (Key.SLEEP_DETECTION !in settings) Text(stringResource(R.string.sleep_detection_summary),
+                                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            DashboardDivider()
+                        }
                         DashboardLink(stringResource(R.string.dashboard_more),
                             stringResource(R.string.dashboard_more_summary)) { detailPage = 1 }
                         DashboardDivider()

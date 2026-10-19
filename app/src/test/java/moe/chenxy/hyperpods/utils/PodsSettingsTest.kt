@@ -5,6 +5,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PodsSettingsTest {
+    @Test fun sleepDetectionUsesBooleanWireValuesOnlyOnCapableModels() {
+        assertEquals(0x35.toByte(), PodsSettings.identifiers[Key.SLEEP_DETECTION]?.value)
+        for (model in listOf(AirPodsPro2USBC(), AirPodsPro2Lightning(), AirPods4(), AirPods4ANC(), AirPods5(), AirPods5WCC(), AirPodsPro3())) {
+            assertTrue(Capability.HEAD_GESTURES in model.capabilities)
+            for (value in 1..2) assertTrue(PodsSettings.validValue(Key.SLEEP_DETECTION, value, model, emptyMap()))
+        }
+        for (model in listOf(null, AirPods(), AirPods2(), AirPods3(), AirPodsPro1()))
+            assertFalse(PodsSettings.supports(Key.SLEEP_DETECTION, model))
+        for (value in listOf(-1, 0, 3, 255)) assertFalse(PodsSettings.knownValue(Key.SLEEP_DETECTION, value))
+        assertTrue(Key.SLEEP_DETECTION in PodsSettings.optionalReports)
+    }
     @Test fun timingOptionsMatchProtocolValuesAndHeadsetCapabilities() {
         for (key in listOf(Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED)) {
             for (value in 0..2) assertTrue(PodsSettings.validValue(key, value, AirPodsPro2USBC(), emptyMap()))

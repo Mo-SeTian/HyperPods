@@ -68,6 +68,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
             else -> R.string.diagnostics_audio_connected
         }),
         stringResource(R.string.diagnostics_connection) to stringResource(connection),
+        stringResource(R.string.head_gestures_title) to stringResource(headGestureStatus(snapshot?.getString("head_gestures"))),
         stringResource(R.string.diagnostics_stage) to stringResource(stage),
         stringResource(R.string.diagnostics_packets) to received.toString(),
         stringResource(R.string.diagnostics_retries) to (snapshot?.getInt("retries") ?: 0).toString(),
@@ -190,6 +191,7 @@ private fun settingStatus(status: String?): Int = when (status) {
 }
 
 private fun settingTitle(key: String?): Int = when (key) {
+    Key.SLEEP_DETECTION -> R.string.sleep_detection_title
     Key.PERSONLIZED_VOLUME -> R.string.personlized_volume_title
     Key.CONVERSATION_AWARENESS -> R.string.dashboard_conversation_title
     Key.MICROPHONE_MODE -> R.string.microphone
@@ -205,4 +207,21 @@ private fun settingTitle(key: String?): Int = when (key) {
     PodsSettings.NOISE_MODE -> R.string.dashboard_noise
     PodsSettings.RENAME -> R.string.rename_title
     else -> R.string.diagnostics_none
+}
+
+internal fun headGestureStatus(state: String?): Int = when (state) {
+    "disabled" -> R.string.head_gestures_disabled
+    "unsupported" -> R.string.head_gestures_unsupported
+    "unavailable" -> R.string.head_gestures_unavailable
+    "waiting" -> R.string.head_gestures_waiting
+    "not_worn" -> R.string.head_gestures_not_worn
+    "tracking" -> R.string.head_gestures_tracking
+    "starting" -> R.string.head_gestures_starting
+    "no_data" -> R.string.head_gestures_no_data
+    "timeout" -> R.string.head_gestures_timeout
+    "write_failed" -> R.string.setting_write_failed
+    "call_failed" -> R.string.head_gestures_call_failed
+    "answer_sent" -> R.string.head_gestures_answer_sent
+    "reject_sent" -> R.string.head_gestures_reject_sent
+    else -> R.string.module_no_report
 }

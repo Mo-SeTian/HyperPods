@@ -116,6 +116,48 @@ class AirPods4ANC: AirPodsBase(
     )
 )
 
+// Model numbers and hardware capabilities follow LibrePods 89356c0.
+// Firmware support must still be verified on the connected headset.
+class AirPods5: AirPodsBase(
+    modelNumber = listOf("A3531", "A3532", "A3533"),
+    name = "AirPods 5",
+    budCaseRes = R.drawable.airpods_4,
+    budsRes = R.drawable.airpods_5_buds,
+    leftBudsRes = R.drawable.airpods_5_left,
+    rightBudsRes = R.drawable.airpods_5_right,
+    caseRes = R.drawable.airpods_5_case,
+    capabilities = setOf(
+        Capability.LISTENING_MODE,
+        Capability.CONVERSATION_AWARENESS,
+        Capability.HEAD_GESTURES,
+        Capability.ADAPTIVE_AUDIO,
+        Capability.SLEEP_DETECTION,
+        Capability.ADAPTIVE_VOLUME,
+        Capability.STEM_CONFIG
+    )
+)
+
+class AirPods5WCC: AirPodsBase(
+    modelNumber = listOf("A3439", "A3440", "A3441"),
+    name = "AirPods 5 with Wireless Charging Case",
+    // LibrePods uses the AirPods 4 artwork for this variant as well.
+    budCaseRes = R.drawable.airpods_4,
+    budsRes = R.drawable.airpods_4_buds,
+    leftBudsRes = R.drawable.airpods_4_left,
+    rightBudsRes = R.drawable.airpods_4_right,
+    caseRes = R.drawable.airpods_4_case,
+    capabilities = setOf(
+        Capability.LISTENING_MODE,
+        Capability.CONVERSATION_AWARENESS,
+        Capability.HEAD_GESTURES,
+        Capability.ADAPTIVE_AUDIO,
+        Capability.SLEEP_DETECTION,
+        Capability.ADAPTIVE_VOLUME,
+        Capability.STEM_CONFIG,
+        Capability.SWIPE_FOR_VOLUME
+    )
+)
+
 class AirPodsPro1: AirPodsBase(
     modelNumber = listOf("A2084", "A2083"),
     name = "AirPods Pro 1",
@@ -140,6 +182,7 @@ class AirPodsPro2Lightning: AirPodsBase(
     rightBudsRes = R.drawable.airpods_pro_2_right,
     caseRes = R.drawable.airpods_pro_2_case,
     capabilities = setOf(
+        Capability.HEAD_GESTURES,
         Capability.LISTENING_MODE,
         Capability.CONVERSATION_AWARENESS,
         Capability.STEM_CONFIG,
@@ -162,6 +205,7 @@ class AirPodsPro2USBC: AirPodsBase(
     rightBudsRes = R.drawable.airpods_pro_2_right,
     caseRes = R.drawable.airpods_pro_2_case,
     capabilities = setOf(
+        Capability.HEAD_GESTURES,
         Capability.LISTENING_MODE,
         Capability.CONVERSATION_AWARENESS,
         Capability.STEM_CONFIG,
@@ -220,6 +264,8 @@ object AirPodsModels {
         AirPods3(),
         AirPods4(),
         AirPods4ANC(),
+        AirPods5(),
+        AirPods5WCC(),
         AirPodsPro1(),
         AirPodsPro2Lightning(),
         AirPodsPro2USBC(),

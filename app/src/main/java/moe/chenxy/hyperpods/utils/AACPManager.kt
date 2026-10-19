@@ -374,11 +374,10 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
         val controlPacket = createControlCommandPacket(identifier, value)
         if (!sendDataPacket(controlPacket)) return false
         if (BuildConfig.DEBUG) Log.d(TAG, "Control command sent: ${"%02X".format(identifier)} - ${value.take(4).joinToString(" ") { "%02X".format(it) }}")
-        // Match LibrePods' optimistic UI for these two listening toggles only.
+        // Match LibrePods' optimistic UI for the selected firmware toggles only.
         // Incoming reports remain authoritative; a failed write must not change the cache.
         val id = ControlCommandIdentifiers.fromByte(identifier)
-        if (id == ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG ||
-            id == ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG) {
+        if (PodsSettings.keyFor(identifier) in PodsSettings.optimistic && id != null) {
             localWrites.add(id)
             setControlCommandStatusValue(id, value)
         }
@@ -534,17 +533,7 @@ class AACPManager(val socket: BluetoothSocket, private val now: () -> Long = Sys
             }
 
             Opcodes.HEADTRACKING -> {
-                if (packet.size < 70) {
-                    Log.w(
-                        TAG,
-                        "Received HEADTRACKING packet too short: ${
-                            packet.joinToString(" ") {
-                                "%02X".format(it)
-                            }
-                        }"
-                    )
-                    return
-                }
+                require(packet.size >= 70)
                 callback?.onHeadTrackingReceived(packet)
             }
 

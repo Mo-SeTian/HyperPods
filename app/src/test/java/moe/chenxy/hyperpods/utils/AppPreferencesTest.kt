@@ -26,7 +26,14 @@ class AppPreferencesTest {
 
     @Test fun allPolicyChoicesRoundTripWithoutResettingOtherSwitches() {
         assertEquals(snapshot, AppPreferences.decode(snapshot.encode()))
-        assertEquals(7, JSONObject(snapshot.encode()).length())
+        assertEquals(8, JSONObject(snapshot.encode()).length())
+        assertEquals(snapshot.copy(headGestures = true), AppPreferences.decode(snapshot.copy(headGestures = true).encode()))
+    }
+
+    @Test fun existingPrivateFileMigratesWithGesturesOffAndOtherPoliciesUnchanged() {
+        val previous = JSONObject(snapshot.encode()).apply { remove(Key.HEAD_GESTURES) }.toString()
+        assertEquals(snapshot, AppPreferences.decode(previous))
+        assertNull(AppPreferences.decode(JSONObject(snapshot.encode()).put(Key.HEAD_GESTURES, "true").toString()))
     }
 
     @Test fun partialMalformedOrOutOfRangeSnapshotsAreRejected() {

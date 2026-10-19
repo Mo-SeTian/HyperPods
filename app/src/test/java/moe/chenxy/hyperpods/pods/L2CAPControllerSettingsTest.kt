@@ -9,10 +9,13 @@ import android.content.Intent
 import android.media.AudioManager
 import kotlinx.coroutines.Job
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.AirPods5
 import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.LowBatteryReminder
+import moe.chenxy.hyperpods.utils.data.BatteryParams
+import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import org.junit.After
@@ -36,6 +39,7 @@ class L2CAPControllerSettingsTest {
     private fun pending() = field("pendingSettings").get(controller) as Map<*, *>
 
     @Before fun setUp() {
+        field("headGestures").setBoolean(controller, false)
         AirPodsNotifications.BatteryNotification.reset()
         AirPodsNotifications.EarDetection.reset()
         field("batteryStateValid").set(controller, false)
@@ -78,6 +82,116 @@ class L2CAPControllerSettingsTest {
 
     private fun receive(identifier: Byte, value: Byte) = synchronized(controller) {
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, identifier, value, 0, 0, 0))
+    }
+
+    @Test fun sleepToggleUsesLibrePodsOptimisticStatusAndLaterReportsWin() {
+        request(Key.SLEEP_DETECTION, 1)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x35, 1, 0, 0, 0), output.toByteArray())
+        val id = AACPManager.Companion.ControlCommandIdentifiers.SLEEP_DETECTION_CONFIG
+        assertEquals(1.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertTrue(manager.isAwaitingReport(id))
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        assertFalse(pending().containsKey(Key.SLEEP_DETECTION))
+        receive(0x35, 2)
+        assertEquals(2.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertFalse(manager.isAwaitingReport(id))
+    }
+
+    @Test fun sleepWriteFailureDoesNotInventANewValueAndUnsupportedModelDoesNotWrite() {
+        val id = AACPManager.Companion.ControlCommandIdentifiers.SLEEP_DETECTION_CONFIG
+        receive(0x35, 2)
+        `when`(socket.isConnected).thenReturn(false)
+        request(Key.SLEEP_DETECTION, 1)
+        assertEquals(2.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        `when`(socket.isConnected).thenReturn(true)
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A2084")
+        request(Key.SLEEP_DETECTION, 1)
+        assertEquals("invalid", field("lastSettingStatus").get(controller))
+        assertEquals(0, output.size())
+    }
+
+    @Test fun airPods5ModesUseExistingCommandsWithoutTheProOnlyOffPrerequisite() {
+        for (number in listOf("A3531", "A3532", "A3533", "A3439", "A3440", "A3441")) {
+            controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = number)
+            for (mode in 1..4) {
+                output.reset()
+                controller.setANCMode(mode)
+                assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x0d, mode.toByte(), 0, 0, 0), output.toByteArray())
+                assertFalse(pending().containsKey(Key.ALLOW_OFF_OPTION))
+                assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+                receive(0x0d, mode.toByte())
+                assertTrue(pending().isEmpty())
+            }
+        }
+    }
+
+    @Test fun airPods5ListeningTogglesRemainOptimisticAndOnlyWirelessWritesSwipeCommands() {
+        for (number in listOf("A3531", "A3439")) {
+            controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = number)
+            for (key in listOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS)) {
+                output.reset()
+                val id = PodsSettings.identifiers.getValue(key)
+                request(key, 1)
+                assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, id.value, 1, 0, 0, 0), output.toByteArray())
+                assertTrue(pending().isEmpty())
+                assertEquals(1.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+            }
+            output.reset()
+            request(Key.ADJUST_VOLUME_BY_SWIPER, 1)
+            if (number == "A3531") {
+                assertEquals(0, output.size())
+                assertEquals("invalid", field("lastSettingStatus").get(controller))
+            } else {
+                assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x25, 1, 0, 0, 0), output.toByteArray())
+                receive(0x25, 1)
+                assertTrue(pending().isEmpty())
+            }
+        }
+    }
+
+    @Test fun lateAirPods5IdentificationUpdatesTheIslandWithoutFreshBatteryOrRepeatedNotifications() {
+        controller.currentBatteryParams = BatteryParams(PodBatteryParams(80, isConnected = true), PodBatteryParams())
+        val callback = field("packetCallback").get(controller) as AACPManager.PacketCallback
+        val info = controller.currentPodsInfo!!.copy(modelNumber = "A3531")
+        val updates = mutableListOf<Intent>()
+        mockConstruction(Intent::class.java) { intent, construction ->
+            if (construction.arguments().firstOrNull() == "chen.action.hyperpods.updatepodsnotification") updates.add(intent)
+        }.use {
+            callback.onDeviceInformationReceived(info)
+            callback.onDeviceInformationReceived(info)
+            assertEquals(1, updates.size)
+            verify(updates.single()).putExtra("modelNumber", "A3531")
+            val fresh = org.mockito.ArgumentCaptor.forClass(IntArray::class.java)
+            verify(updates.single()).putExtra(eq("freshComponents"), fresh.capture())
+            assertTrue(fresh.value.isEmpty())
+        }
+        assertEquals(0, output.size())
+    }
+
+    @Test fun airPods5InitializationWaitsOnlyForSettingsSupportedByItsVariant() {
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A3531")
+        field("batteryStateValid").set(controller, true)
+        field("earDetectionStateValid").set(controller, true)
+        receive(0x0d, 4)
+        for ((key, id) in PodsSettings.identifiers) {
+            if (key in PodsSettings.optionalReports) continue
+            if (!PodsSettings.supports(key, AirPods5())) continue
+            val value = when (key) {
+                PodsSettings.NOISE_MODE -> 4
+                Key.LISTENING_MODE_BYTE -> 6
+                Key.MICROPHONE_MODE, Key.PRESS_SPEED, Key.HOLD_DURATION -> 0
+                Key.CHIME_VOLUME, Key.ADAPTIVE_AUDIO_LEVEL -> 50
+                else -> 2
+            }
+            receive(id.value, value.toByte())
+        }
+        assertTrue(initialReady())
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A3439")
+        assertFalse("Wireless variant still needs its swipe settings", initialReady())
+        receive(0x25, 1)
+        receive(0x23, 0)
+        assertTrue(initialReady())
     }
 
     @Test fun privatePolicySnapshotAppliesAllChoicesWithoutSendingEarbudCommands() = synchronized(controller) {
@@ -185,6 +299,7 @@ class L2CAPControllerSettingsTest {
 
     private fun receiveRemainingSettings() {
         for ((key, id) in PodsSettings.identifiers) {
+            if (key in PodsSettings.optionalReports) continue // Reproduce older firmware with no sleep report.
             if (manager.getControlCommandStatus(id) != null) continue
             val value = when (key) {
                 PodsSettings.NOISE_MODE -> 4

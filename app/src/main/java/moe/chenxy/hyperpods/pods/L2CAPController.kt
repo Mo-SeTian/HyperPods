@@ -31,7 +31,10 @@ import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.AirPodsInstance
 import moe.chenxy.hyperpods.utils.MediaControl
+import moe.chenxy.hyperpods.utils.HeadGestureCalls
+import moe.chenxy.hyperpods.utils.Capability
 import moe.chenxy.hyperpods.utils.PodsSettings
+import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.AirPodsModels
 import moe.chenxy.hyperpods.utils.ConversationVolume
 import moe.chenxy.hyperpods.utils.DiagnosticsHistory
@@ -121,6 +124,18 @@ object L2CAPController {
     private var autoSwitchToSpeaker = true
     private var conversationPhoneVolume = true
     private var lowBatterySettings = LowBatterySettings()
+    private var headGestures = false
+    private var headGestureCalls: HeadGestureCalls? = null
+
+    private fun updateHeadGestures() {
+        val context = mContext ?: return
+        val calls = headGestureCalls ?: HeadGestureCalls(context, this) { sendDiagnostics() }
+            .also { headGestureCalls = it }
+        val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
+        val worn = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
+            (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR || currentEarDetectionParams.right == EarDetectionStatus.IN_EAR)
+        calls.update(aacpManager, headGestures, model?.capabilities?.contains(Capability.HEAD_GESTURES) == true, worn)
+    }
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(p0: Context?, p1: Intent?) {
@@ -260,7 +275,8 @@ object L2CAPController {
                         intent.getParcelableExtra("lowBatterySettings", LowBatterySettings::class.java)?.takeIf { it.valid }?.let { settings ->
                             lowBatterySettings = settings
                             if (::currentBatteryParams.isInitialized)
-                                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
+                                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings,
+                                    modelNumber = currentPodsInfo?.modelNumber)
                         }
                     } else if (intent.hasExtra("value")) {
                         sendSetting(it, intent.getIntExtra("value", -1))
@@ -329,6 +345,7 @@ object L2CAPController {
         putInt("primary_component", AirPodsNotifications.BatteryNotification.primaryComponent ?: 0)
         putString("setting_key", lastSettingKey)
         putString("setting_status", lastSettingStatus)
+        putString("head_gestures", headGestureCalls?.state ?: if (headGestures) "disconnected" else "disabled")
     }
 
     private fun sendDiagnostics(force: Boolean = false) {
@@ -436,8 +453,8 @@ object L2CAPController {
             return
         }
         failedSettings.remove(key)
-        if (key == HyperPodsPrefsKey.PERSONLIZED_VOLUME || key == HyperPodsPrefsKey.CONVERSATION_AWARENESS) {
-            // These two toggles follow LibrePods: publish the local value without awaiting an echo.
+        if (key in PodsSettings.optimistic) {
+            // Follow LibrePods: publish the local value without awaiting an echo.
             if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) resetConversationVolume()
             sendSettingResult(key, true, status = "sent")
             return
@@ -502,11 +519,13 @@ object L2CAPController {
             currentBatteryParams.left?.isInCase = leftInCase
             currentBatteryParams.right?.isInCase = rightInCase
             if (caseStateChanged) {
-                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings,
+                    modelNumber = currentPodsInfo?.modelNumber)
                 changeUIBatteryStatus(currentBatteryParams)
             }
         }
 
+        updateHeadGestures()
         updateAudioForEarState()
     }
 
@@ -697,7 +716,8 @@ object L2CAPController {
         // Only records from this packet may trigger/rearm a reminder, never other cached components.
         val fresh = if (AirPodsNotifications.BatteryNotification.isBatteryData(packet))
             (7 until packet.size step 5).map { packet[it].toInt() and 0xff }.toIntArray() else intArrayOf()
-        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, batteryParams, mDevice, lowBatterySettings, fresh)
+        MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, batteryParams, mDevice, lowBatterySettings, fresh,
+            modelNumber = currentPodsInfo?.modelNumber)
         changeUIBatteryStatus(batteryParams)
 
         lastTempBatt = if (left.isConnected && right.isConnected)
@@ -745,6 +765,7 @@ object L2CAPController {
             updateFeatureToggle(settings)
     }
 
+    @Synchronized
     private fun updateFeatureToggle(settings: AppPreferences.Snapshot) {
         // A full snapshot must not replay unrelated audio or notification side effects.
         if (earDetection != settings.earDetection || autoSwitchToSpeaker != settings.switchSpeaker)
@@ -753,8 +774,13 @@ object L2CAPController {
             updateConversationPhoneVolume(settings.conversationVolume)
         val remindersChanged = lowBatterySettings != settings.lowBattery
         lowBatterySettings = settings.lowBattery
+        if (headGestures != settings.headGestures) {
+            headGestures = settings.headGestures
+            updateHeadGestures()
+        }
         if (remindersChanged && batteryStateValid && ::currentBatteryParams.isInitialized)
-            MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
+            MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings,
+                modelNumber = currentPodsInfo?.modelNumber)
     }
 
     private fun updateConversationPhoneVolume(enabled: Boolean) {
@@ -881,7 +907,9 @@ object L2CAPController {
         }
 
         override fun onDeviceInformationReceived(deviceInformation: AACPManager.Companion.AirPodsInformation) {
+            val previousModelNumber = currentPodsInfo?.modelNumber
             currentPodsInfo = deviceInformation
+            updateHeadGestures()
             if (pendingRename == deviceInformation.name) {
                 pendingRename = null
                 renameTimeout?.cancel()
@@ -891,13 +919,20 @@ object L2CAPController {
                 }
                     .onFailure { Log.w(TAG, "Unable to update Bluetooth alias") }
                 sendSettingResult(PodsSettings.RENAME, true)
-                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings)
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings,
+                    modelNumber = currentPodsInfo?.modelNumber)
+            } else if (previousModelNumber != deviceInformation.modelNumber &&
+                PodsIslandData.modelForIcons(deviceInformation.modelNumber) != null && ::currentBatteryParams.isInitialized) {
+                // Information can arrive after battery data. Replace the temporary icon now,
+                // without treating cached battery values as a new low-battery reading.
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings,
+                    modelNumber = deviceInformation.modelNumber)
             }
             sendConnectedStatus()
         }
 
         override fun onHeadTrackingReceived(headTracking: ByteArray) {
-//            TODO("Not yet implemented")
+            headGestureCalls?.onPacket(headTracking)
         }
 
         override fun onUnknownPacketReceived(packet: ByteArray) {
@@ -1063,7 +1098,8 @@ object L2CAPController {
                     recordEvent("retry", attempt.toString())
                     sendConnectedStatus()
                     changeUIBatteryStatus(currentBatteryParams)
-                    MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings)
+                    MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings,
+                        modelNumber = currentPodsInfo?.modelNumber)
                 }
             }
             runControlAttempt(context, device, thisSession, getBtSocket)
@@ -1128,7 +1164,9 @@ object L2CAPController {
                 aacpManager = manager
                 connectionState = "connected"
                 manager.setPacketCallback(packetCallback)
-                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings)
+                updateHeadGestures()
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings,
+                    modelNumber = currentPodsInfo?.modelNumber)
                 sendConnectedStatus()
             }
             if (!manager.requestInitialStatus()) throw java.io.IOException("Initial handshake write failed")
@@ -1170,7 +1208,9 @@ object L2CAPController {
                     if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
                     manager.receivePacket(buffer.copyOfRange(0, bytesRead))
                     if (initialStatusReady()) lastStatusFailure = ""
-                    sendDiagnostics()
+                    // Pose streams are high frequency. Report state transitions and
+                    // explicit diagnostic refreshes, not one IPC broadcast per sample.
+                    if (bytesRead < 6 || buffer[4] != AACPManager.Companion.Opcodes.HEADTRACKING) sendDiagnostics()
                 }
             }
             throw java.io.IOException("AirPods control socket disconnected")
@@ -1189,7 +1229,11 @@ object L2CAPController {
             statusRequestJob?.cancel()
             runCatching { connectedSocket.close() }
             synchronized(this@L2CAPController) {
-                if (aacpManager === manager) aacpManager = null
+                if (aacpManager === manager) {
+                    headGestureCalls?.close()
+                    headGestureCalls = null
+                    aacpManager = null
+                }
                 if (socket === connectedSocket) socket = null
                 if (sessionId == thisSession) {
                     clearPendingSettings()
@@ -1210,6 +1254,8 @@ object L2CAPController {
     }
 
     private fun resetControlState() {
+        headGestureCalls?.close()
+        headGestureCalls = null
         clearPendingSettings()
         resetConversationVolume()
         batteryStateValid = false
@@ -1231,6 +1277,8 @@ object L2CAPController {
     @Synchronized
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
         if (::mDevice.isInitialized && device != mDevice) return
+        headGestureCalls?.close()
+        headGestureCalls = null
         ++sessionId
         clearPendingSettings()
         resetConversationVolume()
@@ -1318,7 +1366,7 @@ object L2CAPController {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) ?: return emptySet()
         val reported = confirmedSettings()
         return PodsSettings.identifiers.keys.filterTo(mutableSetOf()) {
-            PodsSettings.supports(it, model) && it !in reported
+            it !in PodsSettings.optionalReports && PodsSettings.supports(it, model) && it !in reported
         }
     }
 

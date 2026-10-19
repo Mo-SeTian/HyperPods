@@ -2,7 +2,21 @@
 
 当前设置界面采用浅色/深色蓝色强调主题，左右耳机独立显示电量，耳机仓在线且电量有效时显示。最新设置逻辑修复及实机验收边界见 [LibrePods 功能对照与修复记录](docs/LibrePods功能对照审查.md)。
 
-当前构建 `versionCode = 17` 新增模块加载自检、数据回报时间和脱敏事件记录。在“连接诊断”（耳机详情或关于页面）可查看系统蓝牙、小米蓝牙和系统界面进程实际加载的构建版本；与当前 APK 不同则提示重启。未收到进程回报只说明本次自检没有响应，不等于模块未启用。原生 Hook 结果、通知接收器注册、系统界面插件加载分别报告，不把插件已加载当作所有 Hook 都成功。
+当前构建 `versionCode = 19` 包含 AirPods 5 普通款（A3531/A3532/A3533）与无线充电盒款（A3439/A3440/A3441）型号识别，接入本项目已有的听音模式、个性化音量、对话感知、自适应音频调节、按压/麦克风/提示音等控制；仅无线充电盒款开放滑动音量与滑动速度。型号与能力表对照 [LibrePods 89356c0](https://github.com/librepods-org/librepods/blob/89356c08cea3db0b6b54792d9329d09a87cc85fa/android/app/src/main/java/me/kavishdevar/librepods/data/AirPods.kt)。普通款四张独立 PNG 原样取自该提交的 [res-apple/drawable](https://github.com/librepods-org/librepods/tree/89356c08cea3db0b6b54792d9329d09a87cc85fa/android/app/src/main/res-apple/drawable)，无线充电盒款与上游能力表一致复用 AirPods 4 图像。
+
+AirPods 5 首页不再回退到初代图片，超级岛与展开卡片根据协议回报的型号选择图标；型号晚于电量到达时立即刷新图标，不把缓存电量作为新低电量回报。新增型号以可选字符串传递，不改变电量/佩戴 Parcelable，也不改变其他型号的通知图标或原生 Hook。协议连接、固件回报、超级岛最终显示仍需 AirPods 5 实机验收，代码支持不等于全部功能已在实机验证。
+
+### 头部手势与入睡暂停（新增，待实机验收）
+
+- 设置首页按型号能力显示“头部手势”和“入睡后暂停媒体”。AirPods Pro 2 的两款补齐上游的手势能力标记。旧型号或未知型号不新增不支持的入口。
+- 头部手势默认关闭，选择保存在应用私有设置中，不写入耳机。开启后仅在电话来电、至少一只耳机确认佩戴且控制通道在线时采集姿态：点头发送接听请求，摇头发送拒接请求。采用 [LibrePods v1.0.4 手势识别](https://github.com/librepods-org/librepods/blob/v1.0.4/android/app/src/main/java/me/kavishdevar/librepods/utils/GestureDetector.kt) 的平滑、峰谷、速度及置信度逻辑，保留 GPL-3.0-or-later 归属说明；增加过期样本清理、混合轴/单向运动抑制、单次来电只执行一次等约束，不携带上游的界面、付费、音效或服务依赖。
+- 来电处理借鉴 [LibrePods AirPodsService](https://github.com/librepods-org/librepods/blob/v1.0.4/android/app/src/main/java/me/kavishdevar/librepods/services/AirPodsService.kt)，使用同一组默认 alternate 姿态启停包和 Telecom 接听/拒接 API。监听系统电话状态并读取双卡聚合状态，不读取或记录电话号码。识别结束、摘下全部耳机、通话结束、关闭功能或断开时停止姿态流；5 秒没有有效姿态或 60 秒识别超时则退出本次识别。姿态包不逐帧广播诊断，避免高频 IPC。
+- 通话控制在现有 LSPosed 蓝牙作用域内运行，使用蓝牙进程已有的 `READ_PHONE_STATE` 与 `ANSWER_PHONE_CALLS` 或 `MODIFY_PHONE_STATE` 权限；权限或服务不可用时在页面/诊断显示原因，不申请默认拨号器身份、不执行 root 提权。仅适配普通电话来电，不支持 Siri 或微信等第三方通话；不移植上游跨设备强制抢占、自动重连或音频路由切换。其他设备占用连接时可能不回报姿态，届时显示“未收到姿态数据”。
+- 入睡暂停沿用 [LibrePods 设置协议](https://github.com/librepods-org/librepods/blob/v1.0.4/android/app/src/main/java/me/kavishdevar/librepods/presentation/screens/AirPodsSettingsScreen.kt#L520)：向 `SLEEP_DETECTION_CONFIG (0x35)` 写入启用 `0x01` / 禁用 `0x02`，由耳机固件检测入睡并暂停媒体，不在手机侧推断睡眠、启动定时器或自行恢复播放。需要兼容固件。成功写入后先更新开关并标为“已发送”，后续耳机回报覆盖本地值；发送失败不改变状态。此较新选项缺少回报不阻塞原有电量/设置初始化，也不自动修改耳机原有的配置。
+
+自动化测试只覆盖协议字节、识别样本、通话状态/权限/生命周期以及设置交互；并不能替代目标 HyperOS 4 手机的真实来电、姿态数据与真实入睡验收。本次没有启用 ATT、听力辅助或心率功能。
+
+此前构建 `versionCode = 17` 新增模块加载自检、数据回报时间和脱敏事件记录。在“连接诊断”（耳机详情或关于页面）可查看系统蓝牙、小米蓝牙和系统界面进程实际加载的构建版本；与当前 APK 不同则提示重启。未收到进程回报只说明本次自检没有响应，不等于模块未启用。原生 Hook 结果、通知接收器注册、系统界面插件加载分别报告，不把插件已加载当作所有 Hook 都成功。
 
 首页区分蓝牙音频已连接、控制状态同步中和控制通道异常。左右耳及在线耳机仓显示各自最近有效电量回报时间，待刷新或通道故障时标注缓存；诊断页另显示佩戴回报时间。正常回报是事件驱动的，因此不设置固定时间失效，也不因数据时间较早而断开耳机。分量更新仅刷新对应组件时间，入仓、断开和待刷新记录不会把旧电量冒充新回报。
 
@@ -32,7 +46,7 @@ Fork 信息：
 - 上游仓库：<https://github.com/Art-Chen/HyperPods>
 - 当前 Fork：<https://github.com/Mo-SeTian/HyperPods>
 - HyperOS 4 分支：`os4-dev`
-- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 14`
+- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 19`
 
 ## 2. 测试环境
 

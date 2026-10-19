@@ -108,6 +108,7 @@ fun MainUI() {
     var pendingSettings by remember { mutableStateOf<Set<String>>(emptySet()) }
     val settingFeedback = remember { mutableStateMapOf<String, String>() }
     var conversationPhoneVolume by remember { mutableStateOf(initialPolicy.conversationVolume) }
+    var headGestures by remember { mutableStateOf(initialPolicy.headGestures) }
     var lowBatterySettings by remember { mutableStateOf(initialPolicy.lowBattery) }
     var diagnostics by remember { mutableStateOf<Bundle?>(null) }
     val personlizedVolume = remember { mutableStateOf(false) }
@@ -378,6 +379,10 @@ fun MainUI() {
                 if (savePolicy(AppPreferences.read(context).copy(lowBattery = it))) lowBatterySettings = it
             },
             conversationPhoneVolume = conversationPhoneVolume,
+            headGestures = headGestures,
+            onHeadGesturesChange = {
+                if (savePolicy(AppPreferences.read(context).copy(headGestures = it))) headGestures = it
+            },
             onConversationPhoneVolumeChange = {
                 if (savePolicy(AppPreferences.read(context).copy(conversationVolume = it))) conversationPhoneVolume = it
             },
@@ -425,6 +430,8 @@ fun AppHorizontalPager(
     onLowBatterySettingsChange: (LowBatterySettings) -> Unit = {},
     conversationPhoneVolume: Boolean = true,
     onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
+    headGestures: Boolean = false,
+    onHeadGesturesChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
     onSettingChange: (String, Int) -> Unit = { _, _ -> },
     diagnostics: Bundle? = null,
@@ -441,6 +448,7 @@ fun AppHorizontalPager(
                                 settingFeedback = settingFeedback, conversationPhoneVolume = conversationPhoneVolume,
                                 lowBatterySettings = lowBatterySettings, onLowBatterySettingsChange = onLowBatterySettingsChange,
                                 onConversationPhoneVolumeChange = onConversationPhoneVolumeChange,
+                                headGestures = headGestures, onHeadGesturesChange = onHeadGesturesChange,
                                 onSettingChange = onSettingChange, diagnostics = diagnostics,
                                 padding = padding,
                                 batteryParams = batteryParams,

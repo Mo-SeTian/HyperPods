@@ -1,0 +1,18 @@
+<resources>
+    <string name="head_gestures_title">头部手势</string>
+    <string name="head_gestures_summary">佩戴耳机来电时，点头接听、摇头拒接。仅响铃期间工作，不控制 Siri 或第三方应用通话。</string>
+    <string name="head_gestures_disabled">已关闭</string>
+    <string name="head_gestures_unsupported">当前型号不支持头部手势</string>
+    <string name="head_gestures_unavailable">暂不可用：蓝牙进程缺少通话控制权限或服务</string>
+    <string name="head_gestures_waiting">等待电话来电</string>
+    <string name="head_gestures_not_worn">请佩戴耳机后使用头部手势</string>
+    <string name="head_gestures_tracking">正在识别点头或摇头</string>
+    <string name="head_gestures_starting">等待耳机姿态数据</string>
+    <string name="head_gestures_no_data">未收到姿态数据，请确认固件及耳机连接是否被其他设备占用</string>
+    <string name="head_gestures_timeout">本次手势识别窗口已结束，请使用通话界面操作</string>
+    <string name="head_gestures_call_failed">通话控制失败，请使用通话界面操作</string>
+    <string name="head_gestures_answer_sent">已发送接听请求</string>
+    <string name="head_gestures_reject_sent">已发送拒接请求</string>
+    <string name="sleep_detection_title">入睡后暂停媒体</string>
+    <string name="sleep_detection_summary">由耳机检测入睡并暂停播放，需要兼容固件，不是定时器。“已发送”不代表耳机已确认支持。</string>
+</resources>

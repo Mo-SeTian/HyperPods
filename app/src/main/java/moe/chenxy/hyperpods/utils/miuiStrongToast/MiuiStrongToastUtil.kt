@@ -223,6 +223,7 @@ object MiuiStrongToastUtil {
         device: BluetoothDevice,
         lowBatterySettings: LowBatterySettings = LowBatterySettings(),
         freshComponents: IntArray = intArrayOf(),
+        modelNumber: String? = null,
     ) {
         val intent = Intent("chen.action.hyperpods.updatepodsnotification")
 
@@ -230,6 +231,7 @@ object MiuiStrongToastUtil {
         intent.putExtra("device", device)
         intent.putExtra("lowBatterySettings", lowBatterySettings)
         intent.putExtra("freshComponents", freshComponents)
+        intent.putExtra("modelNumber", modelNumber)
 
         intent.`package` = "com.xiaomi.bluetooth"
 

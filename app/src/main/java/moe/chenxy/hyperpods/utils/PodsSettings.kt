@@ -11,6 +11,7 @@ object PodsSettings {
         NOISE_MODE to Id.LISTENING_MODE,
         Key.PERSONLIZED_VOLUME to Id.ADAPTIVE_VOLUME_CONFIG,
         Key.CONVERSATION_AWARENESS to Id.CONVERSATION_DETECT_CONFIG,
+        Key.SLEEP_DETECTION to Id.SLEEP_DETECTION_CONFIG,
         Key.ADAPTIVE_AUDIO_LEVEL to Id.AUTO_ANC_STRENGTH,
         Key.ADJUST_VOLUME_BY_SWIPER to Id.VOLUME_SWIPE_MODE,
         Key.LISTENING_MODE_BYTE to Id.LISTENING_MODE_CONFIGS,
@@ -22,6 +23,13 @@ object PodsSettings {
         Key.SWIPE_SPEED to Id.VOLUME_SWIPE_INTERVAL,
         Key.CHIME_VOLUME to Id.CHIME_VOLUME,
     )
+
+    // LibrePods publishes these controls after a successful write. A later headset
+    // report is still authoritative; sending is not evidence that firmware applied it.
+    val optimistic = setOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS, Key.SLEEP_DETECTION)
+    // Older firmware may not report this newer option. It must not block battery,
+    // the settings page or the existing initial-status recovery loop.
+    val optionalReports = setOf(Key.SLEEP_DETECTION)
 
     fun keyFor(identifier: Byte): String? = identifiers.entries.find { it.value.value == identifier }?.key
 
@@ -41,6 +49,7 @@ object PodsSettings {
             NOISE_MODE, Key.LISTENING_MODE_BYTE, Key.SINGLE_POD_ANC -> Capability.LISTENING_MODE in model.capabilities
             Key.PERSONLIZED_VOLUME -> Capability.ADAPTIVE_VOLUME in model.capabilities
             Key.CONVERSATION_AWARENESS -> Capability.CONVERSATION_AWARENESS in model.capabilities
+            Key.SLEEP_DETECTION -> Capability.SLEEP_DETECTION in model.capabilities
             Key.ADAPTIVE_AUDIO_LEVEL -> Capability.ADAPTIVE_AUDIO in model.capabilities
             Key.ADJUST_VOLUME_BY_SWIPER -> Capability.SWIPE_FOR_VOLUME in model.capabilities
             Key.ALLOW_OFF_OPTION -> Capability.LOUD_SOUND_REDUCTION in model.capabilities

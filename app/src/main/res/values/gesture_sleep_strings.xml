@@ -1,0 +1,18 @@
+<resources>
+    <string name="head_gestures_title">Head gestures</string>
+    <string name="head_gestures_summary">While wearing your AirPods, nod to answer an incoming phone call or shake your head to decline. Only active while ringing; does not control Siri or other apps’ calls.</string>
+    <string name="head_gestures_disabled">Off</string>
+    <string name="head_gestures_unsupported">This model does not support head gestures</string>
+    <string name="head_gestures_unavailable">Unavailable: the Bluetooth process lacks call-control access</string>
+    <string name="head_gestures_waiting">Waiting for an incoming phone call</string>
+    <string name="head_gestures_not_worn">Put on an earbud to use head gestures</string>
+    <string name="head_gestures_tracking">Listening for a nod or head shake</string>
+    <string name="head_gestures_starting">Waiting for headset motion data</string>
+    <string name="head_gestures_no_data">No motion data received. Check firmware and whether another device owns the headset connection.</string>
+    <string name="head_gestures_timeout">Gesture window ended; use the call screen for this call</string>
+    <string name="head_gestures_call_failed">Call control failed; use the call screen</string>
+    <string name="head_gestures_answer_sent">Answer request sent</string>
+    <string name="head_gestures_reject_sent">Decline request sent</string>
+    <string name="sleep_detection_title">Pause media when falling asleep</string>
+    <string name="sleep_detection_summary">Let your AirPods detect sleep and pause playback. Requires compatible firmware; not a timer. Sent status does not mean the headset has confirmed support.</string>
+</resources>
