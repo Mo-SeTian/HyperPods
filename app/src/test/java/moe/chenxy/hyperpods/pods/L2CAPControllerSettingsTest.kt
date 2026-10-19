@@ -15,6 +15,7 @@ import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.LowBatteryReminder
 import moe.chenxy.hyperpods.utils.data.BatteryParams
+import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
@@ -171,8 +172,7 @@ class L2CAPControllerSettingsTest {
 
     @Test fun airPods5InitializationWaitsOnlyForSettingsSupportedByItsVariant() {
         controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A3531")
-        field("batteryStateValid").set(controller, true)
-        field("earDetectionStateValid").set(controller, true)
+        coreReports()
         receive(0x0d, 4)
         for ((key, id) in PodsSettings.identifiers) {
             if (key in PodsSettings.optionalReports) continue
@@ -297,6 +297,16 @@ class L2CAPControllerSettingsTest {
     private fun initialReady(): Boolean = type.getDeclaredMethod("initialStatusReady")
         .apply { isAccessible = true }.invoke(controller) as Boolean
 
+    private fun coreReports(singleEar: Boolean = false) {
+        AirPodsNotifications.BatteryNotification.setBattery(if (singleEar)
+            byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 80, 2, 0)
+        else byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 80, 2, 0, 2, 1, 70, 2, 0))
+        controller.currentEarDetectionParams = EarDetectionParams(EarDetectionStatus.IN_EAR,
+            if (singleEar) EarDetectionStatus.IN_CASE else EarDetectionStatus.IN_EAR)
+        field("batteryStateValid").setBoolean(controller, true)
+        field("earDetectionStateValid").setBoolean(controller, true)
+    }
+
     private fun receiveRemainingSettings() {
         for ((key, id) in PodsSettings.identifiers) {
             if (key in PodsSettings.optionalReports) continue // Reproduce older firmware with no sleep report.
@@ -313,7 +323,8 @@ class L2CAPControllerSettingsTest {
     }
 
     @Test fun batteryAloneDoesNotStopRecoveryBeforeInformationAndSettingsArrive() {
-        field("batteryStateValid").set(controller, true)
+        coreReports()
+        field("earDetectionStateValid").setBoolean(controller, false)
         assertFalse(initialReady())
         field("earDetectionStateValid").set(controller, true)
         assertFalse(initialReady())
@@ -326,8 +337,7 @@ class L2CAPControllerSettingsTest {
     }
 
     @Test fun cachedPendingBatteryStillRequestsRefreshButSingleEarCanFinishInitialization() {
-        field("batteryStateValid").set(controller, true)
-        field("earDetectionStateValid").set(controller, true)
+        coreReports(singleEar = true)
         receive(0x0d, 4)
         receiveRemainingSettings()
         val report = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 80, 2, 0)
@@ -466,11 +476,46 @@ class L2CAPControllerSettingsTest {
 
     @Test fun missingSettingReportAloneDoesNotCloseAWorkingCoreSession() {
         field("socket").set(controller, socket)
-        field("batteryStateValid").setBoolean(controller, true)
-        field("earDetectionStateValid").setBoolean(controller, true)
+        coreReports()
         finishInitialStatus()
         verify(socket, never()).close()
         assertEquals("status_timeout", field("lastStatusFailure").get(controller))
+    }
+
+    @Test fun pendingSecondaryBatteryStillNeedsControlRecoveryWhenTheOtherEarHasPower() {
+        field("mContext").set(controller, null)
+        field("socket").set(controller, socket)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 80, 2, 0, 2, 1, 0, 3, 0))
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
+        assertTrue(field("batteryStateValid").getBoolean(controller))
+        assertEquals(-1, controller.currentBatteryParams.right!!.battery)
+        assertFalse(initialReady())
+        finishInitialStatus()
+        verify(socket).close()
+        assertEquals("status_timeout", field("lastStatusFailure").get(controller))
+    }
+
+    @Test fun aWornEarWithoutAnyBatteryRecordMustNotFinishInitialization() {
+        field("mContext").set(controller, null)
+        field("socket").set(controller, socket)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 80, 2, 0))
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
+        receiveRemainingSettings()
+        assertFalse(initialReady())
+        finishInitialStatus()
+        verify(socket).close()
+    }
+
+    @Test fun singleEarWithDisconnectedInCasePeerDoesNotReconnectForMissingCaseOrPeerBattery() {
+        field("mContext").set(controller, null)
+        field("socket").set(controller, socket)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 80, 2, 0))
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 2))
+        receiveRemainingSettings()
+        assertTrue(initialReady())
+        finishInitialStatus()
+        verify(socket, never()).close()
+        assertEquals("", field("lastStatusFailure").get(controller))
     }
 
     @Test fun obsoleteTimeoutCannotCloseANewerSession() {

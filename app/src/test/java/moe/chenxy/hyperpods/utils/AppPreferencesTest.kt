@@ -141,31 +141,41 @@ class AppPreferencesTest {
         assertNull(AppPreferences.readRemote(context))
     }
 
-    @Test fun blockedRemoteReadDoesNotBlockCallersOrCreateMoreBinderReadsAndLateReplyUsesLatestCallback() {
+    @Test fun blockedRemoteReadKeepsItsOriginalCallbackAndReadsFreshPolicyForTheLatestQueuedRequest() {
         val context = mock(Context::class.java)
         val resolver = mock(ContentResolver::class.java)
-        val reply = mock(Bundle::class.java)
+        val oldReply = mock(Bundle::class.java)
+        val newReply = mock(Bundle::class.java)
+        val updated = snapshot.copy(earDetection = !snapshot.earDetection)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val completed = CountDownLatch(1)
-        var staleCalled = false
+        var reads = 0
+        var originalResult: AppPreferences.Snapshot? = null
+        var supersededCalled = false
         var result: AppPreferences.Snapshot? = null
         `when`(context.contentResolver).thenReturn(resolver)
-        `when`(reply.getString(AppPreferences.EXTRA)).thenReturn(snapshot.encode())
+        `when`(oldReply.getString(AppPreferences.EXTRA)).thenReturn(snapshot.encode())
+        `when`(newReply.getString(AppPreferences.EXTRA)).thenReturn(updated.encode())
         `when`(resolver.call(AppPreferences.AUTHORITY, AppPreferences.READ, null, null)).thenAnswer {
-            entered.countDown()
-            release.await(3, TimeUnit.SECONDS)
-            reply
+            if (++reads == 1) {
+                entered.countDown()
+                check(release.await(3, TimeUnit.SECONDS))
+                oldReply
+            } else newReply
         }
         try {
-            AppPreferences.requestRemote(context) { staleCalled = true }
+            AppPreferences.requestRemote(context) { originalResult = it }
             assertTrue(entered.await(1, TimeUnit.SECONDS))
+            AppPreferences.requestRemote(context) { supersededCalled = true }
             AppPreferences.requestRemote(context) { result = it; completed.countDown() }
             verify(resolver, times(1)).call(AppPreferences.AUTHORITY, AppPreferences.READ, null, null)
             release.countDown()
             assertTrue(completed.await(2, TimeUnit.SECONDS))
-            assertFalse(staleCalled)
-            assertEquals(snapshot, result)
+            assertEquals(snapshot, originalResult)
+            assertFalse(supersededCalled)
+            assertEquals(updated, result)
+            verify(resolver, times(2)).call(AppPreferences.AUTHORITY, AppPreferences.READ, null, null)
         } finally { release.countDown() }
     }
 

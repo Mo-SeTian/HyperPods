@@ -1220,7 +1220,16 @@ object L2CAPController {
         if (current) runCatching { expectedSocket.close() }
     }
 
-    private fun coreStatusReady() = batteryStateValid && earDetectionStateValid && currentPodsInfo != null
+    private fun coreStatusReady(): Boolean {
+        if (!batteryStateValid || !earDetectionStateValid || currentPodsInfo == null ||
+            !::currentEarDetectionParams.isInitialized || AirPodsNotifications.BatteryNotification.needsRefresh) return false
+        val wear = listOf(currentEarDetectionParams.left, currentEarDetectionParams.right)
+        // An out-of-case ear must have its own reading. A disconnected in-case peer
+        // and the case itself are not required for a valid single-ear session.
+        return AirPodsNotifications.BatteryNotification.getBattery().take(2).zip(wear).all { (battery, status) ->
+            isInCaseStatus(status) || battery.isAvailable
+        }
+    }
 
     private fun finishInitialStatus(manager: AACPManager, generation: Long) {
         val reconnect = synchronized(this@L2CAPController) {
@@ -1503,8 +1512,7 @@ object L2CAPController {
 
     private fun initialStatusReady(): Boolean {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
-        return batteryStateValid && !AirPodsNotifications.BatteryNotification.needsRefresh &&
-                earDetectionStateValid && currentPodsInfo != null &&
+        return coreStatusReady() &&
                 (!PodsSettings.supports(PodsSettings.NOISE_MODE, model) || PodsSettings.NOISE_MODE in confirmedSettings()) &&
                 missingSettings().isEmpty()
     }

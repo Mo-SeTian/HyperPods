@@ -136,6 +136,39 @@ class AACPManagerTest {
         assertEquals("A3049", manager.parseInformationPacket(complete).modelNumber)
     }
 
+    @Test fun emptyIdentityFieldsCannotShiftManufacturerIntoTheModelSlot() {
+        val header = byteArrayOf(4, 0, 4, 0, 0x1d, 0, 0)
+        for (payload in listOf("ignored\u0000Demo\u0000\u0000Apple\u0000", "ignored\u0000\u0000A3049\u0000Apple\u0000",
+            "ignored\u0000Demo\u0000Apple\u0000")) {
+            assertThrows(IllegalArgumentException::class.java) {
+                manager.parseInformationPacket(header + payload.toByteArray())
+            }
+        }
+    }
+
+    @Test fun informationKeepsEmptyOptionalSlotsAndAcceptsWellFormedUnknownModels() {
+        val fields = listOf("ignored", "测试耳机", "A9999", "", "DEMO", "1", "", "2", "", "LEFT-DEMO", "", "3")
+        val info = manager.parseInformationPacket(byteArrayOf(4, 0, 4, 0, 0x1d, 0, 0) +
+            fields.joinToString("\u0000", postfix = "\u0000").toByteArray())
+        assertEquals("测试耳机", info.name)
+        assertEquals("A9999", info.modelNumber)
+        assertEquals("", info.manufacturer)
+        assertEquals("DEMO", info.serialNumber)
+        assertEquals("", info.version2)
+        assertEquals("2", info.hardwareRevision)
+        assertEquals("LEFT-DEMO", info.leftSerialNumber)
+        assertEquals("", info.rightSerialNumber)
+        assertEquals("3", info.version3)
+    }
+
+    @Test fun realMetadataPrefixAndOpaqueTailDoNotBecomeIdentityStrings() {
+        val fields = listOf("Demo", "A3049", "Apple", "DEMO", "1", "1", "1", "demo.updater", "LEFT-DEMO", "RIGHT-DEMO", "1")
+        val frame = byteArrayOf(4, 0, 4, 0, 0x1d, 0, 2, 0xd5.toByte(), 0, 4, 0) +
+            fields.joinToString("\u0000", postfix = "\u0000").toByteArray() + byteArrayOf(0xff.toByte(), 0xfe.toByte())
+        assertEquals("Demo", manager.parseInformationPacket(frame).name)
+        assertEquals("A3049", manager.parseInformationPacket(frame).modelNumber)
+    }
+
     @Test fun missingFeatureAcknowledgementDoesNotBlockStatusSubscription() {
         val socket = mock(BluetoothSocket::class.java)
         val output = ByteArrayOutputStream()

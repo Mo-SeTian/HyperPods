@@ -1269,23 +1269,25 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
 
         var index = 0
         while (index < data.size && data[index] != 0x00.toByte()) index++
+        require(index < data.size) { "Information prefix is not terminated" }
+        index++
 
         val strings = mutableListOf<String>()
-        while (index < data.size) {
-            // skip 0x00 bytes
-            while (index < data.size && data[index] == 0x00.toByte()) index++
-            if (index >= data.size) break
+        // One protocol field and eleven metadata strings. Preserve empty slots;
+        // any following encrypted payload is opaque, not another text field.
+        while (index < data.size && strings.size < 12) {
             val start = index
             // find next 0x00 byte
             while (index < data.size && data[index] != 0x00.toByte()) index++
             require(index < data.size) { "Information string is not terminated" }
             val str = data.sliceArray(start until index).decodeToString()
             strings.add(str)
+            index++
         }
 
         // The first string is a protocol field; name and model are required.
         // Older models may omit trailing optional metadata, but not their identity.
-        require(strings.size >= 3 && strings[1].isNotBlank() && strings[2].isNotBlank()) {
+        require(strings.size >= 3 && strings[1].isNotBlank() && strings[2].matches(Regex("A[0-9]{4}"))) {
             "Information packet has no complete device identity"
         }
         strings.removeAt(0)

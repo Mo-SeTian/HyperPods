@@ -22,7 +22,7 @@ object AppPreferences {
     private const val PRIVATE_MARKER = "hyperpods_private_migration"
     private var legacySecuredDir: File? = null
     private var remoteReading = false
-    private var remoteCallback: ((Snapshot?) -> Unit)? = null
+    private var pendingRemoteRead: (() -> Unit)? = null
 
     data class Snapshot(
         val earDetection: Boolean = true,
@@ -125,21 +125,27 @@ object AppPreferences {
         null
     }
 
-    /** Binder IPC may ignore interruption. Keep at most one outstanding read, and
-     * deliver a late reply to the latest session's guarded callback, not an old one. */
+    /** Binder IPC may ignore interruption. Keep one active read and only the latest
+     * queued request. Each response retains its original session/revision callback;
+     * a newer request must read fresh policy, not inherit an older response. */
     fun requestRemote(context: Context, callback: (Snapshot?) -> Unit) {
         synchronized(this) {
-            remoteCallback = callback
+            pendingRemoteRead = { callback(readRemote(context)) }
             if (remoteReading) return
             remoteReading = true
         }
         Thread({
-            val result = readRemote(context)
-            val deliver = synchronized(this) {
-                remoteReading = false
-                remoteCallback.also { remoteCallback = null }
+            while (true) {
+                val request = synchronized(this) {
+                    pendingRemoteRead?.also { pendingRemoteRead = null } ?: run {
+                        remoteReading = false
+                        return@Thread
+                    }
+                }
+                try { request() } catch (_: Exception) {
+                    Log.w("HyperPods-Preferences", "Unable to apply remote policy")
+                }
             }
-            deliver?.invoke(result)
         }, "HyperPods-settings-reader").apply { isDaemon = true }.start()
     }
 
