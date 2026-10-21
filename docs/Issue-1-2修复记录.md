@@ -1,6 +1,19 @@
-# Issue #1/#2 修复记录（构建 24）
+# Issue #1/#2 修复记录（构建 24/25）
 
 对照时间：2026-10-21。LibrePods 参考提交：`89356c08cea3db0b6b54792d9329d09a87cc85fa`。本轮不发布发行版，不自动关闭 Issue。
+
+## 构建 25：展开卡片继续裁字的后续调整
+
+用户在构建 24 后仍观察到断开按钮文字被裁切。本轮按反馈移除卡片中间分隔线，收紧下方名称与按钮区域，并补充文字测量修正：
+
+- 仅处理带 HyperPods 归属标记的卡片。将 `ModuleTextButtonViewHolder` 的 `line` 设为 `GONE`，而不是只改透明度；系统底部手势短条不修改。
+- 这条线和下方内容的间距互不依赖，因此还需分别缩减 `layout_hint` 与 `focus_button_container` 的顶部间距，最多 8dp，保留非负余量，不修改底部留白。不使用 `translationY` 偏移，排版和点击区域保持一致。
+- 已提供插件的 `focus_notification_module_mark_4` 中，按钮外层高度为 `WRAP_CONTENT`，内部行却为 `MATCH_PARENT`。对 HyperPods 将内部行改为 `WRAP_CONTENT`，保留上一版的完整字体行框，让测量使用实际文字高度，而不是只增加字体留白。
+- 保存上述改动前的值，下一次绑定前还原；重复刷新不累加上移距离，不把样式带到其他通知。内部行用弱引用保存，避免复用缓存间接保留整棵视图树。
+
+静态依据：同一插件 APK（SHA-256 `7a0dfbe892f558393ad28ae8aea2a12fe152de972354b067500ed16ca9e17f3e`），REA 方法证据 `ev_eb0432461f3f70bb768e578484d7a362d4bbfe40bf4c6af761f4f26eae6e68fd` 确认 `ModuleTextButtonViewHolder.initView` 的资源及视图入口。AAPT2 资源映射和 XML 解码确认 `focus_notification_module_button_2` 对应 `res/fPL.xml`、`focus_notification_module_mark_4` 对应 `res/q5k.xml`，前者按钮顶部间距 19dp、名称外层顶部间距 4dp，后者含上述高度嵌套。静态结构并不能证明目标手机运行时裁切的唯一原因。
+
+验证：310 项 JVM 测试通过；仿照该插件层级构造原生 Android 布局，在 1.0/1.3/1.6 倍字体下验证分隔线不占位、按钮上移、完整字体高度与上下边距可容纳、回收还原，共 9 项通过。Debug/Release 编译通过，Lint 0 错误、121 条警告。这些是原生测量和结构验证，不等同于小米 SystemUI 真机验收；安装构建 25 后应重启相关系统进程或手机，再确认通知和展开卡片实际效果。
 
 ## 修复范围与原因
 

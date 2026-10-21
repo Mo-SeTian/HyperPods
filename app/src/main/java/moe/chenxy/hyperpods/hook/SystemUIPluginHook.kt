@@ -14,6 +14,7 @@ import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.PodsFocusCardSpacing
 import moe.chenxy.hyperpods.utils.PodsFocusButtonText
+import moe.chenxy.hyperpods.utils.PodsFocusCardFooter
 import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.PodsIslandLayout
 import kotlin.math.roundToInt
@@ -45,6 +46,28 @@ object SystemUIPluginHook : YukiBaseHooker() {
                         if (isHyperPods(this.args[2] as? StatusBarNotification))
                             focusButton(this.args[0] as? View)?.let(PodsFocusButtonText::apply)
                     }.onFailure { Log.w("Art_Chen", "Unable to adjust HyperPods button text") }
+                }
+            }
+            val footerHolder = runCatching {
+                Class.forName("miui.systemui.notification.focus.moduleV3.ModuleTextButtonViewHolder", false, pluginLoaderClassLoader)
+            }.getOrNull()
+            if (footerHolder != null) footerHolder.method { name = "bind"; paramCount = 2 }.hook {
+                before {
+                    runCatching {
+                        val root = XposedHelpers.callMethod(this.instance, "getView") as? View ?: return@runCatching
+                        PodsFocusCardFooter.restore(focusPart(root, "line"), focusPart(root, "layout_hint"),
+                            focusPart(root, "focus_button_container"))
+                    }.onFailure { Log.w("Art_Chen", "Unable to restore HyperPods focus footer") }
+                }
+                after {
+                    runCatching {
+                        if (!isHyperPods(this.args[1] as? StatusBarNotification)) return@runCatching
+                        val root = XposedHelpers.callMethod(this.instance, "getView") as? View ?: return@runCatching
+                        // The separator and the footer's top margins are independent.
+                        // Collapse both through layout, without translating click targets.
+                        PodsFocusCardFooter.apply(focusPart(root, "line"), focusPart(root, "layout_hint"),
+                            focusPart(root, "focus_button_container"), (8 * root.resources.displayMetrics.density).roundToInt())
+                    }.onFailure { Log.w("Art_Chen", "Unable to compact HyperPods focus footer") }
                 }
             }
             val islandView = runCatching {
@@ -192,10 +215,12 @@ object SystemUIPluginHook : YukiBaseHooker() {
         sbn?.packageName == HyperPodsBroadcasts.XIAOMI_BLUETOOTH &&
             sbn.notification.extras.getCharSequence("miui.targetPkg")?.toString() == BuildConfig.APPLICATION_ID
 
+    private fun focusButton(root: View?): TextView? = focusPart(root, "focus_button_title") as? TextView
+
     @SuppressLint("DiscouragedApi")
-    private fun focusButton(root: View?): TextView? {
+    private fun focusPart(root: View?, name: String): View? {
         root ?: return null
-        val id = root.resources.getIdentifier("focus_button_title", "id", "miui.systemui.plugin")
+        val id = root.resources.getIdentifier(name, "id", "miui.systemui.plugin")
         return if (id == 0) null else root.findViewById(id)
     }
 
