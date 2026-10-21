@@ -16,6 +16,7 @@ import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AirPods5
 import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.PodsSettings
+import moe.chenxy.hyperpods.utils.SinglePodAnc
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.LowBatteryReminder
 import moe.chenxy.hyperpods.utils.data.BatteryParams
@@ -46,6 +47,9 @@ class L2CAPControllerSettingsTest {
 
     @Before fun setUp() {
         field("headGestures").setBoolean(controller, false)
+        field("earDetection").setBoolean(controller, true)
+        field("autoSwitchToSpeaker").setBoolean(controller, true)
+        field("switchedToSpeaker").setBoolean(controller, false)
         AirPodsNotifications.BatteryNotification.reset()
         AirPodsNotifications.EarDetection.reset()
         field("batteryStateValid").set(controller, false)
@@ -482,6 +486,121 @@ class L2CAPControllerSettingsTest {
             assertEquals(value.toByte(), manager.getControlCommandStatus(id)!!.value[0])
             `when`(socket.isConnected).thenReturn(true)
         }
+    }
+
+    private fun singlePodAncSession(model: String = "A3439", enabled: Boolean = true, mode: Byte = 2) {
+        (field("singlePodAnc").get(controller) as SinglePodAnc).reset()
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = model)
+        field("earDetection").setBoolean(controller, false)
+        field("switchedToSpeaker").setBoolean(controller, false)
+        AirPodsNotifications.BatteryNotification.setBattery(
+            byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 80, 2, 0, 2, 1, 70, 2, 0))
+        controller.currentBatteryParams = BatteryParams(
+            PodBatteryParams(80, isConnected = true), PodBatteryParams(70, isConnected = true), PodBatteryParams())
+        field("batteryStateValid").setBoolean(controller, true)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
+        receive(0x1b, if (enabled) 1 else 2)
+        receive(0x0d, mode)
+        output.reset()
+    }
+
+    @Test fun singlePodAncRetainsAnActiveNoiseModeWhenEitherEarIsRemoved() {
+        for (wear in listOf(byteArrayOf(1, 0), byteArrayOf(0, 1))) {
+            singlePodAncSession()
+            manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0) + wear)
+            assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1b, 1, 0, 0, 0,
+                4, 0, 4, 0, 9, 0, 0x0d, 2, 0, 0, 0), output.toByteArray())
+            assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+            assertEquals("sent", field("lastSettingStatus").get(controller))
+            receive(0x0d, 2)
+            assertTrue(pending().isEmpty())
+            assertEquals("confirmed", field("lastSettingStatus").get(controller))
+        }
+    }
+
+    @Test fun singlePodAncHandlesModeFallbackBeforeOrAfterTheWearReportWithoutALoop() {
+        singlePodAncSession()
+        receive(0x0d, 3)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+        assertEquals(22, output.size())
+        receive(0x0d, 2)
+        output.reset()
+        // A physical mode change after successful restoration remains authoritative.
+        receive(0x0d, 3)
+        assertEquals(0, output.size())
+
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
+        receive(0x0d, 2)
+        output.reset()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 1))
+        receive(0x0d, 3)
+        assertEquals(44, output.size())
+        receive(0x0d, 3)
+        assertEquals("Repeated fallback reports must not keep writing", 44, output.size())
+        receive(0x0d, 2)
+        assertTrue(pending().isEmpty())
+    }
+
+    @Test fun singlePodAncDoesNotTakeOverDisabledOtherModesOrOtherHeadsets() {
+        for ((model, enabled, mode) in listOf(
+            Triple("A3439", false, 2.toByte()), Triple("A3439", true, 3.toByte()),
+            Triple("A3439", true, 4.toByte()), Triple("A3049", true, 2.toByte()))) {
+            singlePodAncSession(model, enabled, mode)
+            manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+            assertEquals("$model, enabled=$enabled, mode=$mode", 0, output.size())
+        }
+    }
+
+    @Test fun singlePodAncRestorationWriteFailureIsNotReportedAsSuccess() {
+        singlePodAncSession()
+        `when`(socket.isConnected).thenReturn(false)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+        assertEquals(0, output.size())
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        assertEquals(Key.SINGLE_POD_ANC, field("lastSettingKey").get(controller))
+        assertTrue(pending().isEmpty())
+    }
+
+    @Test fun singlePodAncRespectsExplicitModeChangesAndDisablingDuringRestoration() {
+        singlePodAncSession()
+        controller.setANCMode(3)
+        receive(0x0d, 3)
+        output.reset()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+        assertEquals(0, output.size())
+
+        singlePodAncSession()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        request(Key.SINGLE_POD_ANC, 2)
+        assertFalse(pending().containsKey(PodsSettings.NOISE_MODE))
+        output.reset()
+        receive(0x0d, 3)
+        assertEquals(0, output.size())
+    }
+
+    @Test fun removingBothEarsCancelsTheSinglePodAncConfirmationWait() {
+        singlePodAncSession()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        output.reset()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 1))
+        assertFalse(pending().containsKey(PodsSettings.NOISE_MODE))
+        receive(0x0d, 3)
+        assertEquals(0, output.size())
+    }
+
+    @Test fun failedSinglePodAncRetryCancelsThePreviousConfirmationWait() {
+        singlePodAncSession()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        `when`(socket.isConnected).thenReturn(false)
+        output.reset()
+        receive(0x0d, 3)
+        assertEquals(0, output.size())
+        assertTrue(pending().isEmpty())
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        assertEquals(Key.SINGLE_POD_ANC, field("lastSettingKey").get(controller))
     }
 
     @Test fun failedChimeWriteDoesNotReplaceTheVolumeOrItsConfiguration() {

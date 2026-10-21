@@ -4,7 +4,7 @@
     <string name="setting_pending">等待耳机确认…</string>
     <string name="setting_applied">耳机名称已确认</string>
     <string name="setting_failed">耳机未确认此次修改，请检查连接后重试。</string>
-    <string name="setting_sent">命令已发送，尚未收到耳机状态回报</string>
+    <string name="setting_sent">命令已发送。部分固件不回报此设置，请以耳机实际效果为准。</string>
     <string name="setting_reported">当前状态来自耳机回报</string>
     <string name="setting_confirmed">耳机已确认此次修改</string>
     <string name="setting_write_failed">命令发送失败，请检查耳机控制连接后重试。</string>
