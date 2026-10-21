@@ -26,7 +26,9 @@ object PodsSettings {
 
     // LibrePods publishes these controls after a successful write. A later headset
     // report is still authoritative; sending is not evidence that firmware applied it.
-    val optimistic = setOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS, Key.SLEEP_DETECTION)
+    val optimistic = setOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS, Key.SLEEP_DETECTION,
+        Key.MICROPHONE_MODE, Key.LISTENING_MODE_BYTE, Key.CHIME_VOLUME,
+        Key.ADJUST_VOLUME_BY_SWIPER, Key.SINGLE_POD_ANC)
     // Older firmware may not report this newer option. It must not block battery,
     // the settings page or the existing initial-status recovery loop.
     val optionalReports = setOf(Key.SLEEP_DETECTION)
@@ -38,7 +40,8 @@ object PodsSettings {
         Key.MICROPHONE_MODE -> value in 0..2
         Key.ADAPTIVE_AUDIO_LEVEL -> value in 0..100
         Key.CHIME_VOLUME -> value in 0..100
-        Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED -> value in 0..2
+        Key.PRESS_SPEED, Key.HOLD_DURATION -> value in 0..2
+        Key.SWIPE_SPEED -> value in 1..3
         Key.LISTENING_MODE_BYTE -> value in 1..15
         else -> key in identifiers && (value == 1 || value == 2)
     }
@@ -79,7 +82,8 @@ object PodsSettings {
             Key.MICROPHONE_MODE -> value in 0..2
             Key.ADAPTIVE_AUDIO_LEVEL -> value in 0..100
             Key.CHIME_VOLUME -> value in 0..100
-            Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED -> value in 0..2
+            Key.PRESS_SPEED, Key.HOLD_DURATION -> value in 0..2
+            Key.SWIPE_SPEED -> value in 1..3
             Key.LISTENING_MODE_BYTE -> {
                 val mask = allowedNoiseModes(model, values).fold(0) { acc, mode -> acc or (1 shl (mode - 1)) }
                 value in 1..15 && value and mask == value && Integer.bitCount(value) >= 2

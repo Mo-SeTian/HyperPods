@@ -1033,6 +1033,8 @@ object L2CAPController {
         override fun onDeviceInformationReceived(deviceInformation: AACPManager.Companion.AirPodsInformation) {
             val previousModelNumber = currentPodsInfo?.modelNumber
             currentPodsInfo = deviceInformation
+            val model = AirPodsModels.getModelByModelNumber(deviceInformation.modelNumber)
+            if (Capability.STEM_CONFIG in model?.capabilities.orEmpty()) aacpManager?.restoreNativeStemControls()
             updateHeadGestures()
             if (pendingRename == deviceInformation.name) {
                 pendingRename = null
@@ -1345,7 +1347,7 @@ object L2CAPController {
                     delay(waitMs)
                     val stop = synchronized(this@L2CAPController) {
                         ensureActive()
-                        if (sessionId != thisSession || initialStatusReady() || !connectedSocket.isConnected) true
+                        if (sessionId != thisSession || statusSyncComplete() || !connectedSocket.isConnected) true
                         else {
                             initialStatusRetries++
                             recordEvent("sync", "request")
@@ -1519,9 +1521,12 @@ object L2CAPController {
     private fun initialStatusReady(): Boolean {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
         return coreStatusReady() &&
-                (!PodsSettings.supports(PodsSettings.NOISE_MODE, model) || PodsSettings.NOISE_MODE in confirmedSettings()) &&
-                missingSettings().isEmpty()
+                (!PodsSettings.supports(PodsSettings.NOISE_MODE, model) || PodsSettings.NOISE_MODE in confirmedSettings())
     }
+
+    // Unread ancillary settings still get bounded refreshes, but must not mark
+    // working battery/listening controls as unusable or force a reconnection.
+    private fun statusSyncComplete(): Boolean = initialStatusReady() && missingSettings().isEmpty()
 
     private fun missingSettings(): Set<String> {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) ?: return emptySet()

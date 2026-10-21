@@ -1,17 +1,21 @@
 package moe.chenxy.hyperpods.hook
 
 import android.annotation.SuppressLint
+import android.os.Bundle
 import android.util.Log
 import android.service.notification.StatusBarNotification
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.TextView
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.factory.method
 import de.robv.android.xposed.XposedHelpers
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.PodsFocusCardSpacing
+import moe.chenxy.hyperpods.utils.PodsFocusButtonText
 import moe.chenxy.hyperpods.utils.PodsIslandData
+import moe.chenxy.hyperpods.utils.PodsIslandLayout
 import kotlin.math.roundToInt
 
 
@@ -28,6 +32,54 @@ object SystemUIPluginHook : YukiBaseHooker() {
 
         fun initPluginHook() {
             loadPluginHooker(DeviceCardHook)
+            val actionHolder = runCatching {
+                Class.forName("miui.systemui.notification.focus.moduleV3.ModuleViewHolder", false, pluginLoaderClassLoader)
+            }.getOrNull()
+            if (actionHolder != null) actionHolder.method { name = "setAction"; paramCount = 6 }.hook {
+                before {
+                    runCatching { focusButton(this.args[0] as? View)?.let(PodsFocusButtonText::restore) }
+                        .onFailure { Log.w("Art_Chen", "Unable to restore HyperPods button text") }
+                }
+                after {
+                    runCatching {
+                        if (isHyperPods(this.args[2] as? StatusBarNotification))
+                            focusButton(this.args[0] as? View)?.let(PodsFocusButtonText::apply)
+                    }.onFailure { Log.w("Art_Chen", "Unable to adjust HyperPods button text") }
+                }
+            }
+            val islandView = runCatching {
+                Class.forName("miui.systemui.dynamicisland.window.content.DynamicIslandContentView", false, pluginLoaderClassLoader)
+            }.getOrNull()
+            if (islandView != null) {
+                islandView.method { name = "calculateBigIslandWidth"; paramCount = 0 }.hook {
+                    before {
+                        runCatching { restoreIslandLayout(this.instance) }
+                            .onFailure { Log.w("Art_Chen", "Unable to restore HyperPods island dimensions") }
+                    }
+                }
+                islandView.method { name = "updateBigIslandLayout"; paramCount = 0 }.hook {
+                    before {
+                        runCatching {
+                            val view = this.instance as? View ?: return@runCatching
+                            restoreIslandLayout(view)
+                            val data = XposedHelpers.callMethod(view, "getCurrentIslandData") ?: return@runCatching
+                            val extras = XposedHelpers.callMethod(data, "getExtras") as? Bundle ?: return@runCatching
+                            @Suppress("DEPRECATION")
+                            val sbn = extras.getParcelable<StatusBarNotification>("miui.sbn")
+                            if (!isHyperPods(sbn) || XposedHelpers.callMethod(view, "hasSmallIsland") != true ||
+                                XposedHelpers.callMethod(view, "getHelper")?.javaClass?.simpleName != "DynamicIslandContentViewPhoneHelper") return@runCatching
+                            val original = readIslandLayout(view)
+                            val left = XposedHelpers.callMethod(view, "getBigIslandAreaLeft") as? View ?: return@runCatching
+                            val right = XposedHelpers.callMethod(view, "getBigIslandAreaRight") as? View ?: return@runCatching
+                            // Different digit counts must never be clipped to gain symmetry.
+                            val adjusted = original.symmetric(view.layoutDirection == View.LAYOUT_DIRECTION_RTL,
+                                maxOf(left.measuredWidth, right.measuredWidth)) ?: return@runCatching
+                            XposedHelpers.setAdditionalInstanceField(view, ISLAND_LAYOUT, original to adjusted)
+                            writeIslandLayout(view, adjusted)
+                        }.onFailure { Log.w("Art_Chen", "Unable to adjust HyperPods coexistence dimensions") }
+                    }
+                }
+            }
             val cardHolder = runCatching {
                 Class.forName("miui.systemui.notification.focus.moduleV3.ModuleTextViewHolder", false, pluginLoaderClassLoader)
             }.getOrNull()
@@ -43,8 +95,7 @@ object SystemUIPluginHook : YukiBaseHooker() {
                 after {
                     runCatching {
                         val sbn = this.args[1] as? StatusBarNotification ?: return@runCatching
-                        val own = sbn.packageName == HyperPodsBroadcasts.XIAOMI_BLUETOOTH &&
-                            sbn.notification.extras.getCharSequence("miui.targetPkg")?.toString() == BuildConfig.APPLICATION_ID
+                        val own = isHyperPods(sbn)
                         val view = XposedHelpers.getObjectField(this.instance, "titleContainer") as? View ?: return@runCatching
                         val content = if (own) XposedHelpers.callMethod(this.args[0], "getBaseInfo")?.let {
                             XposedHelpers.callMethod(it, "getContent") as? String
@@ -133,5 +184,35 @@ object SystemUIPluginHook : YukiBaseHooker() {
                 }
             }
         }
+    }
+
+    private const val ISLAND_LAYOUT = "hyperpods.island.layout"
+
+    private fun isHyperPods(sbn: StatusBarNotification?): Boolean =
+        sbn?.packageName == HyperPodsBroadcasts.XIAOMI_BLUETOOTH &&
+            sbn.notification.extras.getCharSequence("miui.targetPkg")?.toString() == BuildConfig.APPLICATION_ID
+
+    @SuppressLint("DiscouragedApi")
+    private fun focusButton(root: View?): TextView? {
+        root ?: return null
+        val id = root.resources.getIdentifier("focus_button_title", "id", "miui.systemui.plugin")
+        return if (id == 0) null else root.findViewById(id)
+    }
+
+    private fun readIslandLayout(view: Any): PodsIslandLayout {
+        fun get(name: String) = XposedHelpers.callMethod(view, "getBigIsland${name}HasSmallIsland") as Int
+        return PodsIslandLayout(get("LeftWidth"), get("RightWidth"), get("ViewWidth"), get("X"))
+    }
+
+    private fun writeIslandLayout(view: Any, layout: PodsIslandLayout) {
+        for ((name, value) in listOf("LeftWidth" to layout.left, "RightWidth" to layout.right,
+            "ViewWidth" to layout.width, "X" to layout.x))
+            XposedHelpers.callMethod(view, "setBigIsland${name}HasSmallIsland", value)
+    }
+
+    private fun restoreIslandLayout(view: Any) {
+        val saved = XposedHelpers.removeAdditionalInstanceField(view, ISLAND_LAYOUT) as? Pair<*, *> ?: return
+        // Do not overwrite a newer system measurement. Restore only our exact edit.
+        if (readIslandLayout(view) == saved.second) writeIslandLayout(view, saved.first as PodsIslandLayout)
     }
 }

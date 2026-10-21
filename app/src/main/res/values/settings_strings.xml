@@ -1,4 +1,5 @@
 <resources>
+    <string name="setting_select_to_apply">Not read yet; select to set</string>
     <string name="settings_reading">Waiting for headset settings</string>
     <string name="setting_pending">Waiting for headset confirmation…</string>
     <string name="setting_applied">Headset name confirmed</string>

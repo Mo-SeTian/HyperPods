@@ -106,7 +106,7 @@ class DashboardPreviewActivity : ComponentActivity() {
                                 Key.LISTENING_MODE_BYTE to 6,
                                 Key.ALLOW_OFF_OPTION to 1,
                                 Key.PRESS_SPEED to 0, Key.HOLD_DURATION to 0,
-                                Key.SWIPE_SPEED to 0, Key.CHIME_VOLUME to 50,
+                                Key.SWIPE_SPEED to 1, Key.CHIME_VOLUME to 50,
                             ))
                     }
                 }

@@ -121,7 +121,8 @@ fun PressAndHoldSettingPage(
         modifier = cardModifier
     ) {
         SuperArrow(stringResource(R.string.set_noise_mode),
-            rightText = if (enabled) settingMode[0] else stringResource(R.string.settings_reading),
+            rightText = if (!enabled) stringResource(R.string.settings_reading)
+                else if (confirmedMask == null) stringResource(R.string.setting_select_to_apply) else settingMode[0],
             enabled = enabled, onClick = {
                 listeningModeConfigByte.value = ((confirmedMask ?: 0) and allowedMask).toByte()
                 showBottomSheet.value = true

@@ -1,4 +1,5 @@
 <resources>
+    <string name="setting_select_to_apply">尚未读取，可手动设置</string>
     <string name="settings_reading">等待耳机状态同步</string>
     <string name="setting_pending">等待耳机确认…</string>
     <string name="setting_applied">耳机名称已确认</string>

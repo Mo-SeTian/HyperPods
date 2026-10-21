@@ -16,6 +16,21 @@ class AACPManagerTest {
         this[4] = opcode
     }
 
+    @Test fun nativeStemControlsAreRestoredOncePerConnectionAndFailedWritesCanRetry() {
+        val socket = mock(BluetoothSocket::class.java)
+        val output = ByteArrayOutputStream()
+        `when`(socket.outputStream).thenReturn(output)
+        val session = AACPManager(socket)
+        assertFalse(session.restoreNativeStemControls())
+        `when`(socket.isConnected).thenReturn(true)
+        assertTrue(session.restoreNativeStemControls())
+        assertTrue(session.restoreNativeStemControls())
+        val command = byteArrayOf(4, 0, 4, 0, 9, 0, 0x39, 0, 0, 0, 0)
+        assertArrayEquals(command, output.toByteArray())
+        assertTrue(AACPManager(socket).restoreNativeStemControls())
+        assertArrayEquals(command + command, output.toByteArray())
+    }
+
     @Test fun optimisticWritesAreSentButNotHeadsetReports() {
         val socket = mock(BluetoothSocket::class.java)
         `when`(socket.isConnected).thenReturn(true)
@@ -276,10 +291,10 @@ class AACPManagerTest {
         `when`(socket.isConnected).thenReturn(true)
         `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
         val sender = AACPManager(socket)
-        assertTrue(sender.sendControlCommand(0x25, true))
-        assertTrue(sender.sendControlCommand(0x25, 2))
-        assertTrue(sender.sendControlCommand(0x25, 1.toByte()))
-        assertTrue(sender.sendControlCommand(0x25, byteArrayOf(2)))
+        assertTrue(sender.sendControlCommand(0x34, true))
+        assertTrue(sender.sendControlCommand(0x34, 2))
+        assertTrue(sender.sendControlCommand(0x34, 1.toByte()))
+        assertTrue(sender.sendControlCommand(0x34, byteArrayOf(2)))
         assertTrue(sender.controlCommandStatusList.isEmpty())
     }
 

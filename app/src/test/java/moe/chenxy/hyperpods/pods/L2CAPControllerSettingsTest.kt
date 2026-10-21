@@ -172,10 +172,10 @@ class L2CAPControllerSettingsTest {
             verify(updates.single()).putExtra(eq("freshComponents"), fresh.capture())
             assertTrue(fresh.value.isEmpty())
         }
-        assertEquals(0, output.size())
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x39, 0, 0, 0, 0), output.toByteArray())
     }
 
-    @Test fun airPods5InitializationWaitsOnlyForSettingsSupportedByItsVariant() {
+    @Test fun airPods5InitializationDoesNotBlockUsableControlsOnMissingOptionalReports() {
         controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A3531")
         coreReports()
         receive(0x0d, 4)
@@ -193,10 +193,12 @@ class L2CAPControllerSettingsTest {
         }
         assertTrue(initialReady())
         controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A3439")
-        assertFalse("Wireless variant still needs its swipe settings", initialReady())
+        assertTrue("Missing swipe settings must not block battery and listening controls", initialReady())
+        assertFalse(statusSyncComplete())
         receive(0x25, 1)
-        receive(0x23, 0)
+        receive(0x23, 1)
         assertTrue(initialReady())
+        assertTrue(statusSyncComplete())
     }
 
     @Test fun privatePolicySnapshotAppliesAllChoicesWithoutSendingEarbudCommands() = synchronized(controller) {
@@ -302,6 +304,9 @@ class L2CAPControllerSettingsTest {
     private fun initialReady(): Boolean = type.getDeclaredMethod("initialStatusReady")
         .apply { isAccessible = true }.invoke(controller) as Boolean
 
+    private fun statusSyncComplete(): Boolean = type.getDeclaredMethod("statusSyncComplete")
+        .apply { isAccessible = true }.invoke(controller) as Boolean
+
     private fun coreReports(singleEar: Boolean = false) {
         AirPodsNotifications.BatteryNotification.setBattery(if (singleEar)
             byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 80, 2, 0)
@@ -319,7 +324,8 @@ class L2CAPControllerSettingsTest {
             val value = when (key) {
                 PodsSettings.NOISE_MODE -> 4
                 Key.LISTENING_MODE_BYTE -> 6
-                Key.MICROPHONE_MODE, Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED -> 0
+                Key.MICROPHONE_MODE, Key.PRESS_SPEED, Key.HOLD_DURATION -> 0
+                Key.SWIPE_SPEED -> 1
                 Key.CHIME_VOLUME, Key.ADAPTIVE_AUDIO_LEVEL -> 50
                 else -> 2
             }
@@ -334,9 +340,11 @@ class L2CAPControllerSettingsTest {
         field("earDetectionStateValid").set(controller, true)
         assertFalse(initialReady())
         receive(0x0d, 4)
-        assertFalse("Listening mode alone must not hide missing settings", initialReady())
+        assertTrue("Missing ancillary settings must not block usable controls", initialReady())
+        assertFalse("Continue bounded requests for unread settings", statusSyncComplete())
         receiveRemainingSettings()
         assertTrue(initialReady())
+        assertTrue(statusSyncComplete())
         controller.currentPodsInfo = null
         assertFalse(initialReady())
     }
@@ -396,46 +404,101 @@ class L2CAPControllerSettingsTest {
         }
     }
 
-    @Test fun microphoneRequestIsNotConfirmedUntilMatchingReplyArrives() {
-        receive(1, 0)
+    @Test fun microphoneCanBeWrittenBeforeItsFirstReportAndLaterReportsAreAuthoritative() {
         request(Key.MICROPHONE_MODE, 2)
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 1, 2, 0, 0, 0), output.toByteArray())
-        assertTrue(pending().containsKey(Key.MICROPHONE_MODE))
-        assertEquals(0.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
+        assertTrue(pending().isEmpty())
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
+        assertTrue(manager.isAwaitingReport(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE))
         receive(1, 1)
-        assertTrue(pending().containsKey(Key.MICROPHONE_MODE))
+        assertEquals(1.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
+        assertFalse(manager.isAwaitingReport(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE))
         receive(1, 2)
         assertTrue(pending().isEmpty())
         assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
     }
 
-    @Test fun timingRequestsUseZeroBasedValuesAndStillWaitForTheHeadset() {
+    @Test fun timingRequestsUseTheirOwnWireRangesAndStillWaitForTheHeadset() {
         for (key in listOf(Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED)) {
             val id = PodsSettings.identifiers.getValue(key)
-            receive(id.value, 1)
-            request(key, 0)
-            assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, id.value, 0, 0, 0, 0), output.toByteArray())
+            val first = if (key == Key.SWIPE_SPEED) 1.toByte() else 0.toByte()
+            val previous = (first + 1).toByte()
+            receive(id.value, previous)
+            request(key, first.toInt())
+            assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, id.value, first, 0, 0, 0), output.toByteArray())
             assertTrue(pending().containsKey(key))
-            assertEquals(1.toByte(), manager.getControlCommandStatus(id)!!.value[0])
-            receive(id.value, 0)
+            assertEquals(previous, manager.getControlCommandStatus(id)!!.value[0])
+            receive(id.value, first)
             assertTrue(pending().isEmpty())
             output.reset()
         }
     }
 
-    @Test fun chimeVolumePreservesTheSecondByteAndNeedsConfirmation() {
+    @Test fun chimeVolumePreservesTheSecondByteWithoutWaitingForAnEcho() {
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 80, 67, 0, 0))
         request(Key.CHIME_VOLUME, 35)
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 35, 67, 0, 0), output.toByteArray())
-        assertTrue(pending().containsKey(Key.CHIME_VOLUME))
+        assertTrue(pending().isEmpty())
+        assertEquals(35.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.CHIME_VOLUME)!!.value[0])
+        assertEquals("sent", field("lastSettingStatus").get(controller))
         receive(0x1f, 35)
         assertTrue(pending().isEmpty())
+    }
+
+    @Test fun swipeIntervalRejectsZeroAndAcceptsTheLongestFirmwareValueThree() {
+        request(Key.SWIPE_SPEED, 0)
+        assertEquals(0, output.size())
+        assertEquals("invalid", field("lastSettingStatus").get(controller))
+        request(Key.SWIPE_SPEED, 3)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x23, 3, 0, 0, 0), output.toByteArray())
+        assertTrue(pending().containsKey(Key.SWIPE_SPEED))
+        receive(0x23, 3)
+        assertTrue(pending().isEmpty())
+        assertEquals("confirmed", field("lastSettingStatus").get(controller))
     }
 
     @Test fun chimeVolumeRetainsZeroConfigurationWithoutReplacingItWithADefault() {
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 80, 0, 0, 0))
         request(Key.CHIME_VOLUME, 35)
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 35, 0, 0, 0), output.toByteArray())
+    }
+
+    @Test fun issueControlsPublishSuccessfulWritesButNeverPretendTheyWereReported() {
+        for ((key, value) in listOf(Key.LISTENING_MODE_BYTE to 6, Key.ADJUST_VOLUME_BY_SWIPER to 1,
+            Key.SINGLE_POD_ANC to 1)) {
+            val id = PodsSettings.identifiers.getValue(key)
+            request(key, value)
+            assertFalse(pending().containsKey(key))
+            assertEquals("sent", field("lastSettingStatus").get(controller))
+            assertTrue(manager.isAwaitingReport(id))
+            assertEquals(value.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+            receive(id.value, value.toByte())
+            assertFalse(manager.isAwaitingReport(id))
+            `when`(socket.isConnected).thenReturn(false)
+            val other = if (key == Key.LISTENING_MODE_BYTE) 14 else 2
+            request(key, other)
+            assertEquals("write_failed", field("lastSettingStatus").get(controller))
+            assertEquals(value.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+            `when`(socket.isConnected).thenReturn(true)
+        }
+    }
+
+    @Test fun failedChimeWriteDoesNotReplaceTheVolumeOrItsConfiguration() {
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 80, 67, 0, 0))
+        `when`(socket.isConnected).thenReturn(false)
+        request(Key.CHIME_VOLUME, 35)
+        assertArrayEquals(byteArrayOf(80, 67, 0, 0), manager.getControlCommandStatus(
+            AACPManager.Companion.ControlCommandIdentifiers.CHIME_VOLUME)!!.value)
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+    }
+
+    @Test fun nativeStemSetupIsNotSentToModelsWithoutTheCapability() {
+        val callback = field("packetCallback").get(controller) as AACPManager.PacketCallback
+        callback.onDeviceInformationReceived(controller.currentPodsInfo!!.copy(modelNumber = "A2084"))
+        assertEquals(0, output.size())
+        callback.onDeviceInformationReceived(controller.currentPodsInfo!!.copy(modelNumber = "A3439"))
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x39, 0, 0, 0, 0), output.toByteArray())
     }
 
     @Test fun manualRecoveryDiscardsASilentControlSocketButKeepsTheAudioDeviceSession() {
@@ -485,6 +548,17 @@ class L2CAPControllerSettingsTest {
         finishInitialStatus()
         verify(socket, never()).close()
         assertEquals("status_timeout", field("lastStatusFailure").get(controller))
+    }
+
+    @Test fun missingAncillaryReportsDoNotFailAnOtherwiseReadySession() {
+        field("socket").set(controller, socket)
+        coreReports()
+        receive(0x0d, 4)
+        finishInitialStatus()
+        assertTrue(initialReady())
+        assertFalse(statusSyncComplete())
+        assertEquals("", field("lastStatusFailure").get(controller))
+        verify(socket, never()).close()
     }
 
     @Test fun pendingSecondaryBatteryStillNeedsControlRecoveryWhenTheOtherEarHasPower() {
@@ -601,9 +675,9 @@ class L2CAPControllerSettingsTest {
         assertEquals("sent", field("lastSettingStatus").get(controller))
         receive(0x28, 2)
         assertEquals("reported", field("lastSettingStatus").get(controller))
-        request(Key.MICROPHONE_MODE, 2)
+        request(Key.PRESS_SPEED, 2)
         assertEquals("sent", field("lastSettingStatus").get(controller))
-        receive(1, 2)
+        receive(0x17, 2)
         assertEquals("confirmed", field("lastSettingStatus").get(controller))
         `when`(socket.isConnected).thenReturn(false)
         request(Key.PERSONLIZED_VOLUME, 1)
@@ -801,25 +875,25 @@ class L2CAPControllerSettingsTest {
     }
 
     @Test fun timeoutRetainsTheReceivedStateAndAllowsRetry() {
-        receive(1, 0)
-        request(Key.MICROPHONE_MODE, 2)
+        receive(0x17, 0)
+        request(Key.PRESS_SPEED, 2)
         // JVM Android stubs cannot deliver broadcasts from the timer thread.
         field("mContext").set(controller, null)
         val deadline = System.nanoTime() + 4_000_000_000L
         while (synchronized(controller) { pending().isNotEmpty() } && System.nanoTime() < deadline) Thread.sleep(20)
         assertTrue(pending().isEmpty())
-        assertEquals(0.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
+        assertEquals(0.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL)!!.value[0])
         assertEquals("timeout", field("lastSettingStatus").get(controller))
-        receive(1, 2)
+        receive(0x17, 2)
         assertEquals("reported", field("lastSettingStatus").get(controller))
-        assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.MIC_MODE)!!.value[0])
+        assertEquals(2.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.DOUBLE_CLICK_INTERVAL)!!.value[0])
         field("mContext").set(controller, ContextWrapper(null))
-        request(Key.MICROPHONE_MODE, 1)
-        assertTrue(pending().containsKey(Key.MICROPHONE_MODE))
+        request(Key.PRESS_SPEED, 1)
+        assertTrue(pending().containsKey(Key.PRESS_SPEED))
     }
 
     @Test fun disconnectCancelsOutstandingSettings() {
-        request(Key.MICROPHONE_MODE, 2)
+        request(Key.PRESS_SPEED, 2)
         val entry = pending().values.single()!!
         val timeout = entry.javaClass.getDeclaredField("timeout").apply { isAccessible = true }.get(entry) as Job
         field("mContext").set(controller, null)

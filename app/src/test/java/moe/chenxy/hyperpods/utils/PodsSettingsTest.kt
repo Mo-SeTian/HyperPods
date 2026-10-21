@@ -17,10 +17,12 @@ class PodsSettingsTest {
         assertTrue(Key.SLEEP_DETECTION in PodsSettings.optionalReports)
     }
     @Test fun timingOptionsMatchProtocolValuesAndHeadsetCapabilities() {
-        for (key in listOf(Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED)) {
+        for (key in listOf(Key.PRESS_SPEED, Key.HOLD_DURATION)) {
             for (value in 0..2) assertTrue(PodsSettings.validValue(key, value, AirPodsPro2USBC(), emptyMap()))
             for (value in listOf(-1, 3, 255)) assertFalse(PodsSettings.knownValue(key, value))
         }
+        for (value in 1..3) assertTrue(PodsSettings.validValue(Key.SWIPE_SPEED, value, AirPods5WCC(), emptyMap()))
+        for (value in listOf(-1, 0, 4, 255)) assertFalse(PodsSettings.knownValue(Key.SWIPE_SPEED, value))
         assertFalse(PodsSettings.supports(Key.PRESS_SPEED, AirPods2()))
         assertFalse(PodsSettings.supports(Key.SWIPE_SPEED, AirPodsPro1()))
         assertFalse(PodsSettings.supports(Key.CHIME_VOLUME, null))

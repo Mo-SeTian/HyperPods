@@ -125,23 +125,31 @@ fun PodDetailPage(
     diagnostics: Bundle? = null,
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
-    fun ready(key: String) = PodsSettings.supports(key, model) && key in settings && key !in pendingSettings
+    fun ready(key: String) = PodsSettings.supports(key, model) && key !in pendingSettings &&
+        (key in settings || (key == Key.MICROPHONE_MODE || key == Key.LISTENING_MODE_BYTE) &&
+            diagnostics?.getString("connection") == "connected")
     @Composable
-    fun feedback(key: String, summary: Int): String {
-        if (key !in settings) return stringResource(R.string.settings_reading)
+    fun statusText(key: String): String? {
         val status = when (settingFeedback[key]) {
             "sent" -> if (key in pendingSettings) R.string.setting_pending else R.string.setting_sent
             "write_failed" -> R.string.setting_write_failed
             "timeout" -> R.string.setting_failed
             "invalid" -> R.string.setting_invalid
-            else -> return stringResource(summary)
+            else -> return null
         }
-        return stringResource(summary) + "\n" + stringResource(status)
+        return stringResource(status)
+    }
+    @Composable
+    fun feedback(key: String, summary: Int): String {
+        if (key !in settings) return stringResource(R.string.settings_reading)
+        return stringResource(summary) + (statusText(key)?.let { "\n$it" } ?: "")
     }
     val allowedModes = PodsSettings.allowedNoiseModes(model, settings)
     var adaptiveDraft by remember(settings[Key.ADAPTIVE_AUDIO_LEVEL], Key.ADAPTIVE_AUDIO_LEVEL in pendingSettings,
         settingFeedback[Key.ADAPTIVE_AUDIO_LEVEL]) { mutableFloatStateOf(adaptiveAudioLevel) }
-    var chimeDraft by remember(settings[Key.CHIME_VOLUME], Key.CHIME_VOLUME in pendingSettings) { mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat()) }
+    var chimeDraft by remember(settings[Key.CHIME_VOLUME], settingFeedback[Key.CHIME_VOLUME]) {
+        mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat())
+    }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
     fun back() { detailPage = if (detailPage == 4) 1 else 0 }
     BackHandler(enabled = isActive && detailPage != 0) { back() }
@@ -358,13 +366,14 @@ fun PodDetailPage(
                             Key.HOLD_DURATION to R.string.control_hold_duration,
                             Key.SWIPE_SPEED to R.string.control_swipe_speed).forEach { (key, title) ->
                             if (PodsSettings.supports(key, model)) {
+                                val offset = if (key == Key.SWIPE_SPEED) 1 else 0
                                 if (ready(key)) SuperDropdown(
                                     title = stringResource(title),
                                     items = listOf(stringResource(R.string.control_default),
                                         stringResource(if (key == Key.PRESS_SPEED) R.string.control_slower else R.string.control_longer),
                                         stringResource(if (key == Key.PRESS_SPEED) R.string.control_slowest else R.string.control_longest)),
-                                    selectedIndex = settings.getValue(key),
-                                    onSelectedIndexChange = { onSettingChange(key, it) },
+                                    selectedIndex = settings.getValue(key) - offset,
+                                    onSelectedIndexChange = { onSettingChange(key, it + offset) },
                                 ) else top.yukonga.miuix.kmp.basic.BasicComponent(
                                     title = stringResource(title),
                                     summary = stringResource(if (key in pendingSettings) R.string.setting_pending else R.string.settings_reading),
@@ -392,6 +401,7 @@ fun PodDetailPage(
                             Text(if (ready(Key.CHIME_VOLUME)) "${chimeDraft.toInt()}%" else
                                 stringResource(if (Key.CHIME_VOLUME in pendingSettings) R.string.setting_pending else R.string.settings_reading),
                                 fontSize = 13.sp)
+                            statusText(Key.CHIME_VOLUME)?.let { Text(it, fontSize = 12.sp) }
                             Slider(value = chimeDraft, valueRange = 0f..100f,
                                 onValueChange = { chimeDraft = it },
                                 onValueChangeFinished = { onSettingChange(Key.CHIME_VOLUME, chimeDraft.toInt()) },
@@ -460,7 +470,7 @@ fun PodDetailPage(
 
                         if (PodsSettings.supports(Key.ADJUST_VOLUME_BY_SWIPER, model)) SuperSwitch(
                             title = stringResource(R.string.adjust_volume_by_swiper_title),
-                            summary = stringResource(R.string.adjust_volume_by_swiper_summary),
+                            summary = feedback(Key.ADJUST_VOLUME_BY_SWIPER, R.string.adjust_volume_by_swiper_summary),
                             checked = adjustVolumeBySwiper,
                             enabled = ready(Key.ADJUST_VOLUME_BY_SWIPER),
                             onCheckedChange = onAdjustVolumeBySwiperChange
@@ -507,7 +517,10 @@ fun PodDetailPage(
                                 stringResource(R.string.microphone_left),
                                 stringResource(R.string.microphone_right)
                             ),
-                            selectedIndex = microphoneMode,
+                            selectedIndex = if (Key.MICROPHONE_MODE in settings) microphoneMode else -1,
+                            showValue = Key.MICROPHONE_MODE in settings,
+                            summary = if (Key.MICROPHONE_MODE in settings) statusText(Key.MICROPHONE_MODE)
+                                else stringResource(R.string.setting_select_to_apply),
                             onSelectedIndexChange = onMicrophoneModeChange,
                         ) else top.yukonga.miuix.kmp.basic.BasicComponent(
                             title = stringResource(R.string.microphone),
@@ -524,7 +537,7 @@ fun PodDetailPage(
                     ) {
                         SuperSwitch(
                             title = stringResource(R.string.noise_cancellation_single_airpod),
-                            summary = stringResource(R.string.noise_cancellation_single_airpod_description),
+                            summary = feedback(Key.SINGLE_POD_ANC, R.string.noise_cancellation_single_airpod_description),
                             checked = noiseCancellationSingleAirPod,
                             enabled = ready(Key.SINGLE_POD_ANC),
                             onCheckedChange = onNoiseCancellationSingleAirPodChange,

@@ -6,6 +6,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AirPods5SupportTest {
+    @Test fun wirelessArtworkMatchesLibrePodsInsteadOfDuplicatingProAssets() {
+        val hashes = mapOf(
+            "buds" to "a33bdef8f19daaa397976837e95db6f529d2523bb0c07aab971de9f2637a458a",
+            "left" to "ef6aaf7c80c38ceb4250fcfc860785b69849550b907158d12bcc83737307349e",
+            "right" to "82f005398272a763e7f03322eb4f830c4c8d8a9fa763f66f5d5fc12c6034b57b",
+            "case" to "781652acc41d187aba12c141d1da77e7f07b1a1c50a769ba400ff7337eb34b1b",
+        )
+        hashes.forEach { (part, expected) ->
+            val image = java.io.File("src/main/res/drawable/airpods_4_$part.png").readBytes()
+            val actual = java.security.MessageDigest.getInstance("SHA-256").digest(image)
+                .joinToString("") { "%02x".format(it) }
+            assertEquals("AirPods 4/5 WCC artwork: $part", expected, actual)
+        }
+    }
     private val standard = listOf("A3531", "A3532", "A3533")
     private val wireless = listOf("A3439", "A3440", "A3441")
     private fun model(number: String): AirPodsBase {
@@ -39,7 +53,7 @@ class AirPods5SupportTest {
         }
         wireless.forEach {
             assertTrue(PodsSettings.supports(Key.ADJUST_VOLUME_BY_SWIPER, model(it)))
-            for (value in 0..2) assertTrue(PodsSettings.validValue(Key.SWIPE_SPEED, value, model(it), emptyMap()))
+            for (value in 1..3) assertTrue(PodsSettings.validValue(Key.SWIPE_SPEED, value, model(it), emptyMap()))
         }
     }
 

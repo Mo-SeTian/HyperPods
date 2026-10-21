@@ -251,6 +251,7 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
     }
 
     private val localWrites = mutableSetOf<ControlCommandIdentifiers>()
+    private var nativeStemConfigured = false
     fun isAwaitingReport(identifier: ControlCommandIdentifiers): Boolean = identifier in localWrites
 
     private fun setControlCommandStatusValue(
@@ -379,7 +380,7 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
         val controlPacket = createControlCommandPacket(identifier, value)
         if (!sendDataPacket(controlPacket)) return false
         if (BuildConfig.DEBUG) Log.d(TAG, "Control command sent: ${"%02X".format(identifier)} - ${value.take(4).joinToString(" ") { "%02X".format(it) }}")
-        // Match LibrePods' optimistic UI for the selected firmware toggles only.
+        // Match LibrePods' optimistic UI for selected firmware controls only.
         // Incoming reports remain authoritative; a failed write must not change the cache.
         val id = ControlCommandIdentifiers.fromByte(identifier)
         if (PodsSettings.keyFor(identifier) in PodsSettings.optimistic && id != null) {
@@ -1143,6 +1144,13 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
         return sendControlCommand(
             ControlCommandIdentifiers.STEM_CONFIG.value, value
         )
+    }
+
+    fun restoreNativeStemControls(): Boolean {
+        if (nativeStemConfigured) return true
+        // HyperPods has no custom stem actions. Like LibrePods' defaults, leave
+        // press handling to the earbuds rather than intercepting it on the phone.
+        return sendStemConfigPacket().also { nativeStemConfigured = it }
     }
 
     @OptIn(ExperimentalStdlibApi::class)
