@@ -50,6 +50,25 @@ class AACPManagerTest {
         assertFalse(session.isAwaitingReport(identifier))
     }
 
+    @Test fun optimisticSingleAncPermissionNeverReplacesItsLastRealReport() {
+        val session = AACPManager(mock(BluetoothSocket::class.java), writer = { true })
+        val id = AACPManager.Companion.ControlCommandIdentifiers.ONE_BUD_ANC_MODE
+        assertNull(session.reportedControlValue(id))
+        session.sendControlCommand(id.value, 1)
+        assertNull(session.reportedControlValue(id))
+        session.receivePacket(packet(9, 11).apply { this[6] = id.value; this[7] = 2 })
+        assertEquals(2, session.reportedControlValue(id))
+        session.sendControlCommand(id.value, 1)
+        assertEquals(1.toByte(), session.getControlCommandStatus(id)!!.value[0])
+        assertEquals(2, session.reportedControlValue(id))
+        assertTrue(session.isAwaitingReport(id))
+        session.receivePacket(packet(9, 11).apply { this[6] = id.value; this[7] = 0 })
+        assertEquals(2, session.reportedControlValue(id))
+        assertTrue(session.isAwaitingReport(id))
+        assertEquals(1.toByte(), session.getControlCommandStatus(id)!!.value[0])
+        assertNull(AACPManager(mock(BluetoothSocket::class.java)).reportedControlValue(id))
+    }
+
     @Test fun onlyCompleteReceivedPacketsUpdateDiagnosticTimestamps() {
         var now = 1000L
         val session = AACPManager(mock(BluetoothSocket::class.java)) { now }

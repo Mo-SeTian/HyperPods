@@ -19,6 +19,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.BatteryStatus
 import moe.chenxy.hyperpods.utils.AirPodsPro2USBC
+import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
@@ -113,6 +114,12 @@ class ConnectionDiagnosticsTest {
             putString("serial", "PRIVATE_SENTINEL")
             putString("packet", "PRIVATE_SENTINEL")
             putString("head_gestures", "PRIVATE_SENTINEL")
+            putStringArrayList("unconfirmed_settings", arrayListOf(Key.SINGLE_POD_ANC, "PRIVATE_SENTINEL"))
+            putStringArrayList("missing_setting_keys", arrayListOf(Key.MICROPHONE_MODE, "PRIVATE_SENTINEL"))
+            putInt("noise_mode_reported", 3)
+            putInt("single_anc_reported", 2)
+            putInt("single_anc_requested", 1)
+            putInt("single_anc_recoveries", 1)
         }
         compose.runOnUiThread {
             compose.activity.setContent {
@@ -135,6 +142,12 @@ class ConnectionDiagnosticsTest {
                 assertNotNull(report)
                 assertTrue(report!!.contains("HyperPods"))
                 assertFalse(report.contains("PRIVATE_SENTINEL"))
+                assertTrue(report.contains(compose.activity.getString(R.string.diagnostics_single_anc_reported) + ": " +
+                    compose.activity.getString(R.string.diagnostics_setting_disabled)))
+                assertTrue(report.contains(compose.activity.getString(R.string.diagnostics_single_anc_requested) + ": " +
+                    compose.activity.getString(R.string.diagnostics_setting_enabled)))
+                assertTrue(report.contains(compose.activity.getString(R.string.diagnostics_listening_mode) + ": " +
+                    compose.activity.getString(R.string.transparency_title)))
             }
         } finally {
             automation.dropShellPermissionIdentity()

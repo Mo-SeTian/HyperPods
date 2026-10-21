@@ -28,6 +28,7 @@ class IssueSettingsUiTest {
     private val settings = mutableStateOf<Map<String, Int>>(emptyMap())
     private val feedback = mutableStateOf<Map<String, String>>(emptyMap())
     private val writes = mutableListOf<Pair<String, Int>>()
+    private val modes = mutableListOf<NoiseControlMode>()
     private var failWrite = false
     private fun text(id: Int) = compose.activity.getString(id)
 
@@ -47,15 +48,19 @@ class IssueSettingsUiTest {
                         autoSwitchToSpeaker = false, onAutoSwitchToSpeakerChange = {},
                         personlizedVolume = false, onPersonlizedVolumeChange = {},
                         conversationAwareness = false, onConversationAwarenessChange = {},
-                        adjustVolumeBySwiper = false, onAdjustVolumeBySwiperChange = {},
+                        adjustVolumeBySwiper = settings.value[Key.ADJUST_VOLUME_BY_SWIPER] == 1,
+                        onAdjustVolumeBySwiperChange = { write(Key.ADJUST_VOLUME_BY_SWIPER, if (it) 1 else 2) },
                         adaptiveAudioLevel = 0.5f, onAdaptiveAudioLevelChange = {},
                         onListeningModeChange = { write(Key.LISTENING_MODE_BYTE, it.toInt()) },
-                        ancMode = NoiseControlMode.ADAPTIVE, onAncModeChange = {},
+                        ancMode = settings.value[PodsSettings.NOISE_MODE]?.let { NoiseControlMode.entries[it - 1] },
+                        onAncModeChange = { modes.add(it) },
                         podsInfo = AACPManager.Companion.AirPodsInformation("Demo", "A3439", "", "", "", "", "", "", "", "", ""),
                         onNameChange = {}, microphoneMode = PodsSettings.microphoneIndex(settings.value[Key.MICROPHONE_MODE]) ?: 0,
                         onMicrophoneModeChange = { write(Key.MICROPHONE_MODE, PodsSettings.microphoneValue(it)!!) },
-                        noiseCancellationSingleAirPod = false, onNoiseCancellationSingleAirPodChange = {},
-                        settings = settings.value, settingFeedback = feedback.value, onSettingChange = ::write,
+                        noiseCancellationSingleAirPod = settings.value[Key.SINGLE_POD_ANC] == 1,
+                        onNoiseCancellationSingleAirPodChange = { write(Key.SINGLE_POD_ANC, if (it) 1 else 2) },
+                        settings = settings.value,
+                        settingFeedback = feedback.value, onSettingChange = ::write,
                         diagnostics = Bundle().apply { putString("connection", connection) })
                     }
                 }
@@ -125,5 +130,38 @@ class IssueSettingsUiTest {
             .filter(SemanticsMatcher("Placed popup row") { it.layoutInfo.isPlaced }).onFirst().performClick()
         compose.waitForIdle()
         assertEquals(listOf(Key.SWIPE_SPEED to 1), writes)
+    }
+
+    @Test fun sentOnlyControlsDoNotShowAnEndlessWaitingMessage() {
+        settings.value = mapOf(Key.CHIME_VOLUME to 50, Key.ADJUST_VOLUME_BY_SWIPER to 1, Key.SINGLE_POD_ANC to 1)
+        feedback.value = settings.value.keys.associateWith { "sent" }
+        render()
+        for (title in listOf(R.string.control_chime_volume, R.string.adjust_volume_by_swiper_title,
+            R.string.noise_cancellation_single_airpod)) {
+            compose.revealSetting(text(title))
+            compose.onAllNodesWithText(text(R.string.setting_sent), substring = true).assertCountEquals(0)
+            compose.onAllNodesWithText(text(R.string.setting_pending), substring = true).assertCountEquals(0)
+        }
+    }
+
+    @Test fun enablingSingleAncDoesNotForceTransparencyIntoAnc() {
+        settings.value = mapOf(Key.SINGLE_POD_ANC to 2, PodsSettings.NOISE_MODE to 3)
+        render()
+        compose.revealSetting(text(R.string.noise_cancellation_single_airpod)).performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(Key.SINGLE_POD_ANC to 1), writes)
+        assertEquals(emptyList<NoiseControlMode>(), modes)
+        assertEquals(3, settings.value[PodsSettings.NOISE_MODE])
+    }
+
+    @Test fun aRealWriteFailureStillShowsAnErrorAndPreservesThePreviousSwitchValue() {
+        settings.value = mapOf(Key.ADJUST_VOLUME_BY_SWIPER to 2)
+        failWrite = true
+        render()
+        compose.revealSetting(text(R.string.adjust_volume_by_swiper_title)).performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(Key.ADJUST_VOLUME_BY_SWIPER to 1), writes)
+        assertEquals(2, settings.value[Key.ADJUST_VOLUME_BY_SWIPER])
+        compose.onNodeWithText(text(R.string.setting_write_failed), substring = true).assertExists()
     }
 }

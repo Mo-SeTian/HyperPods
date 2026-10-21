@@ -51,6 +51,14 @@
     <string name="diagnostics_last_packet">最近一次协议回包</string>
     <string name="diagnostics_settings_time">最近一次耳机设置回报</string>
     <string name="diagnostics_missing_settings">尚未收到的设置项数量</string>
+    <string name="diagnostics_missing_setting_names">尚未读取的设置项</string>
+    <string name="diagnostics_unconfirmed_settings">已发送但未收到回报的设置项</string>
+    <string name="diagnostics_listening_mode">最近回报的聆听模式</string>
+    <string name="diagnostics_single_anc_reported">最近回报的单耳降噪权限</string>
+    <string name="diagnostics_single_anc_requested">请求的单耳降噪权限（未确认）</string>
+    <string name="diagnostics_single_anc_recoveries">单耳降噪恢复尝试次数</string>
+    <string name="diagnostics_setting_enabled">已开启</string>
+    <string name="diagnostics_setting_disabled">已关闭</string>
     <string name="diagnostics_model_unknown">等待识别型号，暂无法统计</string>
     <string name="diagnostics_control_syncing">通道已连接，状态尚未同步完成</string>
     <string name="diagnostics_sync_pending">状态同步尚未完成，暂不能确认控制功能就绪。</string>

@@ -251,8 +251,11 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
     }
 
     private val localWrites = mutableSetOf<ControlCommandIdentifiers>()
+    // Keep fixed, validated setting values separate from optimistic UI values.
+    private val reportedControlValues = mutableMapOf<ControlCommandIdentifiers, Int>()
     private var nativeStemConfigured = false
     fun isAwaitingReport(identifier: ControlCommandIdentifiers): Boolean = identifier in localWrites
+    fun reportedControlValue(identifier: ControlCommandIdentifiers): Int? = reportedControlValues[identifier]
 
     private fun setControlCommandStatusValue(
         identifier: ControlCommandIdentifiers,
@@ -510,6 +513,15 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
             Opcodes.CONTROL_COMMAND -> {
                 val controlCommand = ControlCommand.fromByteArray(packet)
                 val identifier = ControlCommandIdentifiers.fromByte(controlCommand.identifier) ?: return
+                val key = PodsSettings.keyFor(identifier.value)
+                val value = controlCommand.value[0].toInt() and 0xff
+                if (key != null) {
+                    if (!PodsSettings.knownValue(key, value)) {
+                        Log.w(TAG, "Ignoring invalid control setting ${identifier.name}")
+                        return
+                    }
+                    reportedControlValues[identifier] = value
+                }
                 // Even a different reported value is authoritative, not a successful local write.
                 localWrites.remove(identifier)
                 setControlCommandStatusValue(

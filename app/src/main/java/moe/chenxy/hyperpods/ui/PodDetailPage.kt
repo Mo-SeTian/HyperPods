@@ -131,7 +131,9 @@ fun PodDetailPage(
     @Composable
     fun statusText(key: String): String? {
         val status = when (settingFeedback[key]) {
-            "sent" -> if (key in pendingSettings) R.string.setting_pending else R.string.setting_sent
+            // Sent-only controls already settled locally. Keep the unverified
+            // state in diagnostics, not as an endless waiting label on each row.
+            "sent" -> if (key in pendingSettings) R.string.setting_pending else return null
             "write_failed" -> R.string.setting_write_failed
             "timeout" -> R.string.setting_failed
             "invalid" -> R.string.setting_invalid

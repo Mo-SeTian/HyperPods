@@ -61,6 +61,16 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         "failed" -> R.string.diagnostics_failed
         else -> R.string.diagnostics_no_session
     }
+    @Composable
+    fun settingNames(field: String): String = snapshot?.getStringArrayList(field).orEmpty()
+        .filter { it in PodsSettings.identifiers }.map { stringResource(settingTitle(it)) }
+        .joinToString("、").ifEmpty { stringResource(R.string.diagnostics_none) }
+    @Composable
+    fun permission(value: Int?): String = stringResource(when (value) {
+        1 -> R.string.diagnostics_setting_enabled
+        2 -> R.string.diagnostics_setting_disabled
+        else -> R.string.diagnostics_never
+    })
     val fields = listOf(
         stringResource(R.string.diagnostics_audio) to stringResource(when {
             snapshot == null -> R.string.module_no_report
@@ -92,6 +102,20 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         stringResource(R.string.diagnostics_missing_settings) to
             (snapshot?.takeIf { it.getBoolean("information") }?.getInt("missing_settings", -1)?.takeIf { it >= 0 }?.toString()
                 ?: stringResource(R.string.diagnostics_model_unknown)),
+        stringResource(R.string.diagnostics_missing_setting_names) to settingNames("missing_setting_keys"),
+        stringResource(R.string.diagnostics_unconfirmed_settings) to settingNames("unconfirmed_settings"),
+        stringResource(R.string.diagnostics_listening_mode) to stringResource(when (snapshot?.getInt("noise_mode_reported")) {
+            1 -> R.string.off
+            2 -> R.string.noise_cancellation_title
+            3 -> R.string.transparency_title
+            4 -> R.string.adaptive_title
+            else -> R.string.diagnostics_never
+        }),
+        stringResource(R.string.diagnostics_single_anc_reported) to permission(snapshot?.getInt("single_anc_reported")),
+        stringResource(R.string.diagnostics_single_anc_requested) to
+            if (snapshot?.getInt("single_anc_requested") in 1..2) permission(snapshot?.getInt("single_anc_requested"))
+            else stringResource(R.string.diagnostics_none),
+        stringResource(R.string.diagnostics_single_anc_recoveries) to (snapshot?.getInt("single_anc_recoveries") ?: 0).toString(),
         stringResource(R.string.diagnostics_last_setting) to (stringResource(settingTitle(snapshot?.getString("setting_key"))) + "\n" + stringResource(settingStatus(snapshot?.getString("setting_status")))),
         stringResource(R.string.diagnostics_failure) to stringResource(when {
             snapshot == null -> R.string.module_no_report

@@ -51,6 +51,14 @@
     <string name="diagnostics_last_packet">Last protocol packet</string>
     <string name="diagnostics_settings_time">Last headset settings report</string>
     <string name="diagnostics_missing_settings">Settings still awaiting a report</string>
+    <string name="diagnostics_missing_setting_names">Settings not read yet</string>
+    <string name="diagnostics_unconfirmed_settings">Sent settings without a state report</string>
+    <string name="diagnostics_listening_mode">Last reported listening mode</string>
+    <string name="diagnostics_single_anc_reported">Last reported single-ear ANC permission</string>
+    <string name="diagnostics_single_anc_requested">Requested single-ear ANC permission (not verified)</string>
+    <string name="diagnostics_single_anc_recoveries">Single-ear ANC recovery attempts</string>
+    <string name="diagnostics_setting_enabled">Enabled</string>
+    <string name="diagnostics_setting_disabled">Disabled</string>
     <string name="diagnostics_model_unknown">Awaiting device identification; cannot count yet</string>
     <string name="diagnostics_control_syncing">Channel connected; status synchronization incomplete</string>
     <string name="diagnostics_sync_pending">Status synchronization is incomplete; control readiness is not yet confirmed.</string>

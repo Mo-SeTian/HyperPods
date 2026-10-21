@@ -33,6 +33,7 @@ import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.AACPWriter
 import moe.chenxy.hyperpods.utils.AppPreferences
+import moe.chenxy.hyperpods.utils.AirPods5WCC
 import moe.chenxy.hyperpods.utils.AirPodsInstance
 import moe.chenxy.hyperpods.utils.MediaControl
 import moe.chenxy.hyperpods.utils.HeadGestureCalls
@@ -48,6 +49,7 @@ import moe.chenxy.hyperpods.utils.DiagnosticEvents
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.SystemApisUtils
+import moe.chenxy.hyperpods.utils.SinglePodAnc
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.cancelPodsNotificationByMiuiBt
 import moe.chenxy.hyperpods.utils.data.BatteryParams
@@ -110,6 +112,9 @@ object L2CAPController {
     lateinit var currentEarDetectionParams: EarDetectionParams
     lateinit var currentBatteryParams: BatteryParams
     private var currentAnc: Int = 1
+    private val singlePodAnc = SinglePodAnc()
+    private var singlePodAncRestoreAttempts = 0
+    private var conversationAwarenessActive = false
     var currentPodsInfo: AACPManager.Companion.AirPodsInformation? = null
     private data class PendingSetting(val value: Int, val timeout: Job)
     private val pendingSettings = mutableMapOf<String, PendingSetting>()
@@ -449,6 +454,18 @@ object L2CAPController {
         putBoolean("ready", connectionState == "connected" && initialStatusReady())
         putInt("missing_settings", if (currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) == null)
             -1 else missingSettings().size)
+        putStringArrayList("missing_setting_keys", ArrayList(missingSettings()))
+        putStringArrayList("unconfirmed_settings", ArrayList(PodsSettings.identifiers.filterValues {
+            aacpManager?.isAwaitingReport(it) == true
+        }.keys + pendingSettings.keys))
+        putInt("noise_mode_reported", aacpManager?.reportedControlValue(
+            AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE) ?: 0)
+        putInt("single_anc_reported", aacpManager?.reportedControlValue(
+            AACPManager.Companion.ControlCommandIdentifiers.ONE_BUD_ANC_MODE) ?: 0)
+        putInt("single_anc_requested", if (aacpManager?.isAwaitingReport(
+            AACPManager.Companion.ControlCommandIdentifiers.ONE_BUD_ANC_MODE) == true)
+            confirmedSettings()[HyperPodsPrefsKey.SINGLE_POD_ANC] ?: 0 else 0)
+        putInt("single_anc_recoveries", singlePodAncRestoreAttempts)
         putString("failure", lastStatusFailure)
         putLong("last_packet_at", aacpManager?.lastPacketAt ?: 0)
         putLong("battery_at", aacpManager?.batteryReceivedAt ?: 0)
@@ -523,6 +540,7 @@ object L2CAPController {
 
     private fun sendSettingResult(key: String, success: Boolean, pending: Boolean = false,
         status: String = if (pending) "sent" else if (success) "confirmed" else "timeout") {
+        if (key == PodsSettings.NOISE_MODE && !success && !pending) singlePodAnc.requestFailed()
         val continueOff = key == HyperPodsPrefsKey.ALLOW_OFF_OPTION && pendingOffSelection && !pending
         lastSettingKey = key
         lastSettingStatus = status
@@ -569,10 +587,14 @@ object L2CAPController {
             sendSettingResult(key, false, status = "write_failed")
             return
         }
+        if (key == HyperPodsPrefsKey.SINGLE_POD_ANC && value != 1) cancelSinglePodAncRestore()
         failedSettings.remove(key)
         if (key in PodsSettings.optimistic) {
             // Follow LibrePods: publish the local value without awaiting an echo.
-            if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) resetConversationVolume()
+            if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) {
+                conversationAwarenessActive = false
+                resetConversationVolume()
+            }
             sendSettingResult(key, true, status = "sent")
             return
         }
@@ -620,6 +642,10 @@ object L2CAPController {
                 return
             }
         }
+        val worn = status.count { it == EarDetectionStatus.IN_EAR }
+        if (worn != 1) cancelSinglePodAncRestore()
+        val restoreAnc = singlePodAnc.onWear(worn,
+            singlePodAncEnabled(), SystemClock.elapsedRealtime())
         currentEarDetectionParams = EarDetectionParams(status[0], status[1])
         recordEvent("wear", "${status[0]},${status[1]}")
         earDetectionStateValid = true
@@ -644,6 +670,37 @@ object L2CAPController {
 
         updateHeadGestures()
         updateAudioForEarState()
+        if (restoreAnc) restoreSinglePodAnc()
+    }
+
+    private fun singlePodAncEnabled(): Boolean =
+        !conversationAwarenessActive &&
+            currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) is AirPods5WCC &&
+            confirmedSettings()[HyperPodsPrefsKey.SINGLE_POD_ANC] == 1
+
+    private fun cancelSinglePodAncRestore() {
+        val pending = if (singlePodAnc.restoring && pendingSettings[PodsSettings.NOISE_MODE]?.value == 2)
+            pendingSettings.remove(PodsSettings.NOISE_MODE) else null
+        pending?.timeout?.cancel()
+        singlePodAnc.cancel()
+        if (pending != null) sendSettingsState()
+    }
+
+    private fun restoreSinglePodAnc() {
+        val pendingMode = pendingSettings[PodsSettings.NOISE_MODE]
+        if (!singlePodAncEnabled() || pendingMode != null && pendingMode.value != 2) {
+            cancelSinglePodAncRestore()
+            return
+        }
+        val manager = aacpManager ?: return
+        singlePodAncRestoreAttempts++
+        if (!manager.sendControlCommand(AACPManager.Companion.ControlCommandIdentifiers.ONE_BUD_ANC_MODE.value, 1)) {
+            cancelSinglePodAncRestore()
+            sendSettingResult(HyperPodsPrefsKey.SINGLE_POD_ANC, false, status = "write_failed")
+            return
+        }
+        pendingSettings.remove(PodsSettings.NOISE_MODE)?.timeout?.cancel()
+        sendSetting(PodsSettings.NOISE_MODE, 2)
     }
 
     // Called under the controller lock, also used when either setting changes.
@@ -976,6 +1033,10 @@ object L2CAPController {
         override fun onConversationAwarenessReceived(conversationAwareness: ByteArray) {
             AirPodsNotifications.ConversationalAwarenessNotification.setData(conversationAwareness)
             val status = AirPodsNotifications.ConversationalAwarenessNotification.status.toInt()
+            if (status in 1..3 || status in 6..9) {
+                conversationAwarenessActive = status in 1..3
+                if (conversationAwarenessActive) cancelSinglePodAncRestore()
+            }
             if (!conversationPhoneVolume || confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
             if (status !in 1..3 && status !in 6..9) return
             if (conversationRouteId != null && !conversationRouteIsSelected()) resetConversationVolume()
@@ -1020,13 +1081,19 @@ object L2CAPController {
                     failedSettings.remove(key)
                     sendSettingResult(key, true, status = "reported")
                 }
-                if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) resetConversationVolume()
+                if (key == HyperPodsPrefsKey.CONVERSATION_AWARENESS && value != 1) {
+                    conversationAwarenessActive = false
+                    resetConversationVolume()
+                }
+                if (key == HyperPodsPrefsKey.SINGLE_POD_ANC && value != 1) cancelSinglePodAncRestore()
                 sendSettingsState()
             }
             if (command.identifier == AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE.value) {
                 AirPodsNotifications.ANC.setStatus(byteArrayOf(command.value.takeIf { it.isNotEmpty() }?.get(0) ?: 0x00.toByte()))
                 currentAnc = AirPodsNotifications.ANC.status
                 changeUIAncStatus(currentAnc)
+                if (singlePodAnc.onMode(currentAnc, singlePodAncEnabled(), SystemClock.elapsedRealtime()))
+                    restoreSinglePodAnc()
             }
         }
 
@@ -1071,7 +1138,8 @@ object L2CAPController {
         }
 
         override fun onStemPressReceived(stemPress: ByteArray) {
-
+            if (runCatching { aacpManager?.parseStemPressResponse(stemPress)?.first }.getOrNull() ==
+                AACPManager.Companion.StemPressType.LONG_PRESS) cancelSinglePodAncRestore()
         }
 
         override fun onAudioSourceReceived(audioSource: ByteArray) {
@@ -1420,6 +1488,9 @@ object L2CAPController {
     }
 
     private fun resetControlState() {
+        singlePodAnc.reset()
+        singlePodAncRestoreAttempts = 0
+        conversationAwarenessActive = false
         clearHeadTracking()
         clearPendingSettings()
         resetConversationVolume()
@@ -1442,6 +1513,9 @@ object L2CAPController {
     @Synchronized
     fun disconnectedPod(context: Context, device: BluetoothDevice) {
         if (::mDevice.isInitialized && device != mDevice) return
+        singlePodAnc.reset()
+        singlePodAncRestoreAttempts = 0
+        conversationAwarenessActive = false
         clearHeadTracking()
         ++sessionId
         clearPendingSettings()
@@ -1504,6 +1578,10 @@ object L2CAPController {
     fun setANCMode(mode: Int) {
         Log.d(TAG, "setANCMode: $mode")
         if (pendingOffSelection) return
+        // A user choice must replace the automatic request, not be rejected by
+        // its pending confirmation. Do not cancel an unrelated user request.
+        cancelSinglePodAncRestore()
+        singlePodAnc.selectMode(mode)
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
         if (mode == 1 && PodsSettings.supports(HyperPodsPrefsKey.ALLOW_OFF_OPTION, model) &&
             confirmedSettings()[HyperPodsPrefsKey.ALLOW_OFF_OPTION] != 1) {
