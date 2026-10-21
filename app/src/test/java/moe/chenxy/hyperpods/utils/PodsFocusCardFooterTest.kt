@@ -1,61 +1,59 @@
 package moe.chenxy.hyperpods.utils
 
 import android.view.View
-import android.widget.RelativeLayout
-import org.junit.Assert.*
 import org.junit.Test
 import org.mockito.Mockito.*
 
 class PodsFocusCardFooterTest {
-    private fun row(top: Int): Pair<View, RelativeLayout.LayoutParams> {
-        val params = RelativeLayout.LayoutParams(200, 80).apply { topMargin = top; bottomMargin = 9 }
-        val view = mock(View::class.java)
-        `when`(view.layoutParams).thenReturn(params)
-        return view to params
-    }
-
-    @Test fun removingTheDividerAlsoMovesTheNameAndButtonUpWithoutChangingBottomSpacing() {
+    @Test fun hidingTheDividerMustNotChangeVisibilityOrRequestAnotherLayout() {
         val line = mock(View::class.java)
+        `when`(line.alpha).thenReturn(0.6f)
         `when`(line.visibility).thenReturn(View.VISIBLE)
-        val (name, nameParams) = row(12)
-        val (button, buttonParams) = row(57)
-        PodsFocusCardFooter.apply(line, name, button, 24)
-        verify(line).visibility = View.GONE
-        assertEquals(0, nameParams.topMargin)
-        assertEquals(33, buttonParams.topMargin)
-        assertEquals(9, nameParams.bottomMargin)
-        assertEquals(9, buttonParams.bottomMargin)
+        PodsFocusCardFooter.apply(line)
+        verify(line).alpha = 0f
+        verify(line, never()).setVisibility(anyInt())
+        verify(line, never()).setLayoutParams(any())
+        verify(line, never()).requestLayout()
+        PodsFocusCardFooter.restore(line)
+        verify(line).alpha = 0.6f
     }
 
-    @Test fun repeatedBindingDoesNotAccumulateTheUpwardOffsetAndRecyclingRestoresTheSystemMargins() {
-        val (name, params) = row(57)
-        repeat(3) { PodsFocusCardFooter.apply(null, name, null, 24) }
-        assertEquals(33, params.topMargin)
-        PodsFocusCardFooter.restore(null, name, null)
-        assertEquals(57, params.topMargin)
-        params.topMargin = 66 // the next app's original bind chooses a new margin
-        PodsFocusCardFooter.restore(null, name, null)
-        assertEquals(66, params.topMargin)
-    }
-
-    @Test fun dividerVisibilityIsRestoredAndMissingViewsAreHarmless() {
+    @Test fun repeatedBindingRestoresTheOriginalAlphaOnce() {
         val line = mock(View::class.java)
-        `when`(line.visibility).thenReturn(View.INVISIBLE)
-        PodsFocusCardFooter.apply(line, null, null, 24)
-        PodsFocusCardFooter.restore(line, null, null)
-        verify(line).visibility = View.INVISIBLE
-        PodsFocusCardFooter.apply(null, null, null, 24)
-        PodsFocusCardFooter.restore(null, null, null)
+        `when`(line.alpha).thenReturn(0.4f)
+        repeat(3) { PodsFocusCardFooter.apply(line) }
+        PodsFocusCardFooter.restore(line)
+        verify(line, times(3)).alpha = 0f
+        verify(line).alpha = 0.4f
+        clearInvocations(line)
+        PodsFocusCardFooter.restore(line)
+        verifyNoInteractions(line)
     }
 
-    @Test fun untouchedMarginsAndOtherAppViewsAreNotOverridden() {
-        val (name, params) = row(0)
-        PodsFocusCardFooter.restore(null, name, null)
-        verify(name, never()).setLayoutParams(any())
-        PodsFocusCardFooter.apply(null, name, null, 24)
-        assertEquals(0, params.topMargin)
-        params.topMargin = 11
-        PodsFocusCardFooter.restore(null, name, null)
-        assertEquals(11, params.topMargin)
+    @Test fun recyclingUsesTheNextTemplatesOwnAlpha() {
+        val line = mock(View::class.java)
+        `when`(line.alpha).thenReturn(0.6f, 0.2f)
+        PodsFocusCardFooter.apply(line)
+        PodsFocusCardFooter.restore(line)
+        PodsFocusCardFooter.apply(line)
+        PodsFocusCardFooter.restore(line)
+        verify(line).alpha = 0.6f
+        verify(line).alpha = 0.2f
+    }
+
+    @Test fun aSystemHiddenDividerIsNotMadeVisible() {
+        val line = mock(View::class.java)
+        `when`(line.visibility).thenReturn(View.GONE)
+        PodsFocusCardFooter.apply(line)
+        PodsFocusCardFooter.restore(line)
+        verify(line, never()).setVisibility(anyInt())
+    }
+
+    @Test fun missingDividersAndUntouchedOtherAppViewsAreNotModified() {
+        PodsFocusCardFooter.apply(null)
+        PodsFocusCardFooter.restore(null)
+        val other = mock(View::class.java)
+        PodsFocusCardFooter.restore(other)
+        verifyNoInteractions(other)
     }
 }

@@ -6,18 +6,14 @@ import android.util.Log
 import android.service.notification.StatusBarNotification
 import android.view.View
 import android.widget.FrameLayout
-import android.widget.TextView
 import com.highcapable.yukihookapi.hook.entity.YukiBaseHooker
 import com.highcapable.yukihookapi.hook.factory.method
 import de.robv.android.xposed.XposedHelpers
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
-import moe.chenxy.hyperpods.utils.PodsFocusCardSpacing
-import moe.chenxy.hyperpods.utils.PodsFocusButtonText
 import moe.chenxy.hyperpods.utils.PodsFocusCardFooter
 import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.PodsIslandLayout
-import kotlin.math.roundToInt
 
 
 object SystemUIPluginHook : YukiBaseHooker() {
@@ -33,21 +29,6 @@ object SystemUIPluginHook : YukiBaseHooker() {
 
         fun initPluginHook() {
             loadPluginHooker(DeviceCardHook)
-            val actionHolder = runCatching {
-                Class.forName("miui.systemui.notification.focus.moduleV3.ModuleViewHolder", false, pluginLoaderClassLoader)
-            }.getOrNull()
-            if (actionHolder != null) actionHolder.method { name = "setAction"; paramCount = 6 }.hook {
-                before {
-                    runCatching { focusButton(this.args[0] as? View)?.let(PodsFocusButtonText::restore) }
-                        .onFailure { Log.w("Art_Chen", "Unable to restore HyperPods button text") }
-                }
-                after {
-                    runCatching {
-                        if (isHyperPods(this.args[2] as? StatusBarNotification))
-                            focusButton(this.args[0] as? View)?.let(PodsFocusButtonText::apply)
-                    }.onFailure { Log.w("Art_Chen", "Unable to adjust HyperPods button text") }
-                }
-            }
             val footerHolder = runCatching {
                 Class.forName("miui.systemui.notification.focus.moduleV3.ModuleTextButtonViewHolder", false, pluginLoaderClassLoader)
             }.getOrNull()
@@ -55,19 +36,17 @@ object SystemUIPluginHook : YukiBaseHooker() {
                 before {
                     runCatching {
                         val root = XposedHelpers.callMethod(this.instance, "getView") as? View ?: return@runCatching
-                        PodsFocusCardFooter.restore(focusPart(root, "line"), focusPart(root, "layout_hint"),
-                            focusPart(root, "focus_button_container"))
+                        PodsFocusCardFooter.restore(focusPart(root, "line"))
                     }.onFailure { Log.w("Art_Chen", "Unable to restore HyperPods focus footer") }
                 }
                 after {
                     runCatching {
                         if (!isHyperPods(this.args[1] as? StatusBarNotification)) return@runCatching
                         val root = XposedHelpers.callMethod(this.instance, "getView") as? View ?: return@runCatching
-                        // The separator and the footer's top margins are independent.
-                        // Collapse both through layout, without translating click targets.
-                        PodsFocusCardFooter.apply(focusPart(root, "line"), focusPart(root, "layout_hint"),
-                            focusPart(root, "focus_button_container"), (8 * root.resources.displayMetrics.density).roundToInt())
-                    }.onFailure { Log.w("Art_Chen", "Unable to compact HyperPods focus footer") }
+                        // Keep the stock template's margins, font metrics and height.
+                        // Hide only the decoration; do not compact its layout.
+                        PodsFocusCardFooter.apply(focusPart(root, "line"))
+                    }.onFailure { Log.w("Art_Chen", "Unable to hide HyperPods focus divider") }
                 }
             }
             val islandView = runCatching {
@@ -101,37 +80,6 @@ object SystemUIPluginHook : YukiBaseHooker() {
                             writeIslandLayout(view, adjusted)
                         }.onFailure { Log.w("Art_Chen", "Unable to adjust HyperPods coexistence dimensions") }
                     }
-                }
-            }
-            val cardHolder = runCatching {
-                Class.forName("miui.systemui.notification.focus.moduleV3.ModuleTextViewHolder", false, pluginLoaderClassLoader)
-            }.getOrNull()
-            if (cardHolder != null) cardHolder.method { name = "bind"; paramCount = 2 }.hook {
-                before {
-                    runCatching {
-                        val view = XposedHelpers.getObjectField(this.instance, "titleContainer") as? View ?: return@runCatching
-                        // Remove only our previous change before the system binds the next card.
-                        // Its own requested margins must remain authoritative for other apps.
-                        PodsFocusCardSpacing.restore(view)
-                    }.onFailure { Log.w("Art_Chen", "Unable to restore HyperPods focus card spacing") }
-                }
-                after {
-                    runCatching {
-                        val sbn = this.args[1] as? StatusBarNotification ?: return@runCatching
-                        val own = isHyperPods(sbn)
-                        val view = XposedHelpers.getObjectField(this.instance, "titleContainer") as? View ?: return@runCatching
-                        val content = if (own) XposedHelpers.callMethod(this.args[0], "getBaseInfo")?.let {
-                            XposedHelpers.callMethod(it, "getContent") as? String
-                        } else null
-                        val gap = if (own) {
-                            val resources = view.context.resources
-                            // This dimension belongs to the system plugin, not our resource table.
-                            @SuppressLint("DiscouragedApi")
-                            val id = resources.getIdentifier("focus_notify_button_without_icon_margin_start", "dimen", "miui.systemui.plugin")
-                            if (id != 0) resources.getDimensionPixelSize(id) else (12 * resources.displayMetrics.density).roundToInt()
-                        } else 0
-                        PodsFocusCardSpacing.apply(view, own, content, gap)
-                    }.onFailure { Log.w("Art_Chen", "Unable to adjust HyperPods focus card spacing") }
                 }
             }
             // OS4 reserves an extra half-small-island width on the left when a
@@ -214,8 +162,6 @@ object SystemUIPluginHook : YukiBaseHooker() {
     private fun isHyperPods(sbn: StatusBarNotification?): Boolean =
         sbn?.packageName == HyperPodsBroadcasts.XIAOMI_BLUETOOTH &&
             sbn.notification.extras.getCharSequence("miui.targetPkg")?.toString() == BuildConfig.APPLICATION_ID
-
-    private fun focusButton(root: View?): TextView? = focusPart(root, "focus_button_title") as? TextView
 
     @SuppressLint("DiscouragedApi")
     private fun focusPart(root: View?, name: String): View? {
