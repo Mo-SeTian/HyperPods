@@ -27,6 +27,23 @@ object PodsIslandData {
     fun batteryText(battery: PodBatteryParams?): String =
         if (battery?.isConnected == true && battery.battery in 0..100) "${battery.battery}%" else "--"
 
+    data class ExpandedText(val title: String, val content: String, val hintContent: String)
+
+    fun expandedText(battery: BatteryParams, leftLabel: String, rightLabel: String,
+        caseLabel: String, warning: String = ""): ExpandedText {
+        fun ear(label: String, value: PodBatteryParams?) = "$label：${batteryText(value)}" +
+            (if (value?.isCharging == true) " ⚡" else "")
+        val case = battery.case
+        val caseText = if (case?.isConnected == true && case.battery in 0..100 &&
+            (battery.left?.isInCase == true || battery.right?.isInCase == true))
+            "$caseLabel：${case.battery}%" + (if (case.isCharging) " ⚡" else "")
+        else "HyperPods"
+        // Reuse the footer's existing subtitle instead of growing the top module
+        // when the case appears. Keep the system template and window size native.
+        return ExpandedText("${ear(leftLabel, battery.left)} | ${ear(rightLabel, battery.right)}",
+            warning, caseText)
+    }
+
     fun build(battery: BatteryParams): JSONObject {
         fun ear(type: Int, icon: String, value: PodBatteryParams?) = JSONObject()
             .put("type", type)

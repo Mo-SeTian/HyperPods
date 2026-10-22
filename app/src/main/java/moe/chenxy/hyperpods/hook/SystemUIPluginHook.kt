@@ -14,6 +14,8 @@ import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.PodsFocusCardFooter
 import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.PodsIslandLayout
+import moe.chenxy.hyperpods.utils.PodsIslandMiniBar
+import moe.chenxy.hyperpods.utils.PodsExpandedMeasure
 
 
 object SystemUIPluginHook : YukiBaseHooker() {
@@ -47,6 +49,48 @@ object SystemUIPluginHook : YukiBaseHooker() {
                         // Hide only the decoration; do not compact its layout.
                         PodsFocusCardFooter.apply(focusPart(root, "line"))
                     }.onFailure { Log.w("Art_Chen", "Unable to hide HyperPods focus divider") }
+                }
+            }
+            val baseIslandView = runCatching {
+                Class.forName("miui.systemui.dynamicisland.window.content.DynamicIslandBaseContentView", false, pluginLoaderClassLoader)
+            }.getOrNull()
+            if (baseIslandView != null) baseIslandView.method { name = "updateMiniBar"; paramCount = 1 }.hook {
+                after {
+                    runCatching {
+                        // Animation copies receive the real content view as their argument.
+                        val owner = this.args[0] ?: this.instance
+                        val data = XposedHelpers.callMethod(owner, "getCurrentIslandData") ?: return@runCatching
+                        val extras = XposedHelpers.callMethod(data, "getExtras") as? Bundle ?: return@runCatching
+                        @Suppress("DEPRECATION")
+                        val sbn = extras.getParcelable<StatusBarNotification>("miui.sbn")
+                        val bar = XposedHelpers.callMethod(this.instance, "getMiniBar") as? View
+                        // Native updateMiniBar resets visibility on every bind, including other apps.
+                        PodsIslandMiniBar.hide(bar, isHyperPods(sbn))
+                    }.onFailure { Log.w("Art_Chen", "Unable to hide HyperPods mini-window hint") }
+                }
+            }
+            val islandWindow = runCatching {
+                Class.forName("miui.systemui.dynamicisland.window.DynamicIslandWindowView", false, pluginLoaderClassLoader)
+            }.getOrNull()
+            if (islandWindow != null) islandWindow.method { name = "measureExpandedViewHeight"; paramCount = 1 }.hook {
+                before {
+                    runCatching {
+                        val data = XposedHelpers.callMethod(this.args[0], "getCurrentIslandData") ?: return@runCatching
+                        val extras = XposedHelpers.callMethod(data, "getExtras") as? Bundle ?: return@runCatching
+                        @Suppress("DEPRECATION")
+                        val sbn = extras.getParcelable<StatusBarNotification>("miui.sbn")
+                        if (!isHyperPods(sbn)) return@runCatching
+                        val view = XposedHelpers.callMethod(data, "getView") as? View ?: return@runCatching
+                        XposedHelpers.setAdditionalInstanceField(this.instance, EXPANDED_MEASUREMENT, view)
+                        // Release only our content's previous fixed height. The native
+                        // method still measures, limits and updates both island views.
+                        PodsExpandedMeasure.prepare(view, isHyperPods = true)
+                    }.onFailure { Log.w("Art_Chen", "Unable to prepare HyperPods expanded measurement") }
+                }
+                after {
+                    val view = XposedHelpers.removeAdditionalInstanceField(this.instance, EXPANDED_MEASUREMENT) as? View
+                    runCatching { PodsExpandedMeasure.finish(view) }
+                        .onFailure { Log.w("Art_Chen", "Unable to restore HyperPods expanded measurement") }
                 }
             }
             val islandView = runCatching {
@@ -158,6 +202,7 @@ object SystemUIPluginHook : YukiBaseHooker() {
     }
 
     private const val ISLAND_LAYOUT = "hyperpods.island.layout"
+    private const val EXPANDED_MEASUREMENT = "hyperpods.expanded.measurement"
 
     private fun isHyperPods(sbn: StatusBarNotification?): Boolean =
         sbn?.packageName == HyperPodsBroadcasts.XIAOMI_BLUETOOTH &&

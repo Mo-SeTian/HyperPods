@@ -13,6 +13,8 @@ import android.widget.LinearLayout
 import android.widget.RelativeLayout
 import android.widget.TextView
 import androidx.test.platform.app.InstrumentationRegistry
+import moe.chenxy.hyperpods.utils.data.BatteryParams
+import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +42,7 @@ class PodsFocusCardLayoutTest(private val fontScale: Float, private val widthDp:
         private val body = RelativeLayout(context)
         private val battery = LinearLayout(context).apply { id = View.generateViewId(); orientation = LinearLayout.VERTICAL }
         val caseBattery = text("充电盒：90%", 12f).apply { visibility = if (showCase) View.VISIBLE else View.GONE }
+        private val earBattery = text("左：100% | 右：100%", 20f)
         private val icon = View(context).apply { id = View.generateViewId() }
         private val footerContainer = FrameLayout(context).apply { setPadding(0, dp(8f), 0, 0) }
         private val footer = RelativeLayout(context).apply { gravity = Gravity.CENTER }
@@ -47,6 +50,8 @@ class PodsFocusCardLayoutTest(private val fontScale: Float, private val widthDp:
         private val name = LinearLayout(context)
         private val nameColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         private val nameFrame = FrameLayout(context)
+        private val deviceName = text("AirPods Pro", 16f)
+        private val subtitle = text("HyperPods", 12f)
         val button = FrameLayout(context).apply { id = View.generateViewId() }
         val row = LinearLayout(context)
         val title = text("断开连接", 13f).apply {
@@ -59,7 +64,7 @@ class PodsFocusCardLayoutTest(private val fontScale: Float, private val widthDp:
             root.addView(body, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { setMargins(dp(14f), dp(14f), dp(14f), dp(14f)) })
             body.addView(icon, RelativeLayout.LayoutParams(dp(48f), dp(48f)).apply { addRule(RelativeLayout.ALIGN_PARENT_END) })
             battery.addView(caseBattery)
-            battery.addView(text("左：100% | 右：100%", 20f))
+            battery.addView(earBattery)
             body.addView(battery, RelativeLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
                 addRule(RelativeLayout.ALIGN_PARENT_TOP)
                 addRule(RelativeLayout.CENTER_VERTICAL)
@@ -71,8 +76,8 @@ class PodsFocusCardLayoutTest(private val fontScale: Float, private val widthDp:
             })
             footerContainer.addView(footer, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             footer.addView(line, RelativeLayout.LayoutParams(MATCH_PARENT, dp(1.6f)).apply { topMargin = dp(2f) })
-            nameFrame.addView(text("AirPods Pro", 16f), FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
-            nameColumn.addView(text("HyperPods", 12f))
+            nameFrame.addView(deviceName, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+            nameColumn.addView(subtitle)
             nameColumn.addView(nameFrame)
             name.addView(nameColumn, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(4f) })
             footer.addView(name, RelativeLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
@@ -95,12 +100,40 @@ class PodsFocusCardLayoutTest(private val fontScale: Float, private val widthDp:
             })
         }
 
+        fun bindExpandedText(text: PodsIslandData.ExpandedText) {
+            earBattery.text = text.title
+            caseBattery.text = text.content
+            caseBattery.visibility = if (text.content.isEmpty()) View.GONE else View.VISIBLE
+            subtitle.text = text.hintContent
+        }
+
+        fun assertFooterFits() {
+            for (text in listOf(deviceName, title, subtitle)) {
+                assertEquals(1, text.lineCount)
+                assertTrue(text.layout.height <= text.height - text.compoundPaddingTop - text.compoundPaddingBottom)
+                var child: View = text
+                while (child !== root) {
+                    val parent = child.parent as ViewGroup
+                    assertTrue("${text.text}: child top outside parent", child.top >= 0)
+                    assertTrue("${text.text}: child bottom outside parent", child.bottom <= parent.height)
+                    child = parent
+                }
+            }
+        }
+
         fun measure(fixedHeight: Int? = null) {
             root.requestLayout()
             root.measure(View.MeasureSpec.makeMeasureSpec(dp(widthDp.toFloat()), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(fixedHeight ?: dp(600f),
                     if (fixedHeight == null) View.MeasureSpec.AT_MOST else View.MeasureSpec.EXACTLY))
             root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+        }
+
+        fun measureWrapper(wrapper: FrameLayout) {
+            wrapper.requestLayout()
+            wrapper.measure(View.MeasureSpec.makeMeasureSpec(dp(widthDp.toFloat()), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(dp(600f), View.MeasureSpec.AT_MOST))
+            wrapper.layout(0, 0, wrapper.measuredWidth, wrapper.measuredHeight)
         }
 
         fun geometry(): List<List<Int>> {
@@ -167,6 +200,42 @@ class PodsFocusCardLayoutTest(private val fontScale: Float, private val widthDp:
             card.measure()
             assertEquals(original, card.geometry())
             assertEquals(0.6f, card.line.alpha, 0f)
+        }
+    }
+
+    @Test fun caseBatteryReusesTheSubtitleAndRemeasuresNaturalHeightWithoutClipping() = check { card ->
+        val battery = BatteryParams(left = PodBatteryParams(100, isConnected = true, isInCase = true),
+            right = PodBatteryParams(85, isConnected = true))
+        fun bind() = card.bindExpandedText(PodsIslandData.expandedText(battery, "左", "右", "充电盒"))
+        bind()
+        card.measure()
+        var height = card.root.measuredHeight
+        card.assertFooterFits()
+        val wrapper = FrameLayout(card.root.context).apply {
+            addView(card.root, FrameLayout.LayoutParams(MATCH_PARENT, height))
+        }
+        for (case in listOf(PodBatteryParams(0, isConnected = true),
+            PodBatteryParams(96, isConnected = true, isCharging = true),
+            PodBatteryParams(100, isConnected = true), null)) {
+            battery.case = case
+            bind()
+            card.root.layoutParams.height = WRAP_CONTENT
+            card.measureWrapper(wrapper)
+            val naturalHeight = card.root.measuredHeight
+            val natural = card.geometry()
+            assertEquals(View.GONE, card.caseBattery.visibility)
+            // Simulate the positive size left by the preceding native update.
+            card.root.layoutParams.height = height
+            PodsExpandedMeasure.prepare(card.root, isHyperPods = true)
+            card.measureWrapper(wrapper)
+            assertEquals(naturalHeight, card.root.measuredHeight)
+            assertEquals(natural, card.geometry())
+            card.assertFooterFits()
+            // The native method commits this result to the real/animation views.
+            card.root.layoutParams.height = naturalHeight
+            PodsExpandedMeasure.finish(card.root)
+            assertEquals(naturalHeight, card.root.layoutParams.height)
+            height = naturalHeight
         }
     }
 }

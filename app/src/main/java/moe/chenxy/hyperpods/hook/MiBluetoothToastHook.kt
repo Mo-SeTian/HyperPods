@@ -296,25 +296,21 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                         .apply { if (model == null) setTint(android.graphics.Color.WHITE) })
             }
 
-            val caseBattStr = if (shouldShowCaseBattery(batteryParams))
-                "${context.resources.getString(miheadset_notification_Box)}：${batteryParams.case!!.battery} %" +
-                        "${if (batteryParams.case!!.isCharging) " ⚡" else ""}\n"
-            else ""
             // An empty focus title is invalid while the initial AACP report is
             // pending. Keep a settings entry with unknown readings, not 0%.
-            val leftEar = "${context.resources.getString(miheadset_notification_LeftEar)}：${PodsIslandData.batteryText(batteryParams.left)}" +
-                    (if (batteryParams.left?.isCharging == true) " ⚡" else "")
-            val rightEar = " | ${context.resources.getString(miheadset_notification_RightEar)}：${PodsIslandData.batteryText(batteryParams.right)}" +
-                    (if (batteryParams.right?.isCharging == true) " ⚡" else "")
+            val expandedText = PodsIslandData.expandedText(batteryParams,
+                context.resources.getString(miheadset_notification_LeftEar),
+                context.resources.getString(miheadset_notification_RightEar),
+                context.resources.getString(miheadset_notification_Box), warning)
             val actionObject = JSONObject()
             actionObject.put("action", "miui.focus.action_disconnect")
 
-            val baseInfo = focusApi.baseinfo(title = "$leftEar$rightEar",
-                basetype = 1, content = (if (warning.isEmpty()) "" else "$warning\n") + caseBattStr)
+            val baseInfo = focusApi.baseinfo(title = expandedText.title,
+                basetype = 1, content = expandedText.content)
             val hintInfo = focusApi.hintInfo(type = 2,
                 titleLineCount = 1,
                 title = PodsIslandData.displayName(bluetoothDevice.alias, bluetoothDevice.name),
-                content = "HyperPods",
+                content = expandedText.hintContent,
                 actionInfo = actionObject)
             val api = focusApi.sendFocus(
                 title = "BTHeadset${bluetoothDevice.address}",
