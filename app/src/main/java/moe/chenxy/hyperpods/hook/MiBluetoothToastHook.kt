@@ -36,6 +36,7 @@ import moe.chenxy.hyperpods.utils.SystemApisUtils
 import moe.chenxy.hyperpods.utils.SystemApisUtils.cancelAsUser
 import moe.chenxy.hyperpods.utils.SystemApisUtils.notifyAsUser
 import moe.chenxy.hyperpods.utils.SystemApisUtils.supportsIsland
+import moe.chenxy.hyperpods.utils.buildConnectedPodsNotification
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.showCaseBatteryToast
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil
@@ -225,7 +226,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 showSmallIcon = false,
                 baseInfo = baseInfo,
                 enableFloat = true,
-                reopen = "true", // allow notify again after notification cleaned
+                reopen = "reopen", // allow notify again after notification cleaned
                 picInfo = Icon.createWithResource(context, earphone_drawable),
                 picInfotype = 2,
                 timeout = 1000,
@@ -323,7 +324,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 isShowNotification = true,
                 islandFirstFloat = false,
                 enableFloat = false,
-                reopen = "true", // allow notify again after notification cleaned
+                reopen = "reopen", // allow notify again after notification cleaned
                 picInfo = cardIcon,
                 picInfotype = 2,
                 timeout = 1000,
@@ -342,13 +343,12 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             a.putCharSequence("miui.targetPkg", BuildConfig.APPLICATION_ID)
             a.putAll(api)
             sendNotification.addExtras(a)
-            sendNotification.setOngoing(true)
             val notificationManager = context.getSystemService("notification") as NotificationManager
             notificationManager.cancelAsUser("HEADSET_CONNECT_NOTIFICATION", 1001, Process.myUserHandle())
             notificationManager.notifyAsUser(
                 "BTHeadset${bluetoothDevice.address}",
                 10003,
-                sendNotification.build(),
+                sendNotification.buildConnectedPodsNotification(),
                 Process.myUserHandle()
             )
         }
@@ -380,7 +380,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                 notificationManager.notifyAsUser(
                     "BTHeadset$address",
                     10003,
-                    buildNotification(bluetoothDevice, context, batteryParams, warning).build(),
+                    buildNotification(bluetoothDevice, context, batteryParams, warning).buildConnectedPodsNotification(),
                     SystemApisUtils.getUserAllUserHandle()
                 )
                 return true

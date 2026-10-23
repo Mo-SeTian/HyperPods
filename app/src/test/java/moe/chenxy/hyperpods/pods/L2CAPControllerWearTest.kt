@@ -314,6 +314,22 @@ class L2CAPControllerWearTest {
         assertEquals(generation, field("sessionId").getLong(controller))
     }
 
+    @Test fun physicalDisconnectRequestsNotificationRemovalForTheConnectedDevice() {
+        val context = mock(Context::class.java)
+        field("mContext").set(controller, context)
+        val cancellations = mutableListOf<Intent>()
+        mockConstruction(Intent::class.java) { intent, construction ->
+            if (construction.arguments().firstOrNull() == "chen.action.hyperpods.cancelpodsnotification")
+                cancellations.add(intent)
+        }.use {
+            controller.disconnectedPod(context, device)
+            val cancellation = cancellations.single()
+            verify(cancellation).putExtra("device", device)
+            verify(cancellation, atLeastOnce()).setPackage("com.xiaomi.bluetooth")
+            verify(context).sendBroadcast(same(cancellation), isNull(), isNull())
+        }
+    }
+
     @Test fun obsoleteControlAttemptCannotReplaceTheNewSessionSocket() = runBlocking {
         val generation = field("sessionId").getLong(controller)
         val current = mock(BluetoothSocket::class.java)
@@ -347,6 +363,21 @@ class L2CAPControllerWearTest {
         assertSame(context, field("mContext").get(controller))
         assertEquals("failed", field("connectionState").get(controller))
         assertEquals("status_session_ended", field("lastStatusFailure").get(controller))
+    }
+
+    @Test fun controlStreamEndDoesNotRemoveTheConnectedNotification() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        val actions = mutableListOf<Any?>()
+        mockConstruction(Intent::class.java) { _, construction ->
+            actions.add(construction.arguments().firstOrNull())
+        }.use {
+            with(controller) {
+                runControlAttempt(context, device, field("sessionId").getLong(controller)) { closedStreamSocket() }
+            }
+        }
+        assertFalse(actions.contains("chen.action.hyperpods.cancelpodsnotification"))
+        assertFalse(actions.contains(HyperPodsAction.ACTION_PODS_DISCONNECTED))
+        assertSame(context, field("mContext").get(controller))
     }
 
     @Test fun oldReaderCompletionCannotClearANewerControlSession() = runBlocking {
