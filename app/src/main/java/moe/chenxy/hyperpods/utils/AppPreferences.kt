@@ -30,11 +30,13 @@ object AppPreferences {
         val conversationVolume: Boolean = true,
         val lowBattery: LowBatterySettings = LowBatterySettings(),
         val headGestures: Boolean = false,
+        val conversationPauseMedia: Boolean = false,
     ) {
         fun encode(): String = JSONObject(mapOf(
             Key.EAR_DETECTION to earDetection,
             Key.EAR_DETECTION_SWITCH_SPEAKER to switchSpeaker,
             Key.CONVERSATION_PHONE_VOLUME to conversationVolume,
+            Key.CONVERSATION_PAUSE_MEDIA to conversationPauseMedia,
             Key.HEAD_GESTURES to headGestures,
             Key.LOW_BATTERY_EARS to lowBattery.earsEnabled,
             Key.LOW_BATTERY_EARS_THRESHOLD to lowBattery.earsThreshold,
@@ -60,6 +62,7 @@ object AppPreferences {
                 battery,
                 // Missing only in pre-gesture private files. Do not reset any old policy.
                 if (json.has(Key.HEAD_GESTURES)) json.get(Key.HEAD_GESTURES) as Boolean else false,
+                if (json.has(Key.CONVERSATION_PAUSE_MEDIA)) json.get(Key.CONVERSATION_PAUSE_MEDIA) as Boolean else false,
             )
         } catch (_: Exception) { null }
     }

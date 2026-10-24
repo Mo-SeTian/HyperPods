@@ -118,6 +118,8 @@ fun PodDetailPage(
     onLowBatterySettingsChange: (LowBatterySettings) -> Unit = {},
     conversationPhoneVolume: Boolean = true,
     onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
+    conversationPauseMedia: Boolean = false,
+    onConversationPauseMediaChange: (Boolean) -> Unit = {},
     headGestures: Boolean = false,
     onHeadGesturesChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
@@ -392,12 +394,22 @@ fun PodDetailPage(
                     Card(
                         modifier = cardModifier
                     ) {
-                        if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) SuperSwitch(
-                            title = stringResource(R.string.conversation_phone_volume_title),
-                            summary = stringResource(R.string.conversation_phone_volume_summary),
-                            checked = conversationPhoneVolume,
-                            onCheckedChange = onConversationPhoneVolumeChange,
-                        )
+                        if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
+                            SuperSwitch(
+                                title = stringResource(R.string.conversation_pause_media_title),
+                                summary = stringResource(R.string.conversation_pause_media_summary),
+                                checked = conversationPauseMedia,
+                                onCheckedChange = onConversationPauseMediaChange,
+                            )
+                            SuperSwitch(
+                                title = stringResource(R.string.conversation_phone_volume_title),
+                                summary = stringResource(if (conversationPauseMedia) R.string.conversation_phone_volume_paused
+                                    else R.string.conversation_phone_volume_summary),
+                                checked = conversationPhoneVolume,
+                                enabled = !conversationPauseMedia,
+                                onCheckedChange = onConversationPhoneVolumeChange,
+                            )
+                        }
                         if (PodsSettings.supports(Key.CHIME_VOLUME, model)) Column(Modifier.padding(16.dp)) {
                             Text(stringResource(R.string.control_chime_volume), fontWeight = FontWeight.Medium)
                             Text(if (ready(Key.CHIME_VOLUME)) "${chimeDraft.toInt()}%" else

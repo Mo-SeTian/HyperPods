@@ -65,6 +65,8 @@ class L2CAPControllerWearTest {
         field("mDevice").set(controller, device)
         field("mContext").set(controller, ContextWrapper(null))
         field("earDetectionStateValid").setBoolean(controller, false)
+        field("conversationPauseMedia").setBoolean(controller, false)
+        field("conversationAwarenessActive").setBoolean(controller, false)
         field("batteryStateValid").setBoolean(controller, false)
         field("switchedToSpeaker").setBoolean(controller, false)
         field("pausedAudio").setBoolean(controller, false)

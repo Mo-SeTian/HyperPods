@@ -28,7 +28,7 @@ class AppPreferencesTest {
 
     @Test fun allPolicyChoicesRoundTripWithoutResettingOtherSwitches() {
         assertEquals(snapshot, AppPreferences.decode(snapshot.encode()))
-        assertEquals(8, JSONObject(snapshot.encode()).length())
+        assertEquals(9, JSONObject(snapshot.encode()).length())
         assertEquals(snapshot.copy(headGestures = true), AppPreferences.decode(snapshot.copy(headGestures = true).encode()))
     }
 
@@ -36,6 +36,15 @@ class AppPreferencesTest {
         val previous = JSONObject(snapshot.encode()).apply { remove(Key.HEAD_GESTURES) }.toString()
         assertEquals(snapshot, AppPreferences.decode(previous))
         assertNull(AppPreferences.decode(JSONObject(snapshot.encode()).put(Key.HEAD_GESTURES, "true").toString()))
+    }
+
+    @Test fun conversationPauseRoundTripsAndOldFilesDefaultToOffWithoutResettingOtherPolicies() {
+        val enabled = snapshot.copy(headGestures = true, conversationPauseMedia = true)
+        assertEquals(enabled, AppPreferences.decode(enabled.encode()))
+        val previous = JSONObject(enabled.encode()).apply { remove(Key.CONVERSATION_PAUSE_MEDIA) }.toString()
+        assertEquals(enabled.copy(conversationPauseMedia = false), AppPreferences.decode(previous))
+        assertFalse(AppPreferences.Snapshot().conversationPauseMedia)
+        assertNull(AppPreferences.decode(JSONObject(enabled.encode()).put(Key.CONVERSATION_PAUSE_MEDIA, "true").toString()))
     }
 
     @Test fun partialMalformedOrOutOfRangeSnapshotsAreRejected() {

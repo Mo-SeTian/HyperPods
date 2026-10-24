@@ -10,6 +10,9 @@
     <string name="setting_write_failed">命令发送失败，请检查耳机控制连接后重试。</string>
     <string name="setting_invalid">此设置不可用，或上一项修改仍在等待确认。</string>
     <string name="conversation_phone_volume_title">对话时降低手机媒体音量</string>
+    <string name="conversation_pause_media_title">讲话时暂停媒体</string>
+    <string name="conversation_pause_media_summary">需开启对话感知。讲话时暂停媒体，对话结束后自动续播，不再额外降低手机音量；通透切换由耳机自动处理。</string>
+    <string name="conversation_phone_volume_paused">讲话暂停媒体时不叠加调低音量，原有音量偏好已保留。</string>
     <string name="conversation_phone_volume_summary" formatted="false">额外将媒体音量降至原来的 20%，对话结束后平滑恢复。关闭后仅由耳机处理对话感知；手动调音量后不再自动恢复。</string>
     <string name="loud_sound_unavailable">当前版本暂不支持此功能</string>
     <string name="allow_off_title">允许关闭聆听模式</string>

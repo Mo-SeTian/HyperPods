@@ -77,6 +77,7 @@ fun MainUI() {
     var pendingSettings by remember { mutableStateOf<Set<String>>(emptySet()) }
     val settingFeedback = remember { mutableStateMapOf<String, String>() }
     var conversationPhoneVolume by remember { mutableStateOf(initialPolicy.conversationVolume) }
+    var conversationPauseMedia by remember { mutableStateOf(initialPolicy.conversationPauseMedia) }
     var headGestures by remember { mutableStateOf(initialPolicy.headGestures) }
     var lowBatterySettings by remember { mutableStateOf(initialPolicy.lowBattery) }
     var diagnostics by remember { mutableStateOf<Bundle?>(null) }
@@ -303,6 +304,10 @@ fun MainUI() {
                 if (savePolicy(AppPreferences.read(context).copy(lowBattery = it))) lowBatterySettings = it
             },
             conversationPhoneVolume = conversationPhoneVolume,
+            conversationPauseMedia = conversationPauseMedia,
+            onConversationPauseMediaChange = {
+                if (savePolicy(AppPreferences.read(context).copy(conversationPauseMedia = it))) conversationPauseMedia = it
+            },
             headGestures = headGestures,
             onHeadGesturesChange = {
                 if (savePolicy(AppPreferences.read(context).copy(headGestures = it))) headGestures = it
@@ -353,6 +358,8 @@ fun AppHorizontalPager(
     onLowBatterySettingsChange: (LowBatterySettings) -> Unit = {},
     conversationPhoneVolume: Boolean = true,
     onConversationPhoneVolumeChange: (Boolean) -> Unit = {},
+    conversationPauseMedia: Boolean = false,
+    onConversationPauseMediaChange: (Boolean) -> Unit = {},
     headGestures: Boolean = false,
     onHeadGesturesChange: (Boolean) -> Unit = {},
     onAllowOffChange: (Boolean) -> Unit = {},
@@ -367,6 +374,8 @@ fun AppHorizontalPager(
                 0 -> Crossfade(canShowDetailPage, label = "MainUIShowDetailAnim") { value ->
                         if (value) {
                             PodDetailPage(
+                                conversationPauseMedia = conversationPauseMedia,
+                                onConversationPauseMediaChange = onConversationPauseMediaChange,
                                 settings = settings, pendingSettings = pendingSettings, onAllowOffChange = onAllowOffChange,
                                 settingFeedback = settingFeedback, conversationPhoneVolume = conversationPhoneVolume,
                                 lowBatterySettings = lowBatterySettings, onLowBatterySettingsChange = onLowBatterySettingsChange,

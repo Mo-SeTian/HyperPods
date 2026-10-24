@@ -44,6 +44,7 @@ import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.AirPodsModels
 import moe.chenxy.hyperpods.utils.ConversationVolume
+import moe.chenxy.hyperpods.utils.ConversationMedia
 import moe.chenxy.hyperpods.utils.DiagnosticsHistory
 import moe.chenxy.hyperpods.utils.DiagnosticEvents
 import moe.chenxy.hyperpods.utils.LowBatterySettings
@@ -126,6 +127,7 @@ object L2CAPController {
     private var conversationRestoreJob: Job? = null
     private var headphoneRouteId: String? = null
     private var conversationRouteId: String? = null
+    private var conversationMedia: ConversationMedia? = null
     private val conversationVolume = ConversationVolume(
         { audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0 },
         { if (conversationRouteIsSelected()) audioManager?.setStreamVolume(AudioManager.STREAM_MUSIC, it, 0) },
@@ -136,6 +138,7 @@ object L2CAPController {
     private var earDetection = true
     private var autoSwitchToSpeaker = true
     private var conversationPhoneVolume = true
+    private var conversationPauseMedia = false
     private var lowBatterySettings = LowBatterySettings()
     private var headGestures = false
     private var headGestureCalls: HeadGestureCalls? = null
@@ -233,7 +236,10 @@ object L2CAPController {
             // Protected system broadcast; re-read state instead of trusting extras.
             if (intent.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
                 synchronized(this@L2CAPController) {
-                    if (phoneInCall()) headPreview.stop("interrupted")
+                    if (phoneInCall()) {
+                        headPreview.stop("interrupted")
+                        if (conversationMedia != null) resetConversationVolume()
+                    }
                 }
                 return
             }
@@ -392,6 +398,8 @@ object L2CAPController {
                         }
                     } else if (it == HyperPodsPrefsKey.CONVERSATION_PHONE_VOLUME && intent.hasExtra("enabled")) {
                         updateConversationPhoneVolume(intent.getBooleanExtra("enabled", true))
+                    } else if (it == HyperPodsPrefsKey.CONVERSATION_PAUSE_MEDIA && intent.hasExtra("enabled")) {
+                        updateConversationPauseMedia(intent.getBooleanExtra("enabled", false))
                     } else if (it == HyperPodsPrefsKey.LOW_BATTERY_EARS) {
                         intent.getParcelableExtra("lowBatterySettings", LowBatterySettings::class.java)?.takeIf { it.valid }?.let { settings ->
                             lowBatterySettings = settings
@@ -641,6 +649,10 @@ object L2CAPController {
                 Log.d(TAG, "receive same in ear status, ignored")
                 return
             }
+            if (conversationMedia != null &&
+                (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR && status[0] != EarDetectionStatus.IN_EAR ||
+                    currentEarDetectionParams.right == EarDetectionStatus.IN_EAR && status[1] != EarDetectionStatus.IN_EAR))
+                resetConversationVolume()
         }
         val worn = status.count { it == EarDetectionStatus.IN_EAR }
         if (worn != 1) cancelSinglePodAncRestore()
@@ -751,6 +763,8 @@ object L2CAPController {
     @Synchronized
     private fun resumePausedAudio() {
         if (!pausedAudio || !earDetection || !earDetectionStateValid || mContext == null) return
+        if (conversationPauseMedia && conversationAwarenessActive &&
+            confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] == 1) return
         if (!isReadyToPlay()) return
         // transferTo is asynchronous: do not resume onto the phone speaker while
         // waiting for the selected route to become this headset again.
@@ -949,6 +963,8 @@ object L2CAPController {
             updateEarDetectionSettings(settings.earDetection, settings.switchSpeaker)
         if (conversationPhoneVolume != settings.conversationVolume)
             updateConversationPhoneVolume(settings.conversationVolume)
+        if (conversationPauseMedia != settings.conversationPauseMedia)
+            updateConversationPauseMedia(settings.conversationPauseMedia)
         val remindersChanged = lowBatterySettings != settings.lowBattery
         lowBatterySettings = settings.lowBattery
         if (headGestures != settings.headGestures) {
@@ -962,7 +978,16 @@ object L2CAPController {
 
     private fun updateConversationPhoneVolume(enabled: Boolean) {
         conversationPhoneVolume = enabled
-        if (!enabled) resetConversationVolume()
+        if (!enabled && !conversationPauseMedia) resetConversationVolume()
+    }
+
+    private fun updateConversationPauseMedia(enabled: Boolean) {
+        if (!enabled) conversationMedia?.finish(canResumeConversationMedia())
+        resetConversationVolume()
+        conversationPauseMedia = enabled
+        if (enabled && conversationAwarenessActive &&
+            confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] == 1)
+            handleConversationMedia(1, wasActive = false)
     }
 
     @Synchronized
@@ -1033,12 +1058,18 @@ object L2CAPController {
         override fun onConversationAwarenessReceived(conversationAwareness: ByteArray) {
             AirPodsNotifications.ConversationalAwarenessNotification.setData(conversationAwareness)
             val status = AirPodsNotifications.ConversationalAwarenessNotification.status.toInt()
+            val wasActive = conversationAwarenessActive
             if (status in 1..3 || status in 6..9) {
                 conversationAwarenessActive = status in 1..3
                 if (conversationAwarenessActive) cancelSinglePodAncRestore()
             }
-            if (!conversationPhoneVolume || confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
+            if (confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
             if (status !in 1..3 && status !in 6..9) return
+            if (conversationPauseMedia) {
+                handleConversationMedia(status, wasActive)
+                return
+            }
+            if (!conversationPhoneVolume) return
             if (conversationRouteId != null && !conversationRouteIsSelected()) resetConversationVolume()
             if (status in 1..3) {
                 // AACP reports can arrive while music is routed to the phone or
@@ -1049,17 +1080,12 @@ object L2CAPController {
             } else if (conversationRouteId == null) return
             runCatching { conversationVolume.onStatus(status, smoothRestore = true) }
                 .onFailure { Log.w(TAG, "Unable to adjust conversation volume") }
-            conversationTimeout?.cancel()
             if (status in 1..3) {
-                val generation = sessionId
-                conversationTimeout = CoroutineScope(Dispatchers.Default).launch {
-                    delay(30000)
-                    synchronized(this@L2CAPController) {
-                        ensureActive()
-                        if (sessionId == generation) resetConversationVolume()
-                    }
-                }
-            } else smoothlyRestoreConversationVolume()
+                scheduleConversationTimeout()
+            } else {
+                conversationTimeout?.cancel()
+                smoothlyRestoreConversationVolume()
+            }
         }
 
         override fun onControlCommandReceived(controlCommand: ByteArray) {
@@ -1466,6 +1492,7 @@ object L2CAPController {
             synchronized(this@L2CAPController) {
                 if (aacpManager === manager) {
                     clearHeadTracking()
+                    if (conversationMedia != null) resetConversationVolume()
                     aacpManager = null
                 }
                 if (socket === connectedSocket) socket = null
@@ -1681,7 +1708,80 @@ object L2CAPController {
     private fun conversationRouteIsSelected(): Boolean =
         conversationRouteId != null && selectedHeadphoneRouteId() == conversationRouteId
 
+    private fun canResumeConversationMedia(): Boolean =
+        mContext != null && conversationRouteIsSelected() && headTrackingWorn() &&
+            (!earDetection || isReadyToPlay()) && !pausedAudio && !phoneInCall() &&
+            audioManager?.mode == AudioManager.MODE_NORMAL
+
+    private fun handleConversationMedia(status: Int, wasActive: Boolean) {
+        if (conversationRouteId != null && !conversationRouteIsSelected()) resetConversationVolume()
+        if (status in 1..3) {
+            if (!wasActive) {
+                conversationRestoreJob?.cancel()
+                conversationRestoreJob = null
+                val context = mContext ?: return
+                if (!headTrackingWorn() || phoneInCall() || audioManager?.mode != AudioManager.MODE_NORMAL) {
+                    resetConversationVolume()
+                    return
+                }
+                // A new utterance while waiting to resume retains the same paused player.
+                if (conversationMedia == null) {
+                    resetConversationVolume()
+                    conversationRouteId = selectedHeadphoneRouteId() ?: return
+                    conversationMedia = ConversationMedia(context).also { it.start() }
+                }
+            }
+            if (conversationMedia != null) scheduleConversationTimeout()
+        } else {
+            finishConversationMedia()
+        }
+    }
+
+    private fun finishConversationMedia() {
+        conversationTimeout?.cancel()
+        val media = conversationMedia
+        if (media == null || !canResumeConversationMedia() ||
+            (!media.awaitingPause && audioManager?.isMusicActive != true)) {
+            media?.finish(canResumeConversationMedia())
+            resetConversationVolume()
+            return
+        }
+        if (conversationRestoreJob?.isActive == true) return
+        val generation = sessionId
+        // Media-session Pause and AudioFlinger activity updates arrive separately.
+        // Wait at most 250 ms, while keeping disconnect/wear/call cancellation effective.
+        conversationRestoreJob = CoroutineScope(Dispatchers.Default).launch {
+            repeat(5) { attempt ->
+                delay(50)
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId != generation || conversationMedia !== media || conversationAwarenessActive) return@launch
+                    if (canResumeConversationMedia() && attempt < 4 &&
+                        (media.awaitingPause || audioManager?.isMusicActive == true)) return@synchronized
+                    media.finish(canResumeConversationMedia())
+                    resetConversationVolume()
+                    return@launch
+                }
+            }
+        }
+    }
+
+    private fun scheduleConversationTimeout() {
+        conversationTimeout?.cancel()
+        val generation = sessionId
+        conversationTimeout = CoroutineScope(Dispatchers.Default).launch {
+            delay(30000)
+            synchronized(this@L2CAPController) {
+                ensureActive()
+                if (sessionId == generation) resetConversationVolume()
+            }
+        }
+    }
+
     private fun resetConversationVolume() {
+        // Interruptions release pause ownership without starting any player.
+        conversationMedia?.finish(resume = false)
+        conversationMedia = null
         conversationTimeout?.cancel()
         conversationTimeout = null
         conversationRestoreJob?.cancel()

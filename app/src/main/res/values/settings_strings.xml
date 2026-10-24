@@ -10,6 +10,9 @@
     <string name="setting_write_failed">Command could not be sent. Check the control connection and try again.</string>
     <string name="setting_invalid">This setting is unavailable or another change is pending.</string>
     <string name="conversation_phone_volume_title">Lower phone media volume during conversations</string>
+    <string name="conversation_pause_media_title">Pause media when speaking</string>
+    <string name="conversation_pause_media_summary">Requires Conversation Awareness. Pause media while speaking and resume it when the conversation ends, instead of lowering phone volume. The headset handles transparency automatically.</string>
+    <string name="conversation_phone_volume_paused">Not applied while speaking pauses media. Your volume preference is retained.</string>
     <string name="conversation_phone_volume_summary" formatted="false">Additionally lower media volume to 20% and restore it gradually when the conversation ends. Turn this off to let the headset handle conversations alone. Manual volume changes are preserved.</string>
     <string name="loud_sound_unavailable">This version does not support this feature yet</string>
     <string name="allow_off_title">Allow Off listening mode</string>

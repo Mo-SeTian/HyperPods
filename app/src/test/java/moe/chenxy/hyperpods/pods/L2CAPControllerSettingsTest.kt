@@ -6,11 +6,18 @@ import android.bluetooth.BluetoothSocket
 import android.content.ContextWrapper
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
 import android.media.AudioManager
 import android.media.MediaRoute2Info
 import android.media.MediaRouter2
+import android.media.session.MediaController
+import android.media.session.MediaSession
+import android.media.session.MediaSessionManager
+import android.media.session.PlaybackState
 import android.os.Bundle
+import android.telephony.TelephonyManager
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import moe.chenxy.hyperpods.utils.AACPManager
@@ -58,6 +65,7 @@ class L2CAPControllerSettingsTest {
         field("batteryStateValid").set(controller, false)
         field("earDetectionStateValid").set(controller, false)
         field("conversationPhoneVolume").set(controller, true)
+        field("conversationPauseMedia").setBoolean(controller, false)
         field("lowBatterySettings").set(controller, LowBatterySettings())
         field("lastStatusFailure").set(controller, "")
         field("lastSettingKey").set(controller, "")
@@ -923,6 +931,278 @@ class L2CAPControllerSettingsTest {
         `when`(routing.selectedRoutes).thenReturn(listOf(headset))
         field("mediaRouter").set(controller, router)
         return routing
+    }
+
+    private class ConversationPlayer {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        val sessions = mock(MediaSessionManager::class.java)
+        val player = mock(MediaController::class.java)
+        val controls = mock(MediaController.TransportControls::class.java)
+        val token = mock(MediaSession.Token::class.java)
+        var playing = true
+        var state = PlaybackState.STATE_PLAYING
+        var volume = 10
+        var callback: MediaController.Callback? = null
+
+        init {
+            `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+            `when`(context.getSystemService(MediaSessionManager::class.java)).thenReturn(sessions)
+            `when`(audio.isMusicActive).thenAnswer { playing }
+            `when`(audio.mode).thenReturn(AudioManager.MODE_NORMAL)
+            `when`(audio.getStreamVolume(AudioManager.STREAM_MUSIC)).thenAnswer { volume }
+            doAnswer { volume = it.getArgument(1); null }.`when`(audio).setStreamVolume(eq(AudioManager.STREAM_MUSIC), anyInt(), eq(0))
+            `when`(sessions.getActiveSessions(null)).thenReturn(listOf(player))
+            `when`(sessions.mediaKeyEventSession).thenReturn(token)
+            `when`(player.sessionToken).thenReturn(token)
+            `when`(player.transportControls).thenReturn(controls)
+            `when`(player.playbackState).thenAnswer { playbackState() }
+            val info = mock(MediaController.PlaybackInfo::class.java)
+            `when`(info.playbackType).thenReturn(MediaController.PlaybackInfo.PLAYBACK_TYPE_LOCAL)
+            `when`(player.playbackInfo).thenReturn(info)
+            doAnswer { callback = it.getArgument(0); null }.`when`(player).registerCallback(any(), any())
+            doAnswer {
+                playing = false
+                state = PlaybackState.STATE_PAUSED
+                callback?.onPlaybackStateChanged(playbackState())
+                null
+            }.`when`(controls).pause()
+        }
+
+        fun playbackState() = mock(PlaybackState::class.java).also { `when`(it.state).thenReturn(state) }
+    }
+
+    private fun conversationPlayer(pause: Boolean = true, duck: Boolean = true): ConversationPlayer {
+        selectedHeadset()
+        val player = ConversationPlayer()
+        field("mContext").set(controller, player.context)
+        field("aacpManager").set(controller, manager)
+        field("earDetectionStateValid").setBoolean(controller, true)
+        controller.currentEarDetectionParams = EarDetectionParams(0, 0)
+        val policy = mock(Intent::class.java)
+        `when`(policy.action).thenReturn(HyperPodsAction.ACTION_APP_SETTINGS_CHANGED)
+        `when`(policy.getStringExtra(AppPreferences.EXTRA)).thenReturn(
+            AppPreferences.Snapshot(conversationVolume = duck, conversationPauseMedia = pause).encode())
+        controller.handleUIEvent(policy)
+        receive(0x28, 1)
+        output.reset()
+        return player
+    }
+
+    private fun conversationStatus(status: Int) = manager.receivePacket(
+        byteArrayOf(4, 0, 4, 0, 0x4b, 0, 2, 0, 0, status.toByte()))
+
+    @Test fun conversationPauseTakesPriorityOverDuckingAndDoesNotSendListeningModeCommands() = synchronized(controller) {
+        val player = conversationPlayer()
+        conversationStatus(1)
+        conversationStatus(2)
+        conversationStatus(3)
+        assertEquals(10, player.volume)
+        verify(player.controls, times(1)).pause()
+        assertEquals(0, output.size())
+        verify(socket, never()).connect()
+    }
+
+    @Test fun allConversationEndReportsResumeOnlyOnceAndWorkWithoutPhoneDucking() = synchronized(controller) {
+        for (end in 6..9) {
+            val player = conversationPlayer(duck = false)
+            conversationStatus(1)
+            conversationStatus(end)
+            conversationStatus(end)
+            verify(player.controls, times(1)).pause()
+            verify(player.controls, times(1)).play()
+            verify(player.player).unregisterCallback(any())
+            assertEquals(10, player.volume)
+            assertNull(field("conversationMedia").get(controller))
+        }
+    }
+
+    @Test fun conversationResumeWaitsForTheAudioPipelineToCatchUpWithPause() = runBlocking {
+        val (player, pendingResume) = synchronized(controller) {
+            val player = conversationPlayer()
+            conversationStatus(1)
+            player.playing = true // Session already acknowledged Pause; AudioFlinger has not caught up.
+            conversationStatus(6)
+            verify(player.controls, never()).play()
+            player to requireNotNull(field("conversationRestoreJob").get(controller) as Job?)
+        }
+        delay(80)
+        synchronized(controller) { player.playing = false }
+        withTimeout(1000) { pendingResume.join() }
+        verify(player.controls).play()
+    }
+
+    @Test fun aNewUtteranceBeforeDelayedResumeKeepsTheOriginalPauseOwnership() = synchronized(controller) {
+        val player = conversationPlayer()
+        conversationStatus(1)
+        player.playing = true
+        conversationStatus(6)
+        val pendingResume = requireNotNull(field("conversationRestoreJob").get(controller) as Job?)
+        conversationStatus(1)
+        assertTrue(pendingResume.isCancelled)
+        player.playing = false
+        conversationStatus(6)
+        verify(player.controls, times(1)).pause()
+        verify(player.controls, times(1)).play()
+    }
+
+    @Test fun disabledPausePreservesTheExistingVolumeChoiceAndNeverPausesMedia() = synchronized(controller) {
+        for (duck in listOf(false, true)) {
+            val player = conversationPlayer(pause = false, duck = duck)
+            conversationStatus(1)
+            assertEquals(if (duck) 2 else 10, player.volume)
+            conversationStatus(6)
+            type.getDeclaredMethod("resetConversationVolume").apply { isAccessible = true }.invoke(controller)
+            assertEquals(10, player.volume)
+            verifyNoInteractions(player.controls)
+        }
+    }
+
+    @Test fun conversationPauseRequiresEnabledHeadsetAwarenessAndASelectedWornHeadset() = synchronized(controller) {
+        val player = conversationPlayer()
+        receive(0x28, 2)
+        conversationStatus(1)
+        conversationStatus(6)
+        receive(0x28, 1)
+        field("earDetectionStateValid").setBoolean(controller, false)
+        conversationStatus(1)
+        conversationStatus(6)
+        field("earDetectionStateValid").setBoolean(controller, true)
+        val routing = selectedHeadset()
+        `when`(routing.selectedRoutes).thenReturn(emptyList())
+        conversationStatus(1)
+        conversationStatus(6)
+        verifyNoInteractions(player.controls)
+    }
+
+    @Test fun anAlreadyPausedPlayerOrManualPlaybackDuringSpeechCannotBeAutoStarted() = synchronized(controller) {
+        val player = conversationPlayer()
+        player.playing = false
+        player.state = PlaybackState.STATE_PAUSED
+        conversationStatus(1)
+        player.playing = true // Explicit user playback during this conversation wins.
+        player.state = PlaybackState.STATE_PLAYING
+        conversationStatus(2)
+        conversationStatus(6)
+        verifyNoInteractions(player.controls)
+    }
+
+    @Test fun manuallyResumingAndPausingAgainRevokesConversationResumeOwnership() = synchronized(controller) {
+        val player = conversationPlayer()
+        conversationStatus(1)
+        val callback = requireNotNull(player.callback)
+        player.state = PlaybackState.STATE_PLAYING
+        callback.onPlaybackStateChanged(player.playbackState())
+        player.state = PlaybackState.STATE_PAUSED
+        callback.onPlaybackStateChanged(player.playbackState())
+        conversationStatus(6)
+        verify(player.controls).pause()
+        verify(player.controls, never()).play()
+    }
+
+    @Test fun changingPlayersOrStartingACallPreventsConversationResume() = synchronized(controller) {
+        for (call in listOf(false, true)) {
+            val player = conversationPlayer()
+            conversationStatus(1)
+            if (call) `when`(player.audio.mode).thenReturn(AudioManager.MODE_IN_COMMUNICATION)
+            else `when`(player.sessions.mediaKeyEventSession).thenReturn(mock(MediaSession.Token::class.java))
+            conversationStatus(6)
+            verify(player.controls).pause()
+            verify(player.controls, never()).play()
+        }
+    }
+
+    @Test fun anIncomingCallRevokesResumeEvenIfTheCallEndsBeforeTheConversationReport() = synchronized(controller) {
+        val player = conversationPlayer()
+        val telephony = mock(TelephonyManager::class.java)
+        `when`(player.context.getSystemService(TelephonyManager::class.java)).thenReturn(telephony)
+        `when`(telephony.callState).thenReturn(TelephonyManager.CALL_STATE_IDLE)
+        conversationStatus(1)
+        `when`(telephony.callState).thenReturn(TelephonyManager.CALL_STATE_RINGING)
+        val call = mock(Intent::class.java)
+        `when`(call.action).thenReturn(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
+        (field("broadcastReceiver").get(controller) as BroadcastReceiver).onReceive(player.context, call)
+        `when`(telephony.callState).thenReturn(TelephonyManager.CALL_STATE_IDLE)
+        conversationStatus(6)
+        verify(player.controls).pause()
+        verify(player.controls, never()).play()
+        assertNull(field("conversationMedia").get(controller))
+    }
+
+    @Test fun destroyedOrUnconfirmedOrRemotePlayersAreNeverAutoStarted() = synchronized(controller) {
+        for (case in listOf("destroyed", "unconfirmed", "remote")) {
+            val player = conversationPlayer()
+            if (case == "unconfirmed") doNothing().`when`(player.controls).pause()
+            if (case == "remote") `when`(player.player.playbackInfo.playbackType)
+                .thenReturn(MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE)
+            conversationStatus(1)
+            if (case == "destroyed") requireNotNull(player.callback).onSessionDestroyed()
+            conversationStatus(6)
+            verify(player.controls, never()).play()
+            if (case == "remote") verify(player.controls, never()).pause()
+        }
+    }
+
+    @Test fun anUnreadableSessionCanPauseButCannotTriggerAGlobalPlay() = synchronized(controller) {
+        val player = conversationPlayer()
+        moe.chenxy.hyperpods.utils.MediaControl.mContext = player.context
+        `when`(player.sessions.getActiveSessions(null)).thenThrow(SecurityException("Synthetic denied session"))
+        conversationStatus(1)
+        conversationStatus(2)
+        conversationStatus(6)
+        verify(player.audio, times(2)).dispatchMediaKeyEvent(any()) // One Pause key down/up only.
+        verifyNoInteractions(player.controls)
+    }
+
+    @Test fun lostOutputOrRemovedEarCannotResumeEvenAfterTheOutputOrWearReturns() = synchronized(controller) {
+        for (removeEar in listOf(false, true)) {
+            val player = conversationPlayer()
+            conversationStatus(1)
+            if (removeEar) {
+                val wear = type.getDeclaredMethod("handleInEarStatusChanged", List::class.java).apply { isAccessible = true }
+                wear.invoke(controller, listOf(1.toByte(), 0.toByte()))
+                wear.invoke(controller, listOf(0.toByte(), 0.toByte()))
+            } else {
+                val router = field("mediaRouter").get(controller) as MediaRouter2
+                val routing = router.systemController
+                val selected = routing.selectedRoutes
+                `when`(routing.selectedRoutes).thenReturn(emptyList())
+                conversationStatus(2)
+                `when`(routing.selectedRoutes).thenReturn(selected)
+            }
+            conversationStatus(6)
+            verify(player.controls).pause()
+            verify(player.controls, never()).play()
+        }
+    }
+
+    @Test fun resetAndDisconnectReleaseThePausedPlayerWithoutPlayingIt() = synchronized(controller) {
+        for (disconnect in listOf(false, true)) {
+            val player = conversationPlayer()
+            conversationStatus(1)
+            if (disconnect) controller.disconnectedPod(player.context, device)
+            else type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+            conversationStatus(6)
+            verify(player.controls, never()).play()
+            verify(player.player).unregisterCallback(any())
+            assertNull(field("conversationMedia").get(controller))
+        }
+    }
+
+    @Test fun switchingPauseModeDuringSpeechRestoresTheRetainedVolumeChoice() = synchronized(controller) {
+        val player = conversationPlayer(pause = false)
+        conversationStatus(1)
+        assertEquals(2, player.volume)
+        val update = type.getDeclaredMethod("updateConversationPauseMedia", Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        update.invoke(controller, true)
+        assertEquals(10, player.volume)
+        verify(player.controls).pause()
+        update.invoke(controller, false)
+        verify(player.controls).play()
+        assertTrue(field("conversationPhoneVolume").getBoolean(controller))
+        assertEquals(1.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG)!!.value[0])
+        assertEquals(0, output.size())
     }
 
     @Test fun conversationVolumeNeverDucksOrRestoresOntoAnotherOutput() = synchronized(controller) {

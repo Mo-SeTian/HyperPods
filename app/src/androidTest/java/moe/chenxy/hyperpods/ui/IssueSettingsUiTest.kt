@@ -30,6 +30,8 @@ class IssueSettingsUiTest {
     private val writes = mutableListOf<Pair<String, Int>>()
     private val modes = mutableListOf<NoiseControlMode>()
     private var failWrite = false
+    private val conversationPause = mutableStateOf(false)
+    private val conversationVolume = mutableStateOf(true)
     private fun text(id: Int) = compose.activity.getString(id)
 
     private fun render(connection: String = "connected") {
@@ -60,6 +62,10 @@ class IssueSettingsUiTest {
                         noiseCancellationSingleAirPod = settings.value[Key.SINGLE_POD_ANC] == 1,
                         onNoiseCancellationSingleAirPodChange = { write(Key.SINGLE_POD_ANC, if (it) 1 else 2) },
                         settings = settings.value,
+                        conversationPauseMedia = conversationPause.value,
+                        onConversationPauseMediaChange = { conversationPause.value = it },
+                        conversationPhoneVolume = conversationVolume.value,
+                        onConversationPhoneVolumeChange = { conversationVolume.value = it },
                         settingFeedback = feedback.value, onSettingChange = ::write,
                         diagnostics = Bundle().apply { putString("connection", connection) })
                     }
@@ -79,6 +85,24 @@ class IssueSettingsUiTest {
         assertEquals(listOf(Key.MICROPHONE_MODE to 2), writes)
         assertEquals("sent", feedback.value[Key.MICROPHONE_MODE])
         compose.onNodeWithText(text(R.string.microphone_left)).assertExists()
+    }
+
+    @Test fun conversationPauseIsLocalAndDisablesDuckingWithoutLosingItsPreviousChoice() {
+        render()
+        compose.revealSetting(text(R.string.conversation_pause_media_title)).performClick()
+        compose.waitForIdle()
+        assertEquals(true, conversationPause.value)
+        assertEquals(true, conversationVolume.value)
+        val disabled = !(hasClickAction() or hasAnyAncestor(hasClickAction()))
+        compose.revealSetting(text(R.string.conversation_phone_volume_title)).assert(disabled)
+        compose.onNodeWithText(text(R.string.conversation_phone_volume_paused)).assertExists()
+        assertEquals(emptyList<Pair<String, Int>>(), writes)
+        compose.revealSetting(text(R.string.conversation_pause_media_title)).performClick()
+        compose.waitForIdle()
+        assertEquals(false, conversationPause.value)
+        compose.revealSetting(text(R.string.conversation_phone_volume_title))
+            .assert(hasClickAction() or hasAnyAncestor(hasClickAction())).performClick()
+        assertEquals(false, conversationVolume.value)
     }
 
     @Test fun missingLongPressReportAllowsSelectingTwoModesButNeverSendsAnEmptyMask() {
