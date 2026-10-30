@@ -43,6 +43,7 @@ import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.showPodsBatteryToast
 import org.json.JSONObject
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
+import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import java.io.File
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -184,7 +185,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val pendingIntent = PendingIntent.getActivity(
                 context,
                 0,
-                Intent("chen.action.hyperpods.show_airpods_ui").setPackage(BuildConfig.APPLICATION_ID),
+                Intent(HyperPodsAction.ACTION_SHOW_PODS_UI).setPackage(BuildConfig.APPLICATION_ID),
                 PendingIntent.FLAG_IMMUTABLE
             )
 
@@ -422,7 +423,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                     if (!HyperPodsBroadcasts.isTrusted(context, this, HyperPodsBroadcasts.BLUETOOTH)) return
                     try {
                         when (intent?.action) {
-                            "chen.action.hyperpods.sendstrongtoast" -> {
+                            HyperPodsAction.ACTION_STRONG_TOAST -> {
                                 val batteryParams = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
                                 MiuiStrongToastUtil.updateCaseBatteryState(batteryParams)
                                 val caseUri = getCaseMp4Uri(context)
@@ -435,7 +436,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                                 if (leftUri != null && rightUri != null && caseUri != null)
                                     showPodsBatteryToast(context, leftUri, rightUri, caseUri, 20, batteryParams)
                             }
-                            "chen.action.hyperpods.updatepodsnotification" -> {
+                            HyperPodsAction.ACTION_UPDATE_NOTIFICATION -> {
                                 val params = intent.getParcelableExtra("batteryParams", BatteryParams::class.java) ?: return
                                 val device = intent.getParcelableExtra("device", BluetoothDevice::class.java) ?: return
                                 val modelNumber = intent.getStringExtra("modelNumber")
@@ -475,12 +476,12 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                                     createPodsNotification(device, context, params, modelNumber = modelNumber)
                                 }
                             }
-                            "chen.action.hyperpods.cancelpodsnotification" ->
+                            HyperPodsAction.ACTION_CANCEL_NOTIFICATION ->
                                 intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let {
                                     if (it == warningDevice) cancelWarning()
                                     cancelNotification(it, context)
                                 }
-                            "chen.action.hyperpods.podconnecting" ->
+                            HyperPodsAction.ACTION_PODS_CONNECTING ->
                                 intent.getParcelableExtra("device", BluetoothDevice::class.java)?.let { showConnectedToast(it, context) }
                         }
                     } catch (error: Exception) {
@@ -488,10 +489,10 @@ object MiBluetoothToastHook : YukiBaseHooker(){
                     }
                 }
             }
-            val filter = IntentFilter("chen.action.hyperpods.sendstrongtoast").apply {
-                addAction("chen.action.hyperpods.updatepodsnotification")
-                addAction("chen.action.hyperpods.cancelpodsnotification")
-                addAction("chen.action.hyperpods.podconnecting")
+            val filter = IntentFilter(HyperPodsAction.ACTION_STRONG_TOAST).apply {
+                addAction(HyperPodsAction.ACTION_UPDATE_NOTIFICATION)
+                addAction(HyperPodsAction.ACTION_CANCEL_NOTIFICATION)
+                addAction(HyperPodsAction.ACTION_PODS_CONNECTING)
             }
             context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             receiverRegistered = true

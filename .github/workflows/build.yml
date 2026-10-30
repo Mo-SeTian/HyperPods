@@ -30,13 +30,27 @@ jobs:
       - name: 验证 APK 命名逻辑
         run: node --test .github/scripts/prepare-apk.test.cjs
 
-      - name: Restore release keystore
+      - name: 检查独立包正式签名
+        id: signing
         if: github.event_name != 'pull_request'
         env:
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_KEY: ${{ secrets.OS4_SIGNING_KEY }}
+          STORE_PASSWORD: ${{ secrets.OS4_KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.OS4_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.OS4_KEY_PASSWORD }}
         run: |
-          test -n "$SIGNING_KEY"
+          if [ -z "$SIGNING_KEY" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::尚未配置完整的 OS4 正式签名 Secrets；本次仅运行验证，不分发 APK。"
+            if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+              echo "::error::正式发布必须配置 OS4_SIGNING_KEY、OS4_KEY_STORE_PASSWORD、OS4_ALIAS、OS4_KEY_PASSWORD。"
+              exit 1
+            fi
+            exit 0
+          fi
           printf '%s' "$SIGNING_KEY" | base64 --decode > "$RUNNER_TEMP/hyperpods-release.jks"
+          chmod 600 "$RUNNER_TEMP/hyperpods-release.jks"
+          echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Run unit tests and Android lint
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug
@@ -45,17 +59,24 @@ jobs:
         run: bash app/src/test/cpp/run_tests.sh
 
       - name: Build signed release
-        if: github.event_name != 'pull_request'
+        if: steps.signing.outputs.available == 'true'
         env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD: ${{ secrets.OS4_KEY_STORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_KEY_ALIAS: ${{ secrets.OS4_ALIAS }}
+          ORG_GRADLE_PROJECT_KEY_PASSWORD: ${{ secrets.OS4_KEY_PASSWORD }}
         run: |
           ./gradlew :app:assembleRelease \
-            -PKEYSTORE_FILE="$RUNNER_TEMP/hyperpods-release.jks" \
-            -PKEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
-            -PKEY_ALIAS="$KEY_ALIAS" \
-            -PKEY_PASSWORD="$KEY_PASSWORD"
+            -PKEYSTORE_FILE="$RUNNER_TEMP/hyperpods-release.jks"
+
+      - name: 校验正式签名证书
+        if: steps.signing.outputs.available == 'true'
+        env:
+          STORE_PASSWORD: ${{ secrets.OS4_KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.OS4_ALIAS }}
+        run: |
+          expected=$(keytool -exportcert -keystore "$RUNNER_TEMP/hyperpods-release.jks" -alias "$KEY_ALIAS" -storepass:env STORE_PASSWORD 2>/dev/null | sha256sum | cut -d ' ' -f 1)
+          certificate=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$certificate" = "$expected"
 
       - name: Build pull request
         if: github.event_name == 'pull_request'
@@ -63,11 +84,13 @@ jobs:
 
       - name: 按版本名和短 MD5 命名 APK
         id: apk
+        if: github.event_name == 'pull_request' || steps.signing.outputs.available == 'true'
         env:
           APK_VARIANT: ${{ github.event_name == 'pull_request' && 'debug' || 'release' }}
         run: node .github/scripts/prepare-apk.cjs
 
       - name: 直接上传 APK（不套 ZIP）
+        if: github.event_name == 'pull_request' || steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v7
         with:
           path: ${{ steps.apk.outputs.path }}
@@ -75,8 +98,12 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && steps.signing.outputs.available == 'true'
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: ${{ steps.apk.outputs.path }}
+
+      - name: 清理临时密钥库
+        if: always()
+        run: rm -f "$RUNNER_TEMP/hyperpods-release.jks"

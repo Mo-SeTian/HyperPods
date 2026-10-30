@@ -6,7 +6,7 @@ import com.highcapable.yukihookapi.annotation.xposed.InjectYukiHookWithXposed
 import com.highcapable.yukihookapi.hook.xposed.proxy.IYukiHookXposedInit
 import moe.chenxy.hyperpods.BuildConfig
 
-@InjectYukiHookWithXposed
+@InjectYukiHookWithXposed(modulePackageName = BuildConfig.APPLICATION_ID)
 object HookEntry : IYukiHookXposedInit {
     override fun onHook()  = YukiHookAPI.encase {
         loadApp("com.android.systemui") {

@@ -60,7 +60,7 @@ object DeviceCardHook : YukiBaseHooker() {
                     handler.removeCallbacks(timeout)
                     try {
                         if (mac == id) {
-                            context.startActivity(Intent("chen.action.hyperpods.show_airpods_ui")
+                            context.startActivity(Intent(HyperPodsAction.ACTION_SHOW_PODS_UI)
                                 .setPackage(BuildConfig.APPLICATION_ID).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                             panelController?.let { XposedHelpers.callMethod(it, "exitOrHide") }
                         } else {

@@ -177,7 +177,7 @@ class L2CAPControllerSettingsTest {
         val info = controller.currentPodsInfo!!.copy(modelNumber = "A3531")
         val updates = mutableListOf<Intent>()
         mockConstruction(Intent::class.java) { intent, construction ->
-            if (construction.arguments().firstOrNull() == "chen.action.hyperpods.updatepodsnotification") updates.add(intent)
+            if (construction.arguments().firstOrNull() == HyperPodsAction.ACTION_UPDATE_NOTIFICATION) updates.add(intent)
         }.use {
             callback.onDeviceInformationReceived(info)
             callback.onDeviceInformationReceived(info)
@@ -901,7 +901,7 @@ class L2CAPControllerSettingsTest {
     @Test fun notificationUpdatesCarryOnlyTheComponentsInTheActualBatteryPacket() {
         val notifications = mutableListOf<Intent>()
         mockConstruction(Intent::class.java) { intent, construction ->
-            if (construction.arguments().firstOrNull() == "chen.action.hyperpods.updatepodsnotification") notifications.add(intent)
+            if (construction.arguments().firstOrNull() == HyperPodsAction.ACTION_UPDATE_NOTIFICATION) notifications.add(intent)
         }.use {
             val left = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 18, 2, 0)
             val right = byteArrayOf(4, 0, 4, 0, 4, 0, 1, 2, 1, 19, 2, 0)

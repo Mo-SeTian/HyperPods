@@ -14,19 +14,19 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.HyperPods">
 
-        <activity android:name=".MainActivity"
+        <activity android:name="moe.chenxy.hyperpods.MainActivity"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|mnc|colorMode|density|fontScale|fontWeightAdjustment|keyboard|layoutDirection|locale|mcc|navigation|smallestScreenSize|touchscreen|uiMode"
             android:exported="true">
             <intent-filter>
-                <action android:name="chen.action.hyperpods.show_airpods_ui" />
+                <action android:name="${applicationId}.action.show_airpods_ui" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
         <!-- Only the verified Bluetooth UID may store a fixed-field failure report. -->
-        <receiver android:name=".utils.DiagnosticsHistory" android:exported="true" />
+        <receiver android:name="moe.chenxy.hyperpods.utils.DiagnosticsHistory" android:exported="true" />
         <!-- The provider verifies the Bluetooth UID and returns only fixed app-policy fields. -->
-        <provider android:name=".utils.AppPreferencesProvider"
+        <provider android:name="moe.chenxy.hyperpods.utils.AppPreferencesProvider"
             android:authorities="${applicationId}.preferences"
             android:exported="true" />
         <!-- Set as Xposed Module -->

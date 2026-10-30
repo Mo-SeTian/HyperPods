@@ -22,10 +22,10 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "moe.chenxy.hyperpods"
+        applicationId = "io.github.mo_setian.hyperpods"
         minSdk = 35
         targetSdk = 36
-        versionCode = 30
+        versionCode = 31
         versionName = "3.0.0-AAP-W-HyperOS4"
         val revision = providers.exec {
             workingDir(rootProject.projectDir)

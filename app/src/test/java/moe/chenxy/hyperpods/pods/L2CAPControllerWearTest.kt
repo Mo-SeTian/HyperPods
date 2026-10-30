@@ -321,7 +321,7 @@ class L2CAPControllerWearTest {
         field("mContext").set(controller, context)
         val cancellations = mutableListOf<Intent>()
         mockConstruction(Intent::class.java) { intent, construction ->
-            if (construction.arguments().firstOrNull() == "chen.action.hyperpods.cancelpodsnotification")
+            if (construction.arguments().firstOrNull() == HyperPodsAction.ACTION_CANCEL_NOTIFICATION)
                 cancellations.add(intent)
         }.use {
             controller.disconnectedPod(context, device)
@@ -377,7 +377,7 @@ class L2CAPControllerWearTest {
                 runControlAttempt(context, device, field("sessionId").getLong(controller)) { closedStreamSocket() }
             }
         }
-        assertFalse(actions.contains("chen.action.hyperpods.cancelpodsnotification"))
+        assertFalse(actions.contains(HyperPodsAction.ACTION_CANCEL_NOTIFICATION))
         assertFalse(actions.contains(HyperPodsAction.ACTION_PODS_DISCONNECTED))
         assertSame(context, field("mContext").get(controller))
     }

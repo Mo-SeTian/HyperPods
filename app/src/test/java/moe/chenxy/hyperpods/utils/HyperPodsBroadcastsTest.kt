@@ -45,6 +45,13 @@ class HyperPodsBroadcastsTest {
         assertFalse(HyperPodsBroadcasts.isTrusted(context, receiver, BuildConfig.APPLICATION_ID))
     }
 
+    @Test fun legacyModulesUidCannotIssueCommandsToTheNewModule() {
+        `when`(receiver.sentFromUid).thenReturn(12345)
+        `when`(packages.getPackageUid("moe.chenxy.hyperpods", 0)).thenReturn(12345)
+        `when`(packages.getPackageUid(BuildConfig.APPLICATION_ID, 0)).thenReturn(23456)
+        assertFalse(HyperPodsBroadcasts.isTrusted(context, receiver, BuildConfig.APPLICATION_ID))
+    }
+
     @Test fun sendsArePackageScopedAndExposeTheirActualUidToTheReceiver() {
         mockStatic(BroadcastOptions::class.java).use { factory ->
             val options = mock(BroadcastOptions::class.java, RETURNS_SELF)

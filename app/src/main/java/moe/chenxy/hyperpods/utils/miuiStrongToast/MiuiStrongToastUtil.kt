@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
+import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import kotlinx.serialization.json.Json
 import moe.chenxy.hyperpods.BuildConfig
@@ -208,7 +209,7 @@ object MiuiStrongToastUtil {
         context: Context?,
         batteryParams: BatteryParams
     ) {
-        val intent = Intent("chen.action.hyperpods.sendstrongtoast")
+        val intent = Intent(HyperPodsAction.ACTION_STRONG_TOAST)
 
         intent.putExtra("batteryParams", batteryParams)
 
@@ -225,7 +226,7 @@ object MiuiStrongToastUtil {
         freshComponents: IntArray = intArrayOf(),
         modelNumber: String? = null,
     ) {
-        val intent = Intent("chen.action.hyperpods.updatepodsnotification")
+        val intent = Intent(HyperPodsAction.ACTION_UPDATE_NOTIFICATION)
 
         intent.putExtra("batteryParams", batteryParams)
         intent.putExtra("device", device)
@@ -242,7 +243,7 @@ object MiuiStrongToastUtil {
         context: Context,
         device: BluetoothDevice,
     ) {
-        val intent = Intent("chen.action.hyperpods.cancelpodsnotification")
+        val intent = Intent(HyperPodsAction.ACTION_CANCEL_NOTIFICATION)
 
         intent.putExtra("device", device)
 
@@ -252,7 +253,7 @@ object MiuiStrongToastUtil {
     }
 
     fun showPodConnectingByMiuiBt(context: Context, device: BluetoothDevice) {
-        val intent = Intent("chen.action.hyperpods.podconnecting")
+        val intent = Intent(HyperPodsAction.ACTION_PODS_CONNECTING)
         intent.putExtra("device", device)
         intent.`package` = "com.xiaomi.bluetooth"
         HyperPodsBroadcasts.send(context, intent, HyperPodsBroadcasts.XIAOMI_BLUETOOTH)

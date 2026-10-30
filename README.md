@@ -1,8 +1,18 @@
 # HyperPods HyperOS 4 适配修改说明
 
+当前独立发行版：`3.0.0-AAP-W-HyperOS4`，`versionCode = 31`，应用包名 **`io.github.mo_setian.hyperpods`**，显示名称 **HyperPods HyperOS 4**。
+
+本版改用独立应用包名及正式签名，用于二改版的独立分发。首次安装不能覆盖旧 `moe.chenxy.hyperpods`，应用设置需重新配置；先在 LSPosed 关闭旧模块，再启用新模块，勾选系统蓝牙、小米蓝牙扩展和系统界面，打开新应用配置设置后重启手机。不要同时启用两个版本。后续新包沿用同一签名并递增版本号，可覆盖升级。完整步骤见 [LSPosed 发布与迁移说明](docs/LSPosed发布说明.md)。
+
+### 参考项目与致谢
+
+- [Art-Chen/HyperPods](https://github.com/Art-Chen/HyperPods/tree/os3-dev)：本项目直接 Fork 自原作者的 `os3-dev` 分支，保留原作者版权与 GPL 许可。
+- [LibrePods](https://github.com/librepods-org/librepods)：耳机协议、型号与能力表、部分图片、头部手势及姿态计算的实现或参考来源；具体版本、改编范围与署名见源码和下文记录。
+- [Miuix](https://github.com/compose-miuix-ui/miuix)：Compose 设置界面控件。
+
 当前设置界面采用 Miuix 控件、浅色/深色蓝色强调主题：四种听音模式保持一行，左右耳机独立显示电量，耳机仓在线且电量有效时显示。更多控制、设备信息与诊断使用统一分组样式；各页独立保留滚动位置，支持可中断的页面过渡与关闭动画。最新设置逻辑修复及实机验收边界见 [LibrePods 功能对照与修复记录](docs/LibrePods功能对照审查.md)。
 
-当前构建 `versionCode = 26` 整合 [PR #3](https://github.com/Mo-SeTian/HyperPods/pull/3) 的 AirPods 5 无线充电盒款单耳降噪兼容：仅在开关开启、原本处于降噪且从双耳佩戴变为单耳时，重申单耳权限并请求保持降噪；1 秒关联窗口内最多额外重试一次，不持续强制降噪。合并审查补齐“自动恢复等待确认时可主动切换模式”和“不覆盖对话感知”的边界；如收到耳机长按回报，也取消自动恢复。已发送但未回报的辅助设置保留本地值，详细状态放入诊断页，不在开关下长期显示等待提示；实际发送失败和降噪确认超时仍明确报告。PR 作者报告其单耳降噪实机测试通过，本次整合不扩大该结论至其他设备、固件或首次初始化场景，详见 [Issue #1/#2 修复记录](docs/Issue-1-2修复记录.md)。
+此前构建 `versionCode = 26` 整合 [PR #3](https://github.com/Mo-SeTian/HyperPods/pull/3) 的 AirPods 5 无线充电盒款单耳降噪兼容：仅在开关开启、原本处于降噪且从双耳佩戴变为单耳时，重申单耳权限并请求保持降噪；1 秒关联窗口内最多额外重试一次，不持续强制降噪。合并审查补齐“自动恢复等待确认时可主动切换模式”和“不覆盖对话感知”的边界；如收到耳机长按回报，也取消自动恢复。已发送但未回报的辅助设置保留本地值，详细状态放入诊断页，不在开关下长期显示等待提示；实际发送失败和降噪确认超时仍明确报告。PR 作者报告其单耳降噪实机测试通过，本次整合不扩大该结论至其他设备、固件或首次初始化场景，详见 [Issue #1/#2 修复记录](docs/Issue-1-2修复记录.md)。
 
 此前构建 `versionCode = 25` 继续调整焦点通知和超级岛展开卡片：移除中间分隔线及其占位，名称和断开按钮区域的顶部间距最多缩减 8dp；按钮内部按文字实际高度测量，不缩小字体、不平移点击区域。底部系统手势短条保持不变，其他应用的通知样式不受影响。默认、1.3 倍和 1.6 倍字体的原生布局测量测试通过，小米实机最终效果仍需复测。
 
@@ -70,7 +80,7 @@ Fork 信息：
 - 上游仓库：<https://github.com/Art-Chen/HyperPods>
 - 当前 Fork：<https://github.com/Mo-SeTian/HyperPods>
 - HyperOS 4 分支：`os4-dev`
-- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 26`
+- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 31`
 
 ## 2. 测试环境
 

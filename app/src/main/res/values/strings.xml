@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" translatable="false">HyperPods AAP</string>
+    <string name="app_name" translatable="false">HyperPods HyperOS 4</string>
     <string name="pod_info">Pod Info</string>
     <string name="about_hyperpods">About HyperPods</string>
     <string name="about">About</string>
