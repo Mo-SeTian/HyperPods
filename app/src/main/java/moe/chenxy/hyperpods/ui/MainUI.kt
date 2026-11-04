@@ -25,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import moe.chenxy.hyperpods.MainActivity
@@ -42,7 +41,6 @@ import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
-import moe.chenxy.hyperpods.ui.components.DashboardTopBar
 import moe.chenxy.hyperpods.ui.components.DashboardNavigation
 import top.yukonga.miuix.kmp.basic.Scaffold
 
@@ -62,12 +60,6 @@ fun MainUI() {
     val pagerState = rememberPagerState(pageCount = { 2 })
 
     val mainTitle = remember { mutableStateOf("") }
-    val aboutTitle = stringResource(R.string.about_hyperpods)
-    val currentTitle = when (pagerState.currentPage) {
-        0 -> "HyperPods"
-        else -> aboutTitle
-    }
-
     val context = LocalContext.current
 
     val initialPolicy = remember(context) { AppPreferences.read(context) }
@@ -246,11 +238,6 @@ fun MainUI() {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        topBar = {
-            DashboardTopBar(title = currentTitle) {
-                (context as? MainActivity)?.onBackPressedDispatcher?.onBackPressed()
-            }
-        },
         bottomBar = {
             DashboardNavigation(pagerState)
         },

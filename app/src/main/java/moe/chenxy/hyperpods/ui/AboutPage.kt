@@ -3,6 +3,7 @@ package moe.chenxy.hyperpods.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,7 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
@@ -32,6 +34,7 @@ import top.yukonga.miuix.kmp.basic.BasicComponent
 import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
 import moe.chenxy.hyperpods.ui.components.DashboardSection
 import moe.chenxy.hyperpods.ui.components.DashboardLink
+import moe.chenxy.hyperpods.ui.components.DashboardTopBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -41,9 +44,12 @@ fun AboutPage(
     diagnostics: Bundle? = null,
 ) {
     val context = LocalContext.current
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    Column(Modifier.fillMaxSize().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 680.dp)
+        .padding(padding).consumeWindowInsets(padding)) {
+        DashboardTopBar(title = stringResource(R.string.about_hyperpods)) { backDispatcher?.onBackPressed() }
         LazyColumn(
-            modifier = Modifier.widthIn(max = 680.dp).fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
         ) {
             item(key = "app_info") {

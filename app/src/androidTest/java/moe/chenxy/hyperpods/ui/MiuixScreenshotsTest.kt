@@ -18,12 +18,13 @@ class MiuixScreenshotsTest {
     @get:Rule val compose = createAndroidComposeRule<DashboardPreviewActivity>()
     private fun text(id: Int) = compose.activity.getString(id)
 
-    private fun render(theme: Int = 1, unknown: Boolean = false, model: String = "A3049", caseConnected: Boolean = true) {
+    private fun render(theme: Int = 1, unknown: Boolean = false, model: String = "A3049", caseConnected: Boolean = true,
+        firmware: String = "9441861", eqMode: Int = 1) {
         compose.runOnUiThread {
             compose.activity.intent.putExtra("theme", theme).putExtra("unknown", unknown)
                 .putExtra("case_connected", caseConnected).putExtra("in_case", caseConnected)
                 .putExtra("personalized", true).putExtra("model_number", model)
-                .putExtra("eq_state", if (unknown) 0 else 1)
+                .putExtra("eq_state", if (unknown) 0 else eqMode).putExtra("firmware", firmware)
         }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
@@ -63,5 +64,9 @@ class MiuixScreenshotsTest {
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.onNodeWithText(text(R.string.dashboard_about)).performClick()
         compose.waitForIdle(); capture("about")
+        compose.onNodeWithText(text(R.string.dashboard_headphones)).performClick()
+        compose.waitForIdle()
+        render(firmware = "8454592", eqMode = 0)
+        open(R.string.eq_title); capture("eq-update")
     }
 }

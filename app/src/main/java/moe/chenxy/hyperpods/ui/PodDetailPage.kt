@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,6 +62,7 @@ import moe.chenxy.hyperpods.ui.components.DashboardLink
 import moe.chenxy.hyperpods.ui.components.DashboardNoise
 import moe.chenxy.hyperpods.ui.components.DashboardSection
 import moe.chenxy.hyperpods.ui.components.DashboardToggle
+import moe.chenxy.hyperpods.ui.components.DashboardTopBar
 import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
 import moe.chenxy.hyperpods.ui.components.PodsInfoPage
 import moe.chenxy.hyperpods.ui.components.PressAndHoldSettingPage
@@ -82,8 +85,11 @@ import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.extra.SuperDropdown
 import top.yukonga.miuix.kmp.extra.SuperSwitch
+import top.yukonga.miuix.kmp.extra.SuperDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -154,6 +160,8 @@ fun PodDetailPage(
         return stringResource(summary) + (statusText(key)?.let { "\n$it" } ?: "")
     }
     val allowedModes = PodsSettings.allowedNoiseModes(model, settings)
+    val eqAvailable = CustomEq.available(model, podsInfo?.version3.orEmpty(), customEqState.value != null)
+    val showOffInfo = remember(isActive, diagnostics?.getString("connection")) { mutableStateOf(false) }
     var adaptiveDraft by remember(settings[Key.ADAPTIVE_AUDIO_LEVEL], Key.ADAPTIVE_AUDIO_LEVEL in pendingSettings,
         settingFeedback[Key.ADAPTIVE_AUDIO_LEVEL]) { mutableFloatStateOf(adaptiveAudioLevel) }
     var chimeDraft by remember(settings[Key.CHIME_VOLUME], settingFeedback[Key.CHIME_VOLUME]) {
@@ -178,6 +186,7 @@ fun PodDetailPage(
                 .using(null)
         },
         label = "SettingsPage",
+        contentAlignment = Alignment.TopCenter,
     ) { page ->
         val pageTitle = stringResource(when (page) {
             1 -> R.string.dashboard_more
@@ -195,13 +204,16 @@ fun PodDetailPage(
                     while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
                 }
             }
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 680.dp).fillMaxSize().padding(padding)
+            .consumeWindowInsets(padding).clipToBounds().then(interaction),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            if (page != 0) DashboardTopBar { back() }
             LazyColumn(
                 state = listStates[page],
                 // Keep the scroll/focus viewport between the fixed bars. Item-only
                 // padding lets bring-into-view place a clickable row under a bar.
-                modifier = Modifier.widthIn(max = 680.dp).fillMaxSize().padding(padding).clipToBounds()
-                    .focusProperties { canFocus = page == detailPage && isActive }.then(interaction),
+                modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds()
+                    .focusProperties { canFocus = page == detailPage && isActive },
                 contentPadding = PaddingValues(bottom = 24.dp),
             ) {
                 if (page == 0) {
@@ -228,10 +240,11 @@ fun PodDetailPage(
                         item(key = "home_noise") {
                             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                                 DashboardSection(stringResource(R.string.dashboard_noise))
-                                DashboardNoise(ancMode, onAncModeChange,
+                                DashboardNoise(ancMode, { mode ->
+                                    if (mode == NoiseControlMode.OFF && 1 !in allowedModes) showOffInfo.value = true
+                                    else onAncModeChange(mode)
+                                },
                                     if (ready(PodsSettings.NOISE_MODE) && Key.ALLOW_OFF_OPTION !in pendingSettings) allowedModes + 1 else emptySet())
-                                if (1 !in allowedModes) Text(stringResource(R.string.off_mode_enable_on_select),
-                                    fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                 if (ancMode == null) Text(stringResource(R.string.settings_reading), fontSize = 13.sp)
                             }
                         }
@@ -260,9 +273,10 @@ fun PodDetailPage(
                     item(key = "home_controls") {
                         Card(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
                             if (CustomEq.supportsModel(model) || customEqState.value != null) {
-                                DashboardLink(stringResource(R.string.eq_title), rightText = stringResource(when (customEqState.value?.state) {
-                                    CustomEq.RECOMMENDED -> R.string.eq_recommended
-                                    CustomEq.CUSTOM -> R.string.eq_custom
+                                DashboardLink(stringResource(R.string.eq_title), rightText = stringResource(when {
+                                    !eqAvailable && !podsInfo?.version3.isNullOrBlank() -> R.string.eq_update_required
+                                    customEqState.value?.state == CustomEq.RECOMMENDED -> R.string.eq_recommended
+                                    customEqState.value?.state == CustomEq.CUSTOM -> R.string.eq_custom
                                     else -> R.string.settings_reading
                                 })) { equalizerParent = 0; detailPage = 5 }
                                 DashboardDivider(Modifier.padding(horizontal = 16.dp))
@@ -290,7 +304,7 @@ fun PodDetailPage(
                 if (page == 5) {
                     item(key = "equalizer") {
                         EqualizerPage(customEqState, podsInfo?.name ?: deviceName,
-                            available = CustomEq.available(model, podsInfo?.version3.orEmpty(), customEqState.value != null),
+                            firmware = podsInfo?.version3.orEmpty(), available = eqAvailable,
                             active = isActive && page == detailPage && customEqState.session > 0 && diagnostics?.getString("connection") == "connected",
                             feedback = settingFeedback[PodsSettings.CUSTOM_EQ], onChange = onCustomEqChange)
                     }
@@ -579,6 +593,19 @@ fun PodDetailPage(
                     }
                 }
             }
+        }
+    }
+    SuperDialog(show = showOffInfo, title = stringResource(R.string.off_mode_confirm_title),
+        summary = stringResource(R.string.off_mode_enable_on_select),
+        onDismissRequest = { showOffInfo.value = false }) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(stringResource(android.R.string.cancel), onClick = { showOffInfo.value = false },
+                modifier = Modifier.weight(1f))
+            TextButton(stringResource(android.R.string.ok), onClick = {
+                showOffInfo.value = false
+                onAncModeChange(NoiseControlMode.OFF)
+            }, enabled = ready(PodsSettings.NOISE_MODE) && Key.ALLOW_OFF_OPTION !in pendingSettings,
+                modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary())
         }
     }
 }

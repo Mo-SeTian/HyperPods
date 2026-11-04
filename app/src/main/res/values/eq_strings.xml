@@ -12,5 +12,10 @@
     <string name="eq_neutral">50 is the default value.</string>
     <string name="eq_recommended_summary">Using the recommended headset tuning.</string>
     <string name="eq_unknown">Current tuning has not been received. Selecting a mode will use the default band values (50).</string>
-    <string name="eq_firmware_required">Native equalizer support is unconfirmed for this firmware. Requires generation 9 or later.</string>
+    <string name="eq_firmware_required">The native equalizer requires generation 9 or later firmware. Update your AirPods firmware, then reconnect them.</string>
+    <string name="eq_update_required">Firmware update needed</string>
+    <string name="eq_current_firmware">Current version identifier: %1$s</string>
+    <string name="eq_firmware_reading">Reading firmware information</string>
+    <string name="eq_firmware_unknown">Firmware information is unavailable, so support cannot be determined yet. Keep your AirPods connected and try again shortly.</string>
+    <string name="eq_firmware_help">How to update AirPods firmware</string>
 </resources>

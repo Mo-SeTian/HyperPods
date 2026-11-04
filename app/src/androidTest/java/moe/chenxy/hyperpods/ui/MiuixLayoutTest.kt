@@ -71,4 +71,19 @@ class MiuixLayoutTest {
         compose.onNodeWithText("AirPods Pro").assertIsDisplayed()
         compose.onNodeWithText("Not saved").assertDoesNotExist()
     }
+
+    @Test fun offExplanationAppearsOnlyOnSelectionAndCancelKeepsTheCurrentMode() {
+        compose.runOnUiThread { compose.activity.intent.putExtra("allow_off", false) }
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        compose.onNodeWithText(text(R.string.off_mode_enable_on_select)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.off)).performClick()
+        compose.onNodeWithText(text(R.string.off_mode_confirm_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.off_mode_enable_on_select)).assertIsDisplayed()
+        compose.onNodeWithText(text(android.R.string.cancel)).performClick()
+        compose.onNodeWithText(text(R.string.noise_cancellation_title)).assertIsSelected()
+        compose.onNodeWithText(text(R.string.off)).performClick()
+        compose.onNodeWithText(text(android.R.string.ok)).performClick()
+        compose.onNodeWithText(text(R.string.off)).assertIsSelected()
+    }
 }

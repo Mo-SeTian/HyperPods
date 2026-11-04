@@ -12,7 +12,6 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
-import moe.chenxy.hyperpods.ui.components.DashboardTopBar
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.CustomEq
 import moe.chenxy.hyperpods.utils.CustomEqState
@@ -50,7 +49,7 @@ class EqualizerUiTest(private val motionScale: Float) {
         compose.runOnUiThread {
             compose.activity.setContent {
                 AppTheme(theme.value) {
-                    Scaffold(topBar = { DashboardTopBar { compose.activity.onBackPressedDispatcher.onBackPressed() } }) { padding ->
+                    Scaffold { padding ->
                         PodDetailPage(padding = padding, batteryParams = BatteryParams(), earDetectionParams = EarDetectionParams(),
                             earDetectionEnable = true, onEarDetectionChanged = {}, autoSwitchToSpeaker = false,
                             onAutoSwitchToSpeakerChange = {}, personlizedVolume = false, onPersonlizedVolumeChange = {},
@@ -176,13 +175,25 @@ class EqualizerUiTest(private val motionScale: Float) {
         state.value = state.value.copy(value = null)
         render(firmware = "8454592")
         compose.onNodeWithText(text(R.string.eq_firmware_required)).assertExists()
-        compose.onNodeWithText(text(R.string.eq_mode)).assertHasNoClickAction()
+        compose.onNodeWithText(text(R.string.eq_mode)).assertDoesNotExist()
+        compose.onNodeWithText(compose.activity.getString(R.string.eq_current_firmware, "8454592")).assertExists()
+        compose.onNodeWithText(text(R.string.eq_firmware_help)).assertHasClickAction()
+        capture("firmware-update")
         compose.onNodeWithTag("eq_band_0").assertDoesNotExist()
         assertTrue(writes.isEmpty())
         compose.runOnIdle { state.value = state.value.copy(value = CustomEq(2, 30, 40, 60), revision = state.value.revision + 1) }
         compose.waitForIdle()
         compose.onNodeWithTag("eq_band_0").assertIsEnabled()
         assertEquals(30f, value(0))
+        assertTrue(writes.isEmpty())
+    }
+
+    @Test fun missingFirmwareShowsReadingStatusWithoutAnUpgradeDiagnosis() {
+        state.value = state.value.copy(value = null)
+        render(firmware = "")
+        compose.onNodeWithText(text(R.string.eq_firmware_reading)).assertExists()
+        compose.onNodeWithText(text(R.string.eq_firmware_unknown)).assertExists()
+        compose.onNodeWithText(text(R.string.eq_firmware_help)).assertDoesNotExist()
         assertTrue(writes.isEmpty())
     }
 

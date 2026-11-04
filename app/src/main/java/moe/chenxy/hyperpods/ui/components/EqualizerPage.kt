@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
@@ -53,7 +54,7 @@ import kotlin.math.roundToInt
 
 /** Use real native controls; no writes on composition, page entry or incoming reports. */
 @Composable
-fun EqualizerPage(state: CustomEqState, deviceName: String, available: Boolean, active: Boolean,
+fun EqualizerPage(state: CustomEqState, deviceName: String, firmware: String, available: Boolean, active: Boolean,
     feedback: String?, onChange: (CustomEq, Long) -> Unit) {
     val scope = rememberCoroutineScope()
     val send by rememberUpdatedState(onChange)
@@ -64,6 +65,7 @@ fun EqualizerPage(state: CustomEqState, deviceName: String, available: Boolean, 
     var pending by remember { mutableStateOf<Job?>(null) }
     val custom = state.value?.state == CustomEq.CUSTOM
     val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val uriHandler = LocalUriHandler.current
 
     // Headset reports remain authoritative, but must not move a thumb underneath
     // an active finger. A failed write also changes revision, allowing repeated retries.
@@ -103,12 +105,30 @@ fun EqualizerPage(state: CustomEqState, deviceName: String, available: Boolean, 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (deviceName.isNotBlank()) Text(deviceName, modifier = Modifier.padding(horizontal = 8.dp),
             fontSize = 14.sp, color = secondary)
+        if (!available) {
+            DashboardGroup {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(if (firmware.isBlank()) R.string.eq_firmware_reading else R.string.eq_update_required),
+                        fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                    if (firmware.isNotBlank()) Text(stringResource(R.string.eq_current_firmware, firmware),
+                        fontSize = 14.sp, lineHeight = 20.sp, color = secondary)
+                    Text(stringResource(if (firmware.isBlank()) R.string.eq_firmware_unknown else R.string.eq_firmware_required),
+                        fontSize = 14.sp, lineHeight = 21.sp, color = secondary)
+                }
+                if (firmware.isNotBlank()) {
+                    DashboardDivider(Modifier.padding(horizontal = 16.dp))
+                    DashboardLink(stringResource(R.string.eq_firmware_help)) {
+                        uriHandler.openUri("https://support.apple.com/zh-cn/106340")
+                    }
+                }
+            }
+            return@Column
+        }
         DashboardGroup {
             SuperDropdown(title = stringResource(R.string.eq_mode),
                 items = listOf(stringResource(R.string.eq_recommended), stringResource(R.string.eq_custom)),
                 selectedIndex = state.value?.state?.minus(1) ?: -1, showValue = state.value != null,
-                summary = if (!available) stringResource(R.string.eq_firmware_required)
-                    else if (state.value == null) stringResource(R.string.eq_unknown) else null,
+                summary = if (state.value == null) stringResource(R.string.eq_unknown) else null,
                 enabled = enabled,
                 onSelectedIndexChange = { index ->
                     if (index in 0..1) {

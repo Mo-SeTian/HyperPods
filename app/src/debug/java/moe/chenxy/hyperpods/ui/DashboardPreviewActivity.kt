@@ -22,7 +22,6 @@ import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
-import moe.chenxy.hyperpods.ui.components.DashboardTopBar
 import moe.chenxy.hyperpods.ui.components.DashboardNavigation
 import top.yukonga.miuix.kmp.basic.*
 
@@ -59,7 +58,6 @@ class DashboardPreviewActivity : ComponentActivity() {
                     else AirPodsModels.getModelByModelNumber(modelNumber)?.name ?: "AirPods") }
                 val pager = rememberPagerState(pageCount = { 2 })
                 Scaffold(
-                    topBar = { DashboardTopBar { onBackPressedDispatcher.onBackPressed() } },
                     bottomBar = { DashboardNavigation(pager) }
                 ) { padding ->
                     HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
@@ -92,7 +90,7 @@ class DashboardPreviewActivity : ComponentActivity() {
                             onListeningModeChange = {}, ancMode = anc, onAncModeChange = { anc = it },
                             podsInfo = if (unknown) null else AACPManager.Companion.AirPodsInformation(
                                 name, modelNumber, "Apple Inc.", "DEMO-NOT-REAL", "0", "0", "1.0.0",
-                                "DEMO", "DEMO-LEFT", "DEMO-RIGHT", "DEMO"),
+                                "DEMO", "DEMO-LEFT", "DEMO-RIGHT", intent.getStringExtra("firmware") ?: "9441861"),
                             onNameChange = { name = it }, microphoneMode = microphone,
                             onMicrophoneModeChange = { microphone = it },
                             noiseCancellationSingleAirPod = single, onNoiseCancellationSingleAirPodChange = { single = it },
@@ -109,7 +107,7 @@ class DashboardPreviewActivity : ComponentActivity() {
                                 Key.MICROPHONE_MODE to (PodsSettings.microphoneValue(microphone) ?: 0),
                                 Key.ADAPTIVE_AUDIO_LEVEL to (100 - level * 100).toInt(),
                                 Key.LISTENING_MODE_BYTE to 6,
-                                Key.ALLOW_OFF_OPTION to 1,
+                                Key.ALLOW_OFF_OPTION to if (intent.getBooleanExtra("allow_off", true)) 1 else 2,
                                 Key.PRESS_SPEED to 0, Key.HOLD_DURATION to 0,
                                 Key.SWIPE_SPEED to 1, Key.CHIME_VOLUME to 50,
                             ))

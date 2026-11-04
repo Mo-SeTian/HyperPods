@@ -5,6 +5,7 @@ import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -80,6 +81,7 @@ class SettingsNavigationTest(private val durationScale: Float) {
 
     @Test
     fun returningFromEveryDetailRestoresHomeScroll() {
+        compose.onAllNodesWithContentDescription(text(R.string.dashboard_back)).assertCountEquals(0)
         listOf(R.string.dashboard_more, R.string.dashboard_device_info, R.string.diagnostics_title).forEach { id ->
             reveal(id)
             val before = scrollPosition()
@@ -89,6 +91,7 @@ class SettingsNavigationTest(private val durationScale: Float) {
             back()
             assertEquals("Home scroll changed after returning", before, scrollPosition(), 0.000001f)
             compose.onNodeWithText(text(id)).assertIsDisplayed()
+            compose.onAllNodesWithContentDescription(text(R.string.dashboard_back)).assertCountEquals(0)
         }
     }
 
