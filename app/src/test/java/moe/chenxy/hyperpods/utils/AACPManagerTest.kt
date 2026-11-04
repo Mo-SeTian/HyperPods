@@ -69,6 +69,25 @@ class AACPManagerTest {
         assertNull(AACPManager(mock(BluetoothSocket::class.java)).reportedControlValue(id))
     }
 
+    @Test fun offPermissionWriteIsUnconfirmedAndCannotChangeTheReportedListeningMode() {
+        val session = AACPManager(mock(BluetoothSocket::class.java), writer = { true })
+        val allowOff = AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION
+        val mode = AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE
+        session.receivePacket(packet(9, 11).apply { this[6] = mode.value; this[7] = 4 })
+        assertTrue(session.sendControlCommand(allowOff.value, 1))
+        assertTrue(session.isAwaitingReport(allowOff))
+        assertNull(session.reportedControlValue(allowOff))
+        assertEquals(1.toByte(), session.getControlCommandStatus(allowOff)!!.value[0])
+        assertEquals(4, session.reportedControlValue(mode))
+        session.receivePacket(packet(9, 11).apply { this[6] = allowOff.value; this[7] = 2 })
+        assertFalse(session.isAwaitingReport(allowOff))
+        assertEquals(2.toByte(), session.getControlCommandStatus(allowOff)!!.value[0])
+        val failed = AACPManager(mock(BluetoothSocket::class.java), writer = { false })
+        assertFalse(failed.sendControlCommand(allowOff.value, 1))
+        assertFalse(failed.isAwaitingReport(allowOff))
+        assertNull(failed.getControlCommandStatus(allowOff))
+    }
+
     @Test fun onlyCompleteReceivedPacketsUpdateDiagnosticTimestamps() {
         var now = 1000L
         val session = AACPManager(mock(BluetoothSocket::class.java)) { now }
@@ -305,15 +324,16 @@ class AACPManagerTest {
         assertEquals(4, manager.createRenamePacket("🎧")[3].toInt() and 0xff)
     }
 
-    @Test fun otherSettingsStillRequireReportsForEverySendOverload() {
+    @Test fun listeningModeStillRequiresReportsForEverySendOverload() {
         val socket = mock(BluetoothSocket::class.java)
         `when`(socket.isConnected).thenReturn(true)
         `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
         val sender = AACPManager(socket)
-        assertTrue(sender.sendControlCommand(0x34, true))
-        assertTrue(sender.sendControlCommand(0x34, 2))
-        assertTrue(sender.sendControlCommand(0x34, 1.toByte()))
-        assertTrue(sender.sendControlCommand(0x34, byteArrayOf(2)))
+        val id = AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE.value
+        assertTrue(sender.sendControlCommand(id, true))
+        assertTrue(sender.sendControlCommand(id, 2))
+        assertTrue(sender.sendControlCommand(id, 1.toByte()))
+        assertTrue(sender.sendControlCommand(id, byteArrayOf(2)))
         assertTrue(sender.controlCommandStatusList.isEmpty())
     }
 
@@ -323,7 +343,8 @@ class AACPManagerTest {
         `when`(socket.outputStream).thenReturn(ByteArrayOutputStream())
         val sender = AACPManager(socket)
         for (id in listOf(AACPManager.Companion.ControlCommandIdentifiers.ADAPTIVE_VOLUME_CONFIG,
-            AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG)) {
+            AACPManager.Companion.ControlCommandIdentifiers.CONVERSATION_DETECT_CONFIG,
+            AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION)) {
             assertTrue(sender.sendControlCommand(id.value, true))
             assertEquals(1.toByte(), sender.getControlCommandStatus(id)!!.value[0])
             assertTrue(sender.sendControlCommand(id.value, 2))

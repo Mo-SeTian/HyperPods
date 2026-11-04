@@ -39,7 +39,7 @@ class PodsSettingsTest {
         assertFalse(PodsSettings.supports(Key.ADJUST_VOLUME_BY_SWIPER, AirPods4ANC()))
     }
 
-    @Test fun newerHeadsetsRequireConfirmedPermissionForOffMode() {
+    @Test fun ordinaryOffValidationStillRequiresAnEnabledPermissionValue() {
         val model = AirPodsPro2USBC()
         assertEquals(setOf(2, 3, 4), PodsSettings.allowedNoiseModes(model, emptyMap()))
         assertFalse(PodsSettings.validValue(PodsSettings.NOISE_MODE, 1, model, mapOf(Key.ALLOW_OFF_OPTION to 2)))

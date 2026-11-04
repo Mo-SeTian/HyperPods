@@ -585,15 +585,19 @@ object L2CAPController {
         // Publish the prerequisite first, so the following mode command remains the latest operation.
         if (continueOff) {
             pendingOffSelection = false
-            if (success) sendSetting(PodsSettings.NOISE_MODE, 1)
+            if (success) sendSetting(PodsSettings.NOISE_MODE, 1, offOptionSent = true)
             else sendSettingResult(PodsSettings.NOISE_MODE, false, status = status)
         }
     }
 
     @Synchronized
-    private fun sendSetting(key: String, value: Int) {
+    private fun sendSetting(key: String, value: Int, offOptionSent: Boolean = false) {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
-        if (!PodsSettings.validValue(key, value, model, confirmedSettings()) || pendingSettings.containsKey(key)) {
+        // Only this explicit Off transaction may proceed after the writer accepts the prerequisite.
+        // A stale permission echo must not prevent trying Off; the mode itself still needs a real report.
+        val values = if (offOptionSent && key == PodsSettings.NOISE_MODE && value == 1)
+            confirmedSettings() + (HyperPodsPrefsKey.ALLOW_OFF_OPTION to 1) else confirmedSettings()
+        if (!PodsSettings.validValue(key, value, model, values) || pendingSettings.containsKey(key)) {
             failedSettings[key] = value
             sendSettingResult(key, false, status = "invalid")
             return
@@ -629,13 +633,6 @@ object L2CAPController {
         val generation = sessionId
         val timeout = CoroutineScope(Dispatchers.Default).launch {
             delay(3000)
-            if (key == HyperPodsPrefsKey.ALLOW_OFF_OPTION) {
-                synchronized(this@L2CAPController) {
-                    ensureActive()
-                    if (sessionId == generation && pendingSettings.containsKey(key)) aacpManager?.sendNotificationRequest()
-                }
-                delay(3000) // One bounded status refresh before abandoning the Off prerequisite.
-            }
             synchronized(this@L2CAPController) {
                 ensureActive()
                 if (sessionId == generation) pendingSettings.remove(key)?.let {
@@ -1636,12 +1633,13 @@ object L2CAPController {
         cancelSinglePodAncRestore()
         singlePodAnc.selectMode(mode)
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
+        val offOptionConfirmed = confirmedSettings()[HyperPodsPrefsKey.ALLOW_OFF_OPTION] == 1 &&
+            aacpManager?.isAwaitingReport(AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION) == false
         if (mode == 1 && PodsSettings.supports(HyperPodsPrefsKey.ALLOW_OFF_OPTION, model) &&
-            confirmedSettings()[HyperPodsPrefsKey.ALLOW_OFF_OPTION] != 1) {
-            if (pendingSettings.containsKey(PodsSettings.NOISE_MODE) ||
-                pendingSettings.containsKey(HyperPodsPrefsKey.ALLOW_OFF_OPTION)) return
-            // Only an explicit Off click enables this firmware option. Wait for
-            // its acknowledgement before issuing the listening-mode command.
+            !offOptionConfirmed) {
+            if (pendingSettings.containsKey(PodsSettings.NOISE_MODE)) return
+            // Some firmware never echoes this option. Continue after writing it,
+            // retain its unconfirmed flag, and confirm success from listening mode instead.
             pendingOffSelection = true
             sendSetting(HyperPodsPrefsKey.ALLOW_OFF_OPTION, 1)
             return

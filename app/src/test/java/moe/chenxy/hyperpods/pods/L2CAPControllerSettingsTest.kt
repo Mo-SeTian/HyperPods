@@ -40,6 +40,7 @@ import org.junit.Test
 import org.mockito.MockedStatic
 import org.mockito.Mockito.*
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Exercises the real broadcast handler, writer, incoming parser and acknowledgement lifecycle. */
@@ -342,24 +343,24 @@ class L2CAPControllerSettingsTest {
         field("pausedAudio").setBoolean(controller, false)
     }
 
-    @Test fun selectingOffEnablesTheOptionAndWaitsForConfirmationBeforeChangingMode() {
+    @Test fun selectingOffWritesBothCommandsWithoutWaitingForTheOptionEcho() {
         receive(0x0d, 4)
         receive(0x34, 2)
         controller.setANCMode(1)
-        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x34, 1, 0, 0, 0), output.toByteArray())
-        assertTrue(field("pendingOffSelection").getBoolean(controller))
-        receive(0x34, 2) // A stale state report is not an acknowledgement.
-        assertEquals(11, output.size())
-        receive(0x34, 1)
         assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x34, 1, 0, 0, 0,
             4, 0, 4, 0, 9, 0, 0x0d, 1, 0, 0, 0), output.toByteArray())
         assertFalse(field("pendingOffSelection").getBoolean(controller))
+        assertTrue(manager.isAwaitingReport(AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION))
+        assertEquals(2, manager.reportedControlValue(AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION))
+        assertFalse(pending().containsKey(Key.ALLOW_OFF_OPTION))
         assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
         assertEquals(PodsSettings.NOISE_MODE, field("lastSettingKey").get(controller))
         assertEquals("sent", field("lastSettingStatus").get(controller))
         assertEquals(4.toByte(), manager.getControlCommandStatus(AACPManager.Companion.ControlCommandIdentifiers.LISTENING_MODE)!!.value[0])
         receive(0x0d, 1)
         assertTrue(pending().isEmpty())
+        assertEquals(1, field("currentAnc").getInt(controller))
+        assertEquals("confirmed", field("lastSettingStatus").get(controller))
     }
 
     @Test fun alreadyEnabledOffDoesNotRewriteTheOption() {
@@ -377,18 +378,21 @@ class L2CAPControllerSettingsTest {
         assertTrue(pending().isEmpty())
     }
 
-    @Test fun offOptionTimeoutNeverSendsOffAndAllowsAnotherClick() {
+    @Test fun missingModeConfirmationStillTimesOutWithoutPretendingOffSucceeded() {
+        receive(0x0d, 4)
         controller.setANCMode(1)
         field("mContext").set(controller, null)
-        val deadline = System.nanoTime() + 7_000_000_000L
+        val deadline = System.nanoTime() + 4_000_000_000L
         while (synchronized(controller) { pending().isNotEmpty() } && System.nanoTime() < deadline) Thread.sleep(20)
         assertFalse(field("pendingOffSelection").getBoolean(controller))
-        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x34, 1, 0, 0, 0) +
-            manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
+        assertEquals(22, output.size())
+        assertEquals(4, field("currentAnc").getInt(controller))
+        assertEquals(PodsSettings.NOISE_MODE, field("lastSettingKey").get(controller))
+        assertEquals("timeout", field("lastSettingStatus").get(controller))
         field("mContext").set(controller, ContextWrapper(null))
         controller.setANCMode(1)
-        assertTrue(field("pendingOffSelection").getBoolean(controller))
-        assertEquals(32, output.size())
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        assertEquals(44, output.size()) // Retry sends both commands while permission is still unconfirmed.
     }
 
     private fun initialReady(): Boolean = type.getDeclaredMethod("initialStatusReady")
@@ -470,28 +474,84 @@ class L2CAPControllerSettingsTest {
         assertFalse(controller.currentBatteryParams.left!!.isConnected)
     }
 
-    @Test fun disconnectAbandonsTheOffPrerequisiteAndCannotSendALateModeCommand() {
+    @Test fun disconnectAbandonsOffConfirmationAndLateOptionReportsCannotSendAnotherMode() {
         controller.setANCMode(1)
         field("mContext").set(controller, null)
         controller.disconnectedPod(ContextWrapper(null), device)
         receive(0x34, 1)
         assertFalse(field("pendingOffSelection").getBoolean(controller))
         assertTrue(pending().isEmpty())
-        assertEquals(11, output.size())
+        assertEquals(22, output.size())
     }
 
-    @Test fun offPrerequisiteCanCompleteAfterItsSingleBoundedStatusRefresh() {
+    @Test fun staleOptionReportCannotConfirmOrResendTheActualOffMode() {
+        receive(0x0d, 4)
         controller.setANCMode(1)
-        // Timer broadcasts use no-op stubs here; the protocol writer remains real.
-        field("mContext").set(controller, null)
-        Thread.sleep(3300)
-        synchronized(controller) {
-            assertEquals(21, output.size()) // Allow Off + one status subscription.
-            assertTrue(pending().containsKey(Key.ALLOW_OFF_OPTION))
-            receive(0x34, 1)
-            assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
-            assertEquals(32, output.size()) // Only a confirmed prerequisite sends real Off.
+        receive(0x34, 2)
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        assertEquals(4, field("currentAnc").getInt(controller))
+        assertEquals(22, output.size())
+        receive(0x0d, 1)
+        receive(0x34, 1)
+        assertTrue(pending().isEmpty())
+        assertEquals(1, field("currentAnc").getInt(controller))
+        assertEquals(22, output.size())
+    }
+
+    @Test fun staleOptionEchoDuringTheContinuationDoesNotBlockTheExplicitOffAttempt() {
+        receive(0x0d, 4)
+        val context = mock(Context::class.java)
+        val echoed = AtomicInteger()
+        doAnswer {
+            // A prior-state echo arrives after the local write but before the mode is queued.
+            if (output.size() == 11 && echoed.compareAndSet(0, 1)) receive(0x34, 2)
+            null
+        }.`when`(context).sendBroadcast(any(Intent::class.java), isNull(), nullable(Bundle::class.java))
+        field("mContext").set(controller, context)
+        controller.setANCMode(1)
+        assertEquals(1, echoed.get())
+        assertEquals(22, output.size())
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        receive(0x0d, 1)
+        assertEquals(1, field("currentAnc").getInt(controller))
+        assertTrue(pending().isEmpty())
+    }
+
+    @Test fun unconfirmedOptionEnableIsReissuedBeforeAnExplicitOffAttempt() {
+        receive(0x0d, 4)
+        receive(0x34, 2)
+        request(Key.ALLOW_OFF_OPTION, 1)
+        assertTrue(pending().isEmpty())
+        assertTrue(manager.isAwaitingReport(AACPManager.Companion.ControlCommandIdentifiers.ALLOW_OFF_OPTION))
+        output.reset()
+        controller.setANCMode(1)
+        assertEquals(22, output.size())
+        assertTrue(pending().containsKey(PodsSettings.NOISE_MODE))
+        assertEquals(4, field("currentAnc").getInt(controller))
+    }
+
+    @Test fun failedModeWriteAfterTheOptionWriteDoesNotSelectOffAndCanRetry() {
+        receive(0x0d, 4)
+        val failing = object : ByteArrayOutputStream() {
+            override fun write(bytes: ByteArray) {
+                if (bytes.size > 6 && bytes[6] == 0x0d.toByte()) throw IOException("Mode write failed")
+                super.write(bytes)
+            }
         }
+        `when`(socket.outputStream).thenReturn(failing)
+        controller.setANCMode(1)
+        assertEquals(11, failing.size())
+        assertTrue(pending().isEmpty())
+        assertFalse(field("pendingOffSelection").getBoolean(controller))
+        assertEquals(4, field("currentAnc").getInt(controller))
+        assertEquals(PodsSettings.NOISE_MODE, field("lastSettingKey").get(controller))
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        `when`(socket.outputStream).thenReturn(output)
+        controller.setANCMode(1)
+        assertEquals(22, output.size())
+        receive(0x0d, 1)
+        assertEquals(1, field("currentAnc").getInt(controller))
+        assertTrue(pending().isEmpty())
     }
 
     @Test fun microphoneCanBeWrittenBeforeItsFirstReportAndLaterReportsAreAuthoritative() {

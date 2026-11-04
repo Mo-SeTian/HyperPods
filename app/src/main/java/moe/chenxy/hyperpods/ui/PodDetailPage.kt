@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
@@ -53,6 +54,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mocharealm.gaze.capsule.ContinuousRoundedRectangle
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.ui.components.DashboardBattery
@@ -604,7 +606,9 @@ fun PodDetailPage(
         onDismissRequest = { showOffInfo.value = false }) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(stringResource(android.R.string.cancel), onClick = { showOffInfo.value = false },
-                modifier = Modifier.weight(1f))
+                modifier = Modifier.weight(1f).border(1.dp,
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = .65f),
+                    ContinuousRoundedRectangle(ButtonDefaults.CornerRadius)))
             TextButton(stringResource(android.R.string.ok), onClick = {
                 showOffInfo.value = false
                 onAncModeChange(NoiseControlMode.OFF)

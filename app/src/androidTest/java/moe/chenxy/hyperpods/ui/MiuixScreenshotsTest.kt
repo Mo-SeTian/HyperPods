@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsSelected
 import androidx.test.platform.app.InstrumentationRegistry
 import moe.chenxy.hyperpods.R
 import org.junit.Rule
@@ -19,12 +20,13 @@ class MiuixScreenshotsTest {
     private fun text(id: Int) = compose.activity.getString(id)
 
     private fun render(theme: Int = 1, unknown: Boolean = false, model: String = "A3049", caseConnected: Boolean = true,
-        firmware: String = "9441861", eqMode: Int = 1) {
+        firmware: String = "9441861", eqMode: Int = 1, allowOff: Boolean = true) {
         compose.runOnUiThread {
             compose.activity.intent.putExtra("theme", theme).putExtra("unknown", unknown)
                 .putExtra("case_connected", caseConnected).putExtra("in_case", caseConnected)
                 .putExtra("personalized", true).putExtra("model_number", model)
                 .putExtra("eq_state", if (unknown) 0 else eqMode).putExtra("firmware", firmware)
+                .putExtra("allow_off", allowOff)
         }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
@@ -40,6 +42,17 @@ class MiuixScreenshotsTest {
     private fun open(id: Int) {
         compose.revealSetting(text(id)).performClick()
         compose.waitForIdle()
+    }
+
+    @Test fun captureOffConfirmationAndVerifyCancelInBothThemes() {
+        for (theme in listOf(1, 2)) {
+            render(theme = theme, caseConnected = false, allowOff = false)
+            compose.onNodeWithText(text(R.string.off)).performClick()
+            compose.waitForIdle()
+            capture("off-confirm-$theme")
+            compose.onNodeWithText(text(android.R.string.cancel)).performClick()
+            compose.onNodeWithText(text(R.string.noise_cancellation_title)).assertIsSelected()
+        }
     }
 
     @Test fun captureHomeStates() {
