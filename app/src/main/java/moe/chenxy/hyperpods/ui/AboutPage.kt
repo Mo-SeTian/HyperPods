@@ -3,6 +3,7 @@ package moe.chenxy.hyperpods.ui
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,10 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
@@ -35,6 +40,8 @@ import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
 import moe.chenxy.hyperpods.ui.components.DashboardSection
 import moe.chenxy.hyperpods.ui.components.DashboardLink
 import moe.chenxy.hyperpods.ui.components.DashboardTopBar
+import moe.chenxy.hyperpods.ui.components.DashboardToggle
+import moe.chenxy.hyperpods.utils.LauncherIcon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -45,6 +52,7 @@ fun AboutPage(
 ) {
     val context = LocalContext.current
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    var showLauncherIcon by remember(context) { mutableStateOf(LauncherIcon.isVisible(context)) }
     Column(Modifier.fillMaxSize().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 680.dp)
         .padding(padding).consumeWindowInsets(padding)) {
         DashboardTopBar(title = stringResource(R.string.about_hyperpods)) { backDispatcher?.onBackPressed() }
@@ -78,6 +86,21 @@ fun AboutPage(
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
+                }
+            }
+            item(key = "app_settings") {
+                DashboardSection(stringResource(R.string.dashboard_app_settings))
+                Card {
+                    DashboardToggle(
+                        title = stringResource(R.string.launcher_icon_title),
+                        summary = stringResource(R.string.launcher_icon_summary),
+                        checked = showLauncherIcon,
+                        onChange = { visible ->
+                            runCatching { LauncherIcon.setVisible(context, visible) }
+                                .onSuccess { showLauncherIcon = LauncherIcon.isVisible(context) }
+                                .onFailure { Toast.makeText(context, R.string.launcher_icon_failed, Toast.LENGTH_LONG).show() }
+                        },
+                    )
                 }
             }
             item(key = "project") {

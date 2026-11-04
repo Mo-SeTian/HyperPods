@@ -16,6 +16,12 @@
     <string name="dashboard_more_basic_summary">Press and hold · More settings</string>
     <string name="dashboard_support">Device &amp; support</string>
     <string name="dashboard_project">Project</string>
+    <string name="dashboard_app_settings">App settings</string>
+    <string name="launcher_icon_title">Show launcher icon</string>
+    <string name="launcher_icon_summary">Open headphone controls from the launcher. The settings page does not need to stay open.</string>
+    <string name="launcher_icon_failed">Could not update the launcher icon. Please try again.</string>
+    <string name="launcher_disconnected_title">No AirPods connected</string>
+    <string name="launcher_disconnected_summary">Connect your AirPods to see battery levels and headphone controls here.</string>
     <string name="dashboard_author">Original author</string>
     <string name="dashboard_fork_author">Fork maintainer</string>
     <string name="dashboard_fork_repository">Fork repository</string>

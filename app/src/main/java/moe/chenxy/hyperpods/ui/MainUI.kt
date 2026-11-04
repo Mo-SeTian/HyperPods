@@ -165,13 +165,15 @@ fun MainUI() {
                     HyperPodsAction.ACTION_PODS_DISCONNECTED -> {
                         mainTitle.value = ""
                         canShowDetailPage.value = false
+                        currentPodsInfo = null
+                        batteryParams.value = BatteryParams()
+                        earDetectionParams.value = EarDetectionParams((-1).toByte(), (-1).toByte())
+                        ancMode.value = null
                         settings.clear()
                         customEqState = CustomEqState()
                         pendingSettings = emptySet()
                         settingFeedback.clear()
-                        if (p0 is MainActivity && !p1.getBooleanExtra("initialization_failed", false)) {
-                            p0.finish()
-                        }
+                        (context as? MainActivity)?.onPodsDisconnected(p1.getBooleanExtra("initialization_failed", false))
                     }
                 }
             }
@@ -319,6 +321,7 @@ fun MainUI() {
             onAllowOffChange = { sendBooleanSetting(context, HyperPodsPrefsKey.ALLOW_OFF_OPTION, it) },
             onSettingChange = { key, value -> sendPodsSetting(context, key, value) },
             diagnostics = diagnostics,
+            desktopEntry = (context as? MainActivity)?.keepOpenOnDisconnect == true,
         )
     }
 }
@@ -368,6 +371,7 @@ fun AppHorizontalPager(
     diagnostics: Bundle? = null,
     customEqState: CustomEqState = CustomEqState(),
     onCustomEqChange: (CustomEq, Long) -> Unit = { _, _ -> },
+    desktopEntry: Boolean = false,
 ) {
     HorizontalPager(
         state = pagerState,
@@ -414,7 +418,7 @@ fun AppHorizontalPager(
                                 noiseCancellationSingleAirPod = noiseCancellationSingleAirPod,
                             )
                         } else {
-                            WaitingPodsPage()
+                            WaitingPodsPage(padding, desktopEntry)
                         }
                     }
 

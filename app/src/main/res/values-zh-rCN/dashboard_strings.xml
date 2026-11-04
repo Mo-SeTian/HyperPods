@@ -16,6 +16,12 @@
     <string name="dashboard_more_basic_summary">按压操作 · 更多设置</string>
     <string name="dashboard_support">设备与支持</string>
     <string name="dashboard_project">项目</string>
+    <string name="dashboard_app_settings">应用设置</string>
+    <string name="launcher_icon_title">显示桌面图标</string>
+    <string name="launcher_icon_summary">从桌面打开耳机控制界面，无需让设置界面常驻后台。</string>
+    <string name="launcher_icon_failed">桌面图标设置失败，请重试。</string>
+    <string name="launcher_disconnected_title">未连接 AirPods</string>
+    <string name="launcher_disconnected_summary">连接耳机后，即可查看电量和调整设置。</string>
     <string name="dashboard_author">原作者</string>
     <string name="dashboard_fork_author">二改作者</string>
     <string name="dashboard_fork_repository">二改仓库</string>

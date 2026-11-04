@@ -23,6 +23,17 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <!-- Only this launcher entry is toggled; other control-page entrances remain enabled. -->
+        <activity-alias
+            android:name="${applicationId}.Launcher"
+            android:targetActivity="moe.chenxy.hyperpods.MainActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         <!-- Only the verified Bluetooth UID may store a fixed-field failure report. -->
         <receiver android:name="moe.chenxy.hyperpods.utils.DiagnosticsHistory" android:exported="true" />
         <!-- The provider verifies the Bluetooth UID and returns only fixed app-policy fields. -->
