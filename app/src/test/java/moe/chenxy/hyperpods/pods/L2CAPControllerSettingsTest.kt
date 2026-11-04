@@ -134,12 +134,26 @@ class L2CAPControllerSettingsTest {
         assertEquals("reported", field("lastSettingStatus").get(controller))
     }
 
-    @Test fun nativeEqRejectsOldSessionUnsupportedModelAndOldFirmware() {
-        requestEq(CustomEq(2)) // Unidentified firmware does not become a supported default.
-        assertEquals("invalid", field("lastSettingStatus").get(controller))
-        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(version3 = "8A358")
-        requestEq(CustomEq(2))
-        assertEquals(0, output.size())
+    @Test fun nativeEqAcceptsNumericAndTextGenerationNineOnSupportedModels() {
+        for (firmware in listOf("9441861", "9A348")) {
+            controller.currentPodsInfo = controller.currentPodsInfo!!.copy(version3 = firmware)
+            output.reset()
+            val value = CustomEq(2, 65, 45, 60)
+            requestEq(value)
+            assertArrayEquals(byteArrayOf(4, 0, 4, 0) + value.toPacket(), output.toByteArray())
+            assertEquals("sent", field("lastSettingStatus").get(controller))
+            assertTrue(manager.customEqUnconfirmed)
+        }
+    }
+
+    @Test fun nativeEqRejectsOldSessionAndUnsupportedModel() {
+        for (firmware in listOf("8454592", "8A358", "")) {
+            controller.currentPodsInfo = controller.currentPodsInfo!!.copy(version3 = firmware)
+            requestEq(CustomEq(2))
+            assertEquals("invalid", field("lastSettingStatus").get(controller))
+            assertEquals(0, output.size())
+            assertNull(manager.customEq)
+        }
         controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A2084", version3 = "9A348")
         requestEq(CustomEq(2))
         assertEquals(0, output.size())
@@ -164,6 +178,7 @@ class L2CAPControllerSettingsTest {
         assertEquals(revision + 1, manager.customEqRevision)
         assertEquals(0, output.size())
     }
+
 
     @Test fun sleepToggleUsesLibrePodsOptimisticStatusAndLaterReportsWin() {
         request(Key.SLEEP_DETECTION, 1)

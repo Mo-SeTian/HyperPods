@@ -12,5 +12,5 @@
     <string name="eq_neutral">50 为默认值。</string>
     <string name="eq_recommended_summary">使用耳机推荐调音。</string>
     <string name="eq_unknown">尚未收到当前调音，手动选择模式将使用默认三段值（50）。</string>
-    <string name="eq_firmware_required">需要兼容的耳机固件（9 系列或更新）。</string>
+    <string name="eq_firmware_required">当前固件尚未确认支持原生均衡器，需 9 系列或更新固件。</string>
 </resources>

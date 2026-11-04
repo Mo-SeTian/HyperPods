@@ -66,17 +66,18 @@ class CustomEqTest {
         assertEquals(revision + 2, manager.customEqRevision)
     }
 
-    @Test fun firmwareGateHandlesFutureVersionsUnknownVersionsAndObservedSupport() {
+    @Test fun firmwareGateAcceptsNumericGenerationNineAndRejectsGenerationEight() {
         for (model in listOf(AirPods4(), AirPods4ANC(), AirPods5(), AirPods5WCC(),
                 AirPodsPro2Lightning(), AirPodsPro2USBC(), AirPodsPro3())) {
-            for (firmware in listOf("9A348", " 9B123 ", "10A100"))
+            for (firmware in listOf("9A348", " 9B123 ", "10A100", "9441861", " 9441861 "))
                 assertTrue(CustomEq.available(model, firmware, false))
             for (firmware in listOf("", "unknown", "8A358", "8454592", "A9", "999999999999999A"))
                 assertFalse(CustomEq.available(model, firmware, false))
         }
         for (model in listOf(null, AirPods(), AirPods2(), AirPods3(), AirPodsPro1()))
-            assertFalse(CustomEq.available(model, "9A348", false))
+            assertFalse(CustomEq.available(model, "9441861", false))
         assertTrue(CustomEq.available(null, "", true))
+        assertTrue(CustomEq.available(AirPodsPro2USBC(), "8454592", true))
     }
 
     @Test fun statusRecoveryNeverWritesEqOrRequiresItToInitialize() {

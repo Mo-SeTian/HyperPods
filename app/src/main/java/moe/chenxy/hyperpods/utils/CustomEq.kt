@@ -32,11 +32,24 @@ data class CustomEq(val state: Int = RECOMMENDED, val low: Int = 50, val mid: In
             model is AirPods5 || model is AirPods5WCC || model is AirPodsPro2Lightning ||
             model is AirPodsPro2USBC || model is AirPodsPro3
 
-        // LibrePods android/rewrite gates on firmware generation >= 9. Parse the
-        // entire leading number so future 10+ generations and unknown strings are safe.
-        fun available(model: AirPodsBase?, firmware: String, reported: Boolean): Boolean = reported ||
-            supportsModel(model) && (Regex("^(\\d+)[A-Za-z]\\d+[A-Za-z]?$").matchEntire(firmware.trim())
-                ?.groupValues?.get(1)?.toIntOrNull() ?: 0) >= 9
+        // LibrePods android/rewrite (AppleSettingsScreen.kt, 3d4d270, line 464)
+        // requires version3 to start with generation 9 or newer. Numeric AACP
+        // identifiers such as 9441861 use their first digit, not the whole number.
+        // Also accept human-readable versions such as 9A348 and future 10A100.
+        // A report or an earlier allowed write keeps this connection's known EQ
+        // state usable while metadata refreshes. New connections start without it.
+        fun available(model: AirPodsBase?, firmware: String, hasEqState: Boolean): Boolean {
+            if (hasEqState) return true
+            if (!supportsModel(model)) return false
+            val version = firmware.trim()
+            val generation = if (version.isNotEmpty() && version.all { it in '0'..'9' }) {
+                version.first().digitToInt()
+            } else {
+                Regex("^(\\d+)[A-Za-z]\\d+[A-Za-z]?$").matchEntire(version)
+                    ?.groupValues?.get(1)?.toIntOrNull()
+            }
+            return generation != null && generation >= 9
+        }
     }
 }
 

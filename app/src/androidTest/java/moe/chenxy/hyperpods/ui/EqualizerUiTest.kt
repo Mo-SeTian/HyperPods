@@ -159,11 +159,30 @@ class EqualizerUiTest(private val motionScale: Float) {
         assertEquals(count, writes.size)
     }
 
-    @Test fun unknownStateDoesNotInventASelectionOrWriteOnEntryAndOldFirmwareIsDisabled() {
+    @Test fun numericFirmwareAllowsAnExplicitSelectionWithoutWritingOnEntry() {
         state.value = state.value.copy(value = null)
-        render(firmware = "8A358")
-        compose.onNodeWithText(text(R.string.eq_firmware_required)).assertExists()
+        render(firmware = "9441861")
+        compose.onNodeWithText(text(R.string.eq_unknown)).assertExists()
         compose.onNodeWithTag("eq_band_0").assertDoesNotExist()
+        assertTrue(writes.isEmpty())
+        select(R.string.eq_custom)
+        assertEquals(CustomEq(2, 50, 50, 50), writes.single().first)
+        compose.onNodeWithTag("eq_band_0").performSemanticsAction(SemanticsActions.SetProgress) { assertTrue(it(70f)) }
+        compose.waitForIdle()
+        assertEquals(CustomEq(2, 70, 50, 50), writes.last().first)
+    }
+
+    @Test fun generationEightNumericFirmwareStaysUnavailableUntilARealEqReport() {
+        state.value = state.value.copy(value = null)
+        render(firmware = "8454592")
+        compose.onNodeWithText(text(R.string.eq_firmware_required)).assertExists()
+        compose.onNodeWithText(text(R.string.eq_mode)).assertHasNoClickAction()
+        compose.onNodeWithTag("eq_band_0").assertDoesNotExist()
+        assertTrue(writes.isEmpty())
+        compose.runOnIdle { state.value = state.value.copy(value = CustomEq(2, 30, 40, 60), revision = state.value.revision + 1) }
+        compose.waitForIdle()
+        compose.onNodeWithTag("eq_band_0").assertIsEnabled()
+        assertEquals(30f, value(0))
         assertTrue(writes.isEmpty())
     }
 
