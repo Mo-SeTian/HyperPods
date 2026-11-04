@@ -1,0 +1,16 @@
+<resources>
+    <string name="eq_title">均衡器</string>
+    <string name="eq_summary">耳机原生低、中、高三段调音</string>
+    <string name="eq_mode">调音模式</string>
+    <string name="eq_recommended">推荐</string>
+    <string name="eq_custom">自定义</string>
+    <string name="eq_custom_tuning">自定义调音</string>
+    <string name="eq_reset">重置</string>
+    <string name="eq_low">低音</string>
+    <string name="eq_mid">中音</string>
+    <string name="eq_high">高音</string>
+    <string name="eq_neutral">50 为默认值。</string>
+    <string name="eq_recommended_summary">使用耳机推荐调音。</string>
+    <string name="eq_unknown">尚未收到当前调音，手动选择模式将使用默认三段值（50）。</string>
+    <string name="eq_firmware_required">需要兼容的耳机固件（9 系列或更新）。</string>
+</resources>

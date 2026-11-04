@@ -21,6 +21,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.CustomEq
 import moe.chenxy.hyperpods.utils.AirPods5
 import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.PodsSettings
@@ -54,6 +55,7 @@ class L2CAPControllerSettingsTest {
     private fun pending() = field("pendingSettings").get(controller) as Map<*, *>
 
     @Before fun setUp() {
+        field("customEqConnectionId").setLong(controller, 1L)
         field("headGestures").setBoolean(controller, false)
         field("earDetection").setBoolean(controller, true)
         field("autoSwitchToSpeaker").setBoolean(controller, true)
@@ -103,6 +105,64 @@ class L2CAPControllerSettingsTest {
 
     private fun receive(identifier: Byte, value: Byte) = synchronized(controller) {
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, identifier, value, 0, 0, 0))
+    }
+
+    private fun requestEq(eq: CustomEq, session: Long = field("customEqConnectionId").getLong(controller)) = synchronized(controller) {
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+        `when`(intent.getStringExtra("key")).thenReturn(PodsSettings.CUSTOM_EQ)
+        `when`(intent.hasExtra("session")).thenReturn(true)
+        `when`(intent.getLongExtra("session", -1)).thenReturn(session)
+        `when`(intent.getParcelableExtra("custom_eq", CustomEq::class.java)).thenReturn(eq)
+        controller.handleUIEvent(intent)
+    }
+
+    @Test fun nativeEqIsOptimisticOnlyAfterWriteAndAReportCanOverrideIt() {
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(version3 = "9A348")
+        val value = CustomEq(2, 65, 45, 60)
+        requestEq(value)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0) + value.toPacket(), output.toByteArray())
+        assertEquals(value, manager.customEq)
+        assertTrue(manager.customEqUnconfirmed)
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        assertTrue(pending().isEmpty())
+        synchronized(controller) {
+            manager.receivePacket(byteArrayOf(4, 0, 4, 0) + value.copy(state = 1).toPacket())
+        }
+        assertEquals(value.copy(state = 1), manager.customEq)
+        assertFalse(manager.customEqUnconfirmed)
+        assertEquals("reported", field("lastSettingStatus").get(controller))
+    }
+
+    @Test fun nativeEqRejectsOldSessionUnsupportedModelAndOldFirmware() {
+        requestEq(CustomEq(2)) // Unidentified firmware does not become a supported default.
+        assertEquals("invalid", field("lastSettingStatus").get(controller))
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(version3 = "8A358")
+        requestEq(CustomEq(2))
+        assertEquals(0, output.size())
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A2084", version3 = "9A348")
+        requestEq(CustomEq(2))
+        assertEquals(0, output.size())
+        controller.currentPodsInfo = controller.currentPodsInfo!!.copy(modelNumber = "A3049")
+        requestEq(CustomEq(2), field("customEqConnectionId").getLong(controller) - 1)
+        assertEquals(0, output.size())
+        assertNull(manager.customEq)
+    }
+
+    @Test fun reportedEqSupportAllowsUnknownFirmwareAndFailedWritesPreserveBands() {
+        val value = CustomEq(1, 20, 45, 75)
+        synchronized(controller) { manager.receivePacket(byteArrayOf(4, 0, 4, 0) + value.toPacket()) }
+        requestEq(value.copy(state = 2))
+        assertEquals(value.copy(state = 2), manager.customEq)
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        output.reset()
+        val revision = manager.customEqRevision
+        `when`(socket.isConnected).thenReturn(false)
+        requestEq(value.copy(state = 2, low = 80))
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        assertEquals(value.copy(state = 2), manager.customEq)
+        assertEquals(revision + 1, manager.customEqRevision)
+        assertEquals(0, output.size())
     }
 
     @Test fun sleepToggleUsesLibrePodsOptimisticStatusAndLaterReportsWin() {

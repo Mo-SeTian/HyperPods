@@ -32,6 +32,8 @@ import moe.chenxy.hyperpods.MainActivity
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.CustomEq
+import moe.chenxy.hyperpods.utils.CustomEqState
 import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.PodsSettings
@@ -76,6 +78,7 @@ fun MainUI() {
     val settings = remember { mutableStateMapOf<String, Int>() }
     var pendingSettings by remember { mutableStateOf<Set<String>>(emptySet()) }
     val settingFeedback = remember { mutableStateMapOf<String, String>() }
+    var customEqState by remember { mutableStateOf(CustomEqState()) }
     var conversationPhoneVolume by remember { mutableStateOf(initialPolicy.conversationVolume) }
     var conversationPauseMedia by remember { mutableStateOf(initialPolicy.conversationPauseMedia) }
     var headGestures by remember { mutableStateOf(initialPolicy.headGestures) }
@@ -124,13 +127,17 @@ fun MainUI() {
 
                     HyperPodsAction.ACTION_PODS_SETTINGS_STATE -> {
                         val bundle = p1.getBundleExtra("settings") ?: return
+                        customEqState = p1.getParcelableExtra("custom_eq_state", CustomEqState::class.java) ?: CustomEqState()
                         settings.clear()
                         bundle.keySet().filter { it in PodsSettings.identifiers }.forEach { settings[it] = bundle.getInt(it) }
                         // A recovered channel starts with an empty cache; do not
                         // carry a previous session's failure into fresh reports.
-                        settingFeedback.keys.retainAll(settings.keys + PodsSettings.RENAME)
+                        settingFeedback.keys.retainAll(settings.keys + PodsSettings.RENAME +
+                            listOfNotNull(PodsSettings.CUSTOM_EQ.takeIf { customEqState.value != null || customEqState.revision > 0 }))
                         pendingSettings = p1.getStringArrayListExtra("pending")?.toSet().orEmpty()
                         val unconfirmed = p1.getStringArrayListExtra("unconfirmed")?.toSet().orEmpty()
+                        if (customEqState.value != null && settingFeedback[PodsSettings.CUSTOM_EQ] !in listOf("write_failed", "invalid"))
+                            settingFeedback[PodsSettings.CUSTOM_EQ] = if (customEqState.unconfirmed) "sent" else "reported"
                         settings.keys.forEach { key ->
                             if (settingFeedback[key] !in listOf("write_failed", "timeout", "invalid"))
                                 settingFeedback[key] = if (key in unconfirmed || key in pendingSettings) "sent" else "reported"
@@ -147,7 +154,7 @@ fun MainUI() {
                     HyperPodsAction.ACTION_PODS_SETTING_RESULT -> {
                         val key = p1.getStringExtra("key") ?: return
                         val status = p1.getStringExtra("status") ?: return
-                        if (key in PodsSettings.identifiers || key == PodsSettings.RENAME) settingFeedback[key] = status
+                        if (key in PodsSettings.identifiers || key == PodsSettings.RENAME || key == PodsSettings.CUSTOM_EQ) settingFeedback[key] = status
                         if (!p1.getBooleanExtra("pending", false)) {
                             val success = p1.getBooleanExtra("success", false)
                             if (!success || status == "confirmed" && key != HyperPodsPrefsKey.ALLOW_OFF_OPTION) {
@@ -167,6 +174,7 @@ fun MainUI() {
                         mainTitle.value = ""
                         canShowDetailPage.value = false
                         settings.clear()
+                        customEqState = CustomEqState()
                         pendingSettings = emptySet()
                         settingFeedback.clear()
                         if (p0 is MainActivity && !p1.getBooleanExtra("initialization_failed", false)) {
@@ -298,6 +306,12 @@ fun MainUI() {
             },
             noiseCancellationSingleAirPod = noiseCancellationSingleAirPod.value,
             settings = settings.toMap(), pendingSettings = pendingSettings,
+            customEqState = customEqState,
+            onCustomEqChange = { value, session ->
+                HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
+                    .putExtra("key", PodsSettings.CUSTOM_EQ).putExtra("custom_eq", value)
+                    .putExtra("session", session), HyperPodsBroadcasts.BLUETOOTH)
+            },
             settingFeedback = settingFeedback.toMap(),
             lowBatterySettings = lowBatterySettings,
             onLowBatterySettingsChange = {
@@ -365,6 +379,8 @@ fun AppHorizontalPager(
     onAllowOffChange: (Boolean) -> Unit = {},
     onSettingChange: (String, Int) -> Unit = { _, _ -> },
     diagnostics: Bundle? = null,
+    customEqState: CustomEqState = CustomEqState(),
+    onCustomEqChange: (CustomEq, Long) -> Unit = { _, _ -> },
 ) {
     HorizontalPager(
         state = pagerState,
@@ -382,6 +398,7 @@ fun AppHorizontalPager(
                                 onConversationPhoneVolumeChange = onConversationPhoneVolumeChange,
                                 headGestures = headGestures, onHeadGesturesChange = onHeadGesturesChange,
                                 onSettingChange = onSettingChange, diagnostics = diagnostics,
+                                customEqState = customEqState, onCustomEqChange = onCustomEqChange,
                                 padding = padding,
                                 batteryParams = batteryParams,
                                 earDetectionParams = earDetectionParams,

@@ -37,7 +37,7 @@ class DiagnosticsHistory : BroadcastReceiver() {
                 .putInt("received", snapshot.getInt("received").coerceAtLeast(0))
                 .putInt("retries", snapshot.getInt("retries").coerceAtLeast(0))
                 .putString("setting_key", snapshot.getString("setting_key")
-                    ?.takeIf { it in PodsSettings.identifiers || it == PodsSettings.RENAME }.orEmpty())
+                    ?.takeIf { it in PodsSettings.identifiers || it == PodsSettings.RENAME || it == PodsSettings.CUSTOM_EQ }.orEmpty())
                 .apply()
         }
 

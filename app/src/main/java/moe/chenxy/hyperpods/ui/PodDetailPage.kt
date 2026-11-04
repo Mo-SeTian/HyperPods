@@ -67,7 +67,10 @@ import moe.chenxy.hyperpods.ui.components.RenamePod
 import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
 import moe.chenxy.hyperpods.ui.components.headGestureStatus
 import moe.chenxy.hyperpods.ui.components.HeadTrackingPage
+import moe.chenxy.hyperpods.ui.components.EqualizerPage
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.CustomEq
+import moe.chenxy.hyperpods.utils.CustomEqState
 import moe.chenxy.hyperpods.utils.AirPodsModels.getModelByModelNumber
 import moe.chenxy.hyperpods.utils.Capability
 import moe.chenxy.hyperpods.utils.PodsSettings
@@ -125,6 +128,8 @@ fun PodDetailPage(
     onAllowOffChange: (Boolean) -> Unit = {},
     onSettingChange: (String, Int) -> Unit = { _, _ -> },
     diagnostics: Bundle? = null,
+    customEqState: CustomEqState = CustomEqState(),
+    onCustomEqChange: (CustomEq, Long) -> Unit = { _, _ -> },
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
     fun ready(key: String) = PodsSettings.supports(key, model) && key !in pendingSettings &&
@@ -155,12 +160,12 @@ fun PodDetailPage(
         mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat())
     }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
-    fun back() { detailPage = if (detailPage == 4) 1 else 0 }
+    fun back() { detailPage = if (detailPage == 4 || detailPage == 5) 1 else 0 }
     BackHandler(enabled = isActive && detailPage != 0) { back() }
     // Keep every page's saveable state outside the animated content. Switching the
     // content key must not discard the previous page's scroll position.
     val listStates = listOf(rememberLazyListState(), rememberLazyListState(),
-        rememberLazyListState(), rememberLazyListState(), rememberLazyListState())
+        rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState())
     val travel = with(LocalDensity.current) { 28.dp.roundToPx() }
     AnimatedContent(
         targetState = detailPage,
@@ -178,6 +183,7 @@ fun PodDetailPage(
             2 -> R.string.dashboard_device_info
             3 -> R.string.diagnostics_title
             4 -> R.string.head_test_title
+            5 -> R.string.eq_title
             else -> R.string.dashboard_headphones
         })
         val interaction = if (page == detailPage) Modifier.semantics { paneTitle = pageTitle }
@@ -279,6 +285,15 @@ fun PodDetailPage(
                 item(key = "page_title") {
                     Text(pageTitle, fontSize = 26.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
+                }
+                if (page == 5) {
+                    item(key = "equalizer") {
+                        EqualizerPage(customEqState, podsInfo?.name ?: deviceName,
+                            available = CustomEq.available(model, podsInfo?.version3.orEmpty(), customEqState.value != null),
+                            active = isActive && page == detailPage && customEqState.session > 0 && diagnostics?.getString("connection") == "connected",
+                            feedback = settingFeedback[PodsSettings.CUSTOM_EQ], onChange = onCustomEqChange)
+                    }
+                    return@LazyColumn
                 }
                 if (page == 4) {
                     item(key = "head_tracking") {
@@ -394,6 +409,10 @@ fun PodDetailPage(
                     Card(
                         modifier = cardModifier
                     ) {
+                        if (CustomEq.supportsModel(model) || customEqState.value != null) {
+                            DashboardLink(stringResource(R.string.eq_title), stringResource(R.string.eq_summary)) { detailPage = 5 }
+                            DashboardDivider(Modifier.padding(horizontal = 16.dp))
+                        }
                         if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
                             SuperSwitch(
                                 title = stringResource(R.string.conversation_pause_media_title),

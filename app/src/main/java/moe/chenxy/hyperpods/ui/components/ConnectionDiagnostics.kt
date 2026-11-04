@@ -238,6 +238,7 @@ private fun settingTitle(key: String?): Int = when (key) {
     Key.LISTENING_MODE_BYTE -> R.string.long_press_shared
     PodsSettings.NOISE_MODE -> R.string.dashboard_noise
     PodsSettings.RENAME -> R.string.rename_title
+    PodsSettings.CUSTOM_EQ -> R.string.eq_title
     else -> R.string.diagnostics_none
 }
 

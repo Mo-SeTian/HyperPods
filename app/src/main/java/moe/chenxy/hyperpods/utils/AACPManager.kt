@@ -56,6 +56,7 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
             const val PROXIMITY_KEYS_RSP: Byte = 0x31
             const val STEM_PRESS: Byte = 0x19
             const val EQ_DATA: Byte = 0x53
+            const val CUSTOM_EQ: Byte = CustomEq.OPCODE
             const val CONNECTED_DEVICES: Byte = 0x2E // TiPi 1
             const val AUDIO_SOURCE: Byte = 0x0E // TiPi 2
             const val SMART_ROUTING: Byte = 0x10
@@ -254,6 +255,12 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
     // Keep fixed, validated setting values separate from optimistic UI values.
     private val reportedControlValues = mutableMapOf<ControlCommandIdentifiers, Int>()
     private var nativeStemConfigured = false
+    var customEq: CustomEq? = null
+        private set
+    var customEqUnconfirmed = false
+        private set
+    var customEqRevision = 0L
+        private set
     fun isAwaitingReport(identifier: ControlCommandIdentifiers): Boolean = identifier in localWrites
     fun reportedControlValue(identifier: ControlCommandIdentifiers): Int? = reportedControlValues[identifier]
 
@@ -290,6 +297,7 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
         fun onConnectedDevicesReceived(connectedDevices: List<ConnectedDevice>)
         fun onOwnershipToFalseRequest(sender: String, reasonReverseTapped: Boolean)
         fun onShowNearbyUI(sender: String)
+        fun onCustomEqReceived(customEq: CustomEq) {}
     }
 
     fun parseStemPressResponse(data: ByteArray): Pair<StemPressType, StemPressBudType> {
@@ -409,6 +417,14 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
         return sendControlCommand(identifier, byteArrayOf(value.toByte()))
     }
 
+    fun sendCustomEq(value: CustomEq): Boolean {
+        customEqRevision++
+        if (!sendDataPacket(value.toPacket())) return false
+        customEq = value
+        customEqUnconfirmed = true
+        return true
+    }
+
     fun parseProximityKeysResponse(data: ByteArray): Map<ProximityKeyType, ByteArray> {
         if (data.size < 7) {
             throw IllegalArgumentException("Data array too short to parse Proximity Keys Response")
@@ -484,7 +500,7 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
                 Opcodes.BATTERY_INFO -> batteryReceivedAt = lastPacketAt
                 Opcodes.EAR_DETECTION -> wearReceivedAt = lastPacketAt
                 Opcodes.INFORMATION -> informationReceivedAt = lastPacketAt
-                Opcodes.CONTROL_COMMAND -> settingsReceivedAt = lastPacketAt
+                Opcodes.CONTROL_COMMAND, Opcodes.CUSTOM_EQ -> settingsReceivedAt = lastPacketAt
             }
             // Some firmware reports state without a separate feature acknowledgement.
             if (packet[4] in listOf(Opcodes.BATTERY_INFO, Opcodes.CONTROL_COMMAND,
@@ -614,6 +630,14 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
                 if (packetString.contains("ShowNearbyUI")) {
                     callback?.onShowNearbyUI(sender)
                 }
+            }
+
+            Opcodes.CUSTOM_EQ -> {
+                val value = CustomEq.fromPacket(packet) ?: throw IllegalArgumentException("Invalid custom EQ report")
+                customEq = value
+                customEqUnconfirmed = false
+                customEqRevision++
+                callback?.onCustomEqReceived(value)
             }
 
             Opcodes.EQ_DATA -> {
