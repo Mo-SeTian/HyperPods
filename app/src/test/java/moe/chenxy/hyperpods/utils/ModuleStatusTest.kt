@@ -81,4 +81,35 @@ class ModuleStatusTest {
         assertFalse(ModuleStatus.validRequest(null))
         assertFalse(ModuleStatus.validRequest("PRIVATE_VALUE"))
     }
+
+    private fun loaded() = ModuleStatus.packages.associateWith {
+        ModuleStatus.Report(it, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION,
+            if (it == HyperPodsBroadcasts.BLUETOOTH) "native_ok" else "plugin_waiting")
+    }
+
+    @Test fun waitingIsNotReportedAsAnInactiveModuleAndAHeadsetIsNotRequired() {
+        assertNull(ModuleStatus.Check().issue)
+        assertEquals(ModuleStatus.Issue.NO_REPORT, ModuleStatus.Check(checking = false).issue)
+        assertNull(ModuleStatus.Check(loaded(), checking = false).issue)
+    }
+
+    @Test fun partialReportsIdentifyTheMissingProcessWithoutDeclaringTheModuleInactive() {
+        val check = ModuleStatus.Check(loaded() - HyperPodsBroadcasts.SYSTEM_UI, checking = false)
+        assertEquals(ModuleStatus.Issue.PARTIAL, check.issue)
+        assertEquals(listOf(HyperPodsBroadcasts.SYSTEM_UI), check.missing)
+    }
+
+    @Test fun oldCodeInAHostRequestsARestartEvenWhenVersionCodeHasNotChanged() {
+        val host = HyperPodsBroadcasts.BLUETOOTH
+        val reports = loaded().toMutableMap()
+        reports[host] = reports.getValue(host).copy(revision = "00000000")
+        assertEquals(ModuleStatus.Issue.RESTART, ModuleStatus.Check(reports, checking = false).issue)
+    }
+
+    @Test fun retryPreservesTheGuideUntilTheNewResultArrivesAndThenClearsIt() {
+        val checking = ModuleStatus.Check(previousIssue = ModuleStatus.Issue.NO_REPORT)
+        assertEquals(ModuleStatus.Issue.NO_REPORT, checking.issue)
+        assertNull(checking.copy(reports = loaded(), checking = false).issue)
+        assertEquals(ModuleStatus.Issue.NO_REPORT, checking.copy(checking = false).issue)
+    }
 }

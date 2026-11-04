@@ -1,0 +1,9 @@
+<!-- Copyright Google LLC. SPDX-License-Identifier: Apache-2.0
+     Material Symbols gpp_maybe (outlined), source:
+     https://github.com/google/material-design-icons/blob/master/symbols/web/gpp_maybe/materialsymbolsoutlined/gpp_maybe_24px.svg -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="960" android:viewportHeight="960">
+    <group android:translateY="960">
+        <path android:fillColor="#FF000000" android:pathData="M480,-320q17,0 28.5,-11.5T520,-360q0,-17 -11.5,-28.5T480,-400q-17,0 -28.5,11.5T440,-360q0,17 11.5,28.5T480,-320ZM440,-480h80v-200h-80v200ZM480,-80q-139,-35 -229.5,-159.5T160,-516v-244l320,-120 320,120v244q0,152 -90.5,276.5T480,-80ZM480,-164q104,-33 172,-132t68,-220v-189l-240,-90 -240,90v189q0,121 68,220t172,132ZM480,-480Z" />
+    </group>
+</vector>

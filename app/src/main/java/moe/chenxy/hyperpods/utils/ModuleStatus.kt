@@ -15,6 +15,21 @@ object ModuleStatus {
             get() = version == BuildConfig.VERSION_CODE && revision == BuildConfig.BUILD_REVISION
     }
 
+    enum class Issue { NO_REPORT, PARTIAL, RESTART }
+
+    data class Check(val reports: Map<String, Report> = emptyMap(), val checking: Boolean = true,
+        val previousIssue: Issue? = null) {
+        val missing: List<String> get() = packages.filter { it !in reports }
+        // Missing broadcasts cannot prove that LSPosed is absent or a scope is unchecked.
+        val issue: Issue? get() = when {
+            checking -> previousIssue
+            reports.values.any { !it.matchesInstalled } -> Issue.RESTART
+            reports.isEmpty() -> Issue.NO_REPORT
+            missing.isNotEmpty() -> Issue.PARTIAL
+            else -> null
+        }
+    }
+
     fun validRequest(request: String?): Boolean = request != null &&
         request.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
 

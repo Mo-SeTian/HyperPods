@@ -136,6 +136,7 @@ fun PodDetailPage(
     diagnostics: Bundle? = null,
     customEqState: CustomEqState = CustomEqState(),
     onCustomEqChange: (CustomEq, Long) -> Unit = { _, _ -> },
+    homeNotice: (@Composable () -> Unit)? = null,
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
     fun ready(key: String) = PodsSettings.supports(key, model) && key !in pendingSettings &&
@@ -218,22 +219,25 @@ fun PodDetailPage(
             ) {
                 if (page == 0) {
                     item(key = "home_header") {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(podsInfo?.name?.takeIf { it.isNotBlank() }
-                                    ?: deviceName.takeIf { it.isNotBlank() } ?: "AirPods",
-                                    fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                RenamePod(Modifier.size(48.dp), onNameChange,
-                                    podsInfo?.name ?: deviceName, compact = true, pending = PodsSettings.RENAME in pendingSettings)
+                        Column {
+                            homeNotice?.invoke()
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                                Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(podsInfo?.name?.takeIf { it.isNotBlank() }
+                                        ?: deviceName.takeIf { it.isNotBlank() } ?: "AirPods",
+                                        fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                    RenamePod(Modifier.size(48.dp), onNameChange,
+                                        podsInfo?.name ?: deviceName, compact = true, pending = PodsSettings.RENAME in pendingSettings)
+                                }
+                                Row(Modifier.padding(start = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(Modifier.size(6.dp).background(MiuixTheme.colorScheme.primary, CircleShape))
+                                    Text(stringResource(if (pendingSettings.isNotEmpty()) R.string.setting_pending else dashboardConnectionStatus(diagnostics)), fontSize = 13.sp, lineHeight = 18.sp,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                }
+                                DashboardBattery(batteryParams, earDetectionParams, model, diagnostics)
+                                if (model == null) Text(stringResource(R.string.settings_reading), fontSize = 13.sp)
                             }
-                            Row(Modifier.padding(start = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Box(Modifier.size(6.dp).background(MiuixTheme.colorScheme.primary, CircleShape))
-                                Text(stringResource(if (pendingSettings.isNotEmpty()) R.string.setting_pending else dashboardConnectionStatus(diagnostics)), fontSize = 13.sp, lineHeight = 18.sp,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            }
-                            DashboardBattery(batteryParams, earDetectionParams, model, diagnostics)
-                            if (model == null) Text(stringResource(R.string.settings_reading), fontSize = 13.sp)
                         }
                     }
                     if (PodsSettings.supports(PodsSettings.NOISE_MODE, model)) {

@@ -42,6 +42,10 @@ import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
 import moe.chenxy.hyperpods.ui.components.DashboardNavigation
+import moe.chenxy.hyperpods.ui.components.ModuleActivationGuide
+import moe.chenxy.hyperpods.ui.components.ModuleWarningCard
+import moe.chenxy.hyperpods.ui.components.rememberModuleCheck
+import moe.chenxy.hyperpods.utils.ModuleStatus
 import top.yukonga.miuix.kmp.basic.Scaffold
 
 var currentPodsInfo by mutableStateOf<AACPManager.Companion.AirPodsInformation?>(null)
@@ -58,6 +62,7 @@ fun sendPodsSetting(context: Context, prefKey: String, value: Int) {
 @Composable
 fun MainUI() {
     val pagerState = rememberPagerState(pageCount = { 2 })
+    val moduleCheck = rememberModuleCheck()
 
     val mainTitle = remember { mutableStateOf("") }
     val context = LocalContext.current
@@ -322,6 +327,8 @@ fun MainUI() {
             onSettingChange = { key, value -> sendPodsSetting(context, key, value) },
             diagnostics = diagnostics,
             desktopEntry = (context as? MainActivity)?.keepOpenOnDisconnect == true,
+            moduleCheck = moduleCheck.check,
+            onModuleCheck = moduleCheck::retry,
         )
     }
 }
@@ -372,6 +379,8 @@ fun AppHorizontalPager(
     customEqState: CustomEqState = CustomEqState(),
     onCustomEqChange: (CustomEq, Long) -> Unit = { _, _ -> },
     desktopEntry: Boolean = false,
+    moduleCheck: ModuleStatus.Check = ModuleStatus.Check(),
+    onModuleCheck: () -> Unit = {},
 ) {
     HorizontalPager(
         state = pagerState,
@@ -381,6 +390,9 @@ fun AppHorizontalPager(
                 0 -> Crossfade(canShowDetailPage, label = "MainUIShowDetailAnim") { value ->
                         if (value) {
                             PodDetailPage(
+                                homeNotice = {
+                                    if (moduleCheck.issue != null) ModuleWarningCard(moduleCheck, onModuleCheck)
+                                },
                                 conversationPauseMedia = conversationPauseMedia,
                                 onConversationPauseMediaChange = onConversationPauseMediaChange,
                                 settings = settings, pendingSettings = pendingSettings, onAllowOffChange = onAllowOffChange,
@@ -418,7 +430,8 @@ fun AppHorizontalPager(
                                 noiseCancellationSingleAirPod = noiseCancellationSingleAirPod,
                             )
                         } else {
-                            WaitingPodsPage(padding, desktopEntry)
+                            if (moduleCheck.issue != null) ModuleActivationGuide(padding, moduleCheck, onModuleCheck)
+                            else WaitingPodsPage(padding, desktopEntry)
                         }
                     }
 

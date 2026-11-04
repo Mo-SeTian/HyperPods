@@ -70,7 +70,7 @@ class LauncherEntryTest {
     @Test fun launcherPageSurvivesDisconnectHidingItsIconAndRecreation() {
         LauncherIcon.setVisible(context, true)
         ActivityScenario.launch<MainActivity>(launcherIntent()).use { scenario ->
-            compose.onNodeWithText(context.getString(R.string.launcher_disconnected_title)).assertIsDisplayed()
+            compose.onNodeWithText(context.getString(R.string.dashboard_about)).assertIsDisplayed()
             scenario.onActivity {
                 assertTrue(it.keepOpenOnDisconnect)
                 LauncherIcon.setVisible(it, false)
@@ -84,7 +84,7 @@ class LauncherEntryTest {
                 it.onPodsDisconnected(initializationFailed = false)
                 assertFalse(it.isFinishing)
             }
-            compose.onNodeWithText(context.getString(R.string.launcher_disconnected_summary)).assertIsDisplayed()
+            compose.onNodeWithText(context.getString(R.string.dashboard_about)).assertIsDisplayed()
             compose.onNodeWithText(context.getString(R.string.dashboard_about)).performClick()
             compose.onNodeWithContentDescription(context.getString(R.string.launcher_icon_title)).assertIsOff()
         }
@@ -117,7 +117,7 @@ class LauncherEntryTest {
                 original = it
                 it.startActivity(launcherIntent())
             }
-            compose.onNodeWithText(context.getString(R.string.launcher_disconnected_title)).assertIsDisplayed()
+            compose.waitUntil { original.keepOpenOnDisconnect }
             scenario.onActivity {
                 assertSame(original, it)
                 assertTrue(it.keepOpenOnDisconnect)

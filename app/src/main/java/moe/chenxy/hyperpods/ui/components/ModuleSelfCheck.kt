@@ -1,48 +1,19 @@
 package moe.chenxy.hyperpods.ui.components
 
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import kotlinx.coroutines.delay
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.ModuleStatus
-import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import java.util.UUID
 
 @Composable
 fun ModuleSelfCheck(onReport: (String) -> Unit) {
-    val context = LocalContext.current
-    var request by remember { mutableStateOf(UUID.randomUUID().toString()) }
-    var reports by remember { mutableStateOf(emptyMap<String, ModuleStatus.Report>()) }
-    var waiting by remember { mutableStateOf(true) }
-    DisposableEffect(context, request) {
-        reports = emptyMap()
-        waiting = true
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                ModuleStatus.read(context, this, intent, request)?.let { reports = reports + (it.packageName to it) }
-            }
-        }
-        context.registerReceiver(receiver, IntentFilter(HyperPodsAction.ACTION_MODULE_STATUS), Context.RECEIVER_EXPORTED)
-        ModuleStatus.packages.forEach { host ->
-            HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_MODULE_STATUS_REQUEST).putExtra("request", request), host)
-        }
-        onDispose { context.unregisterReceiver(receiver) }
-    }
-    LaunchedEffect(request) { delay(2500); waiting = false }
+    val state = rememberModuleCheck()
+    val reports = state.check.reports
+    val waiting = state.check.checking
     BasicComponent(title = stringResource(R.string.module_self_check),
         summary = stringResource(R.string.module_installed, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION))
     val fields = ModuleStatus.packages.map { host ->
@@ -69,5 +40,5 @@ fun ModuleSelfCheck(onReport: (String) -> Unit) {
     fields.forEach { (title, summary) -> BasicComponent(title = title, summary = summary) }
     val reportText = fields.joinToString("\n") { (title, summary) -> "$title: $summary" }
     LaunchedEffect(reportText) { onReport(reportText) }
-    BasicComponent(title = stringResource(R.string.module_check_again), onClick = { request = UUID.randomUUID().toString() })
+    BasicComponent(title = stringResource(R.string.module_check_again), onClick = state::retry)
 }

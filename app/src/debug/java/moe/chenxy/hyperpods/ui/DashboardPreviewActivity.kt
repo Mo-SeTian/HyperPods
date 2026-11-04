@@ -18,6 +18,10 @@ import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.AirPodsModels
 import moe.chenxy.hyperpods.utils.CustomEq
 import moe.chenxy.hyperpods.utils.CustomEqState
+import moe.chenxy.hyperpods.utils.ModuleStatus
+import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
+import moe.chenxy.hyperpods.BuildConfig
+import moe.chenxy.hyperpods.ui.components.ModuleWarningCard
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
@@ -62,6 +66,11 @@ class DashboardPreviewActivity : ComponentActivity() {
                 ) { padding ->
                     HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
                         if (page == 1) AboutPage(padding = padding) else PodDetailPage(
+                            homeNotice = {
+                                if (intent.getBooleanExtra("module_warning", false)) ModuleWarningCard(
+                                    ModuleStatus.Check(mapOf(HyperPodsBroadcasts.BLUETOOTH to ModuleStatus.Report(
+                                        HyperPodsBroadcasts.BLUETOOTH, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION, "native_ok")), false), {})
+                            },
                             padding = padding,
                             batteryParams = BatteryParams(
                                 PodBatteryParams(leftBattery, isConnected = !unknown, isInCase = inCase),

@@ -1,0 +1,22 @@
+<resources>
+    <string name="module_setup_title">尚未检测到模块运行</string>
+    <string name="module_setup_summary">HyperPods 是 LSPosed 模块，单独安装应用无法启用耳机控制。</string>
+    <string name="module_setup_partial_title">部分进程尚未回报</string>
+    <string name="module_setup_control_report_title">模块自检尚未完成</string>
+    <string name="module_setup_partial_summary">部分目标进程尚未回报，请检查推荐作用域，重启手机后重新检测。</string>
+    <string name="module_setup_restart_title">请重启加载新版模块</string>
+    <string name="module_setup_restart_summary">应用已更新，部分目标进程仍在运行旧版模块。请重启手机后重新检测。</string>
+    <string name="module_setup_missing">尚未回报：%1$s</string>
+    <string name="module_setup_control_available">耳机控制仍可使用，但尚未收到模块自检回报。请检查作用域，并在重启后重新检测。</string>
+    <string name="module_setup_step_enable">启用 HyperPods 模块</string>
+    <string name="module_setup_step_scope">勾选推荐作用域</string>
+    <string name="module_setup_step_restart">重启手机后重新检测</string>
+    <string name="module_setup_help">查看启用步骤</string>
+    <string name="module_setup_retry">重新检测</string>
+    <string name="module_setup_checking">正在检测…</string>
+    <string name="module_setup_help_title">启用 HyperPods</string>
+    <string name="module_setup_requirements">HyperPods 需要已配置的 Root 和 LSPosed 环境。单独安装此应用无法获得耳机控制功能。</string>
+    <string name="module_setup_enable_detail">1. 打开 LSPosed 管理器，在“模块”中找到 HyperPods，并启用模块。</string>
+    <string name="module_setup_scope_detail">2. 勾选推荐作用域：系统蓝牙、小米蓝牙扩展和系统界面。对应的包名如下：</string>
+    <string name="module_setup_restart_detail">3. 重启手机，让目标进程加载模块，然后返回此页面重新检测。未收到回报也可能是进程尚未启动，不一定代表模块未启用。</string>
+</resources>

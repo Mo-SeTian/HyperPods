@@ -1,0 +1,22 @@
+<resources>
+    <string name="module_setup_title">Module not detected yet</string>
+    <string name="module_setup_summary">HyperPods is an LSPosed module. Installing the app alone does not enable headphone controls.</string>
+    <string name="module_setup_partial_title">Some module reports are missing</string>
+    <string name="module_setup_control_report_title">Module self-check is incomplete</string>
+    <string name="module_setup_partial_summary">Some target processes have not reported. Check the recommended scope, restart your phone, then check again.</string>
+    <string name="module_setup_restart_title">Restart to load the updated module</string>
+    <string name="module_setup_restart_summary">The app was updated, but some target processes are still running an older module. Restart your phone, then check again.</string>
+    <string name="module_setup_missing">Not reported: %1$s</string>
+    <string name="module_setup_control_available">Headphone controls are still available, but module self-check reports have not arrived. Check the scope, restart, then check again.</string>
+    <string name="module_setup_step_enable">Enable the HyperPods module</string>
+    <string name="module_setup_step_scope">Select the recommended scope</string>
+    <string name="module_setup_step_restart">Restart your phone and check again</string>
+    <string name="module_setup_help">View setup steps</string>
+    <string name="module_setup_retry">Check again</string>
+    <string name="module_setup_checking">Checking…</string>
+    <string name="module_setup_help_title">Enable HyperPods</string>
+    <string name="module_setup_requirements">HyperPods requires a configured root and LSPosed environment. Installing this app alone does not provide headphone controls.</string>
+    <string name="module_setup_enable_detail">1. Open the LSPosed manager. Find HyperPods under Modules and enable it.</string>
+    <string name="module_setup_scope_detail">2. Select the recommended scope: system Bluetooth, Xiaomi Bluetooth extension, and System UI. Their package names are:</string>
+    <string name="module_setup_restart_detail">3. Restart your phone so the target processes load the module, then return here and check again. A missing report may also mean a process has not started; it does not prove the module is disabled.</string>
+</resources>
