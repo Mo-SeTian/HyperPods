@@ -60,6 +60,25 @@ class SettingsNavigationTest(private val durationScale: Float) {
     }
 
     @Test
+    fun equalizerReturnsToItsEntryPageAndRestoresHomeScrollAfterRecreation() {
+        open(R.string.dashboard_more)
+        open(R.string.eq_title)
+        back()
+        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_more))).assertExists()
+        back()
+        reveal(R.string.eq_title)
+        val homePosition = scrollPosition()
+        compose.onNodeWithText(text(R.string.eq_title)).performClick()
+        compose.waitForIdle()
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        back()
+        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_headphones))).assertExists()
+        assertEquals(homePosition, scrollPosition(), 0.000001f)
+        compose.onNodeWithText(text(R.string.eq_title)).assertIsDisplayed()
+    }
+
+    @Test
     fun returningFromEveryDetailRestoresHomeScroll() {
         listOf(R.string.dashboard_more, R.string.dashboard_device_info, R.string.diagnostics_title).forEach { id ->
             reveal(id)

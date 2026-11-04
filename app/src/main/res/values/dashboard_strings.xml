@@ -9,7 +9,7 @@
     <string name="dashboard_out_of_ear">Out of ear</string>
     <string name="dashboard_transparency">Transparency</string>
     <string name="dashboard_connected">Connected</string>
-    <string name="dashboard_listening">Smart listening</string>
+    <string name="dashboard_listening">Listening &amp; wearing</string>
     <string name="dashboard_operation">Wearing &amp; controls</string>
     <string name="dashboard_more">More controls</string>
     <string name="dashboard_more_summary">Press and hold · Gestures &amp; sleep detection</string>

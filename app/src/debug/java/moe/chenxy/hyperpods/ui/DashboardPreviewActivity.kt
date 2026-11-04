@@ -16,6 +16,8 @@ import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.AirPodsModels
+import moe.chenxy.hyperpods.utils.CustomEq
+import moe.chenxy.hyperpods.utils.CustomEqState
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
@@ -51,6 +53,8 @@ class DashboardPreviewActivity : ComponentActivity() {
                 var single by remember { mutableStateOf(false) }
                 var level by remember { mutableFloatStateOf(0.5f) }
                 var microphone by remember { mutableIntStateOf(0) }
+                var eq by remember { mutableStateOf(CustomEqState(
+                    value = intent.getIntExtra("eq_state", 0).takeIf { it in 1..2 }?.let { CustomEq(it) }, session = 1)) }
                 var name by remember { mutableStateOf(if (modelNumber == "A3049") "AirPods Pro"
                     else AirPodsModels.getModelByModelNumber(modelNumber)?.name ?: "AirPods") }
                 val pager = rememberPagerState(pageCount = { 2 })
@@ -93,6 +97,7 @@ class DashboardPreviewActivity : ComponentActivity() {
                             onMicrophoneModeChange = { microphone = it },
                             noiseCancellationSingleAirPod = single, onNoiseCancellationSingleAirPodChange = { single = it },
                             deviceName = name,
+                            customEqState = eq, onCustomEqChange = { value, _ -> eq = eq.copy(value = value, revision = eq.revision + 1) },
                             isActive = pager.currentPage == 0,
                             settings = if (unknown) emptyMap() else mapOf(
                                 PodsSettings.NOISE_MODE to anc.ordinal + 1,

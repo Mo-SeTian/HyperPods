@@ -160,7 +160,8 @@ fun PodDetailPage(
         mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat())
     }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
-    fun back() { detailPage = if (detailPage == 4 || detailPage == 5) 1 else 0 }
+    var equalizerParent by rememberSaveable { mutableIntStateOf(0) }
+    fun back() { detailPage = when (detailPage) { 4 -> 1; 5 -> equalizerParent; else -> 0 } }
     BackHandler(enabled = isActive && detailPage != 0) { back() }
     // Keep every page's saveable state outside the animated content. Switching the
     // content key must not discard the previous page's scroll position.
@@ -235,38 +236,38 @@ fun PodDetailPage(
                             }
                         }
                     }
-                    if (PodsSettings.supports(Key.PERSONLIZED_VOLUME, model) || PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
-                        item(key = "home_listening") {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                                DashboardSection(stringResource(R.string.dashboard_listening))
-                                Card {
-                                    if (PodsSettings.supports(Key.PERSONLIZED_VOLUME, model)) {
-                                        DashboardToggle(stringResource(R.string.personlized_volume_title),
-                                            feedback(Key.PERSONLIZED_VOLUME, R.string.personlized_volume_summary),
-                                            personlizedVolume, onPersonlizedVolumeChange, enabled = ready(Key.PERSONLIZED_VOLUME))
-                                    }
-                                    if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
-                                        if (PodsSettings.supports(Key.PERSONLIZED_VOLUME, model)) DashboardDivider(Modifier.padding(horizontal = 16.dp))
-                                        DashboardToggle(stringResource(R.string.dashboard_conversation_title),
-                                            feedback(Key.CONVERSATION_AWARENESS, R.string.dashboard_conversation_summary),
-                                            conversationAwareness, onConversationAwarenessChange, enabled = ready(Key.CONVERSATION_AWARENESS))
-                                    }
+                    item(key = "home_listening") {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                            DashboardSection(stringResource(R.string.dashboard_listening))
+                            Card {
+                                if (PodsSettings.supports(Key.PERSONLIZED_VOLUME, model)) {
+                                    DashboardToggle(stringResource(R.string.personlized_volume_title),
+                                        feedback(Key.PERSONLIZED_VOLUME, R.string.personlized_volume_summary),
+                                        personlizedVolume, onPersonlizedVolumeChange, enabled = ready(Key.PERSONLIZED_VOLUME))
+                                    DashboardDivider(Modifier.padding(horizontal = 16.dp))
                                 }
+                                if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
+                                    DashboardToggle(stringResource(R.string.dashboard_conversation_title),
+                                        feedback(Key.CONVERSATION_AWARENESS, R.string.dashboard_conversation_summary),
+                                        conversationAwareness, onConversationAwarenessChange, enabled = ready(Key.CONVERSATION_AWARENESS))
+                                    DashboardDivider(Modifier.padding(horizontal = 16.dp))
+                                }
+                                DashboardToggle(stringResource(R.string.dashboard_detection_title),
+                                    stringResource(R.string.dashboard_detection_summary), earDetectionEnable, onEarDetectionChanged)
                             }
                         }
                     }
-                    item(key = "home_operation") {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                            DashboardSection(stringResource(R.string.dashboard_operation))
-                            Card {
-                                DashboardToggle(stringResource(R.string.dashboard_detection_title),
-                                    stringResource(R.string.dashboard_detection_summary), earDetectionEnable, onEarDetectionChanged)
+                    item(key = "home_controls") {
+                        Card(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
+                            if (CustomEq.supportsModel(model) || customEqState.value != null) {
+                                DashboardLink(stringResource(R.string.eq_title), rightText = stringResource(when (customEqState.value?.state) {
+                                    CustomEq.RECOMMENDED -> R.string.eq_recommended
+                                    CustomEq.CUSTOM -> R.string.eq_custom
+                                    else -> R.string.settings_reading
+                                })) { equalizerParent = 0; detailPage = 5 }
                                 DashboardDivider(Modifier.padding(horizontal = 16.dp))
-                                DashboardLink(stringResource(R.string.dashboard_more),
-                                    stringResource(if (model?.capabilities?.contains(Capability.HEAD_GESTURES) == true &&
-                                        PodsSettings.supports(Key.SLEEP_DETECTION, model)) R.string.dashboard_more_summary
-                                        else R.string.dashboard_more_basic_summary)) { detailPage = 1 }
                             }
+                            DashboardLink(stringResource(R.string.dashboard_more)) { detailPage = 1 }
                         }
                     }
                     item(key = "home_support") {
@@ -410,7 +411,7 @@ fun PodDetailPage(
                         modifier = cardModifier
                     ) {
                         if (CustomEq.supportsModel(model) || customEqState.value != null) {
-                            DashboardLink(stringResource(R.string.eq_title), stringResource(R.string.eq_summary)) { detailPage = 5 }
+                            DashboardLink(stringResource(R.string.eq_title), stringResource(R.string.eq_summary)) { equalizerParent = 1; detailPage = 5 }
                             DashboardDivider(Modifier.padding(horizontal = 16.dp))
                         }
                         if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {

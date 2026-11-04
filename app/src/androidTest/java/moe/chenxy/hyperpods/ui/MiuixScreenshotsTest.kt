@@ -23,6 +23,7 @@ class MiuixScreenshotsTest {
             compose.activity.intent.putExtra("theme", theme).putExtra("unknown", unknown)
                 .putExtra("case_connected", caseConnected).putExtra("in_case", caseConnected)
                 .putExtra("personalized", true).putExtra("model_number", model)
+                .putExtra("eq_state", if (unknown) 0 else 1)
         }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
@@ -42,6 +43,7 @@ class MiuixScreenshotsTest {
 
     @Test fun captureHomeStates() {
         render(); capture("light")
+        compose.revealSetting(text(R.string.dashboard_more)); capture("home-controls")
         render(theme = 2); capture("dark")
         render(unknown = true); capture("unknown")
         render(caseConnected = false); capture("two-ears")

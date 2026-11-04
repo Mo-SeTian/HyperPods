@@ -9,7 +9,7 @@
     <string name="dashboard_out_of_ear">未佩戴</string>
     <string name="dashboard_transparency">通透</string>
     <string name="dashboard_connected">已连接</string>
-    <string name="dashboard_listening">智能聆听</string>
+    <string name="dashboard_listening">聆听与佩戴</string>
     <string name="dashboard_operation">佩戴与操作</string>
     <string name="dashboard_more">更多控制</string>
     <string name="dashboard_more_summary">按压操作 · 手势与入睡检测</string>

@@ -34,6 +34,8 @@ class SettingsThemeTest(private val colorMode: Int) {
                         pairs = listOf(colors.primary to colors.onPrimary,
                             colors.primaryVariant to colors.onPrimaryVariant)
                         readingPairs = listOf(colors.surface to colors.onSurfaceVariantSummary,
+                            colors.surface to colors.onSurfaceVariantActions,
+                            colors.background to colors.onSurfaceContainer,
                             colors.background to colors.onSurfaceVariantSummary,
                             colors.background to colors.onBackgroundVariant)
                     }

@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -26,12 +25,16 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,13 +49,17 @@ import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.SwitchDefaults
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationItem
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.extra.SuperArrow
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.icons.basic.ArrowRight
 import top.yukonga.miuix.kmp.icon.icons.useful.Back
 import top.yukonga.miuix.kmp.icon.icons.useful.Info
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -152,14 +159,15 @@ private fun IconBattery(available: Boolean, charging: Boolean) {
 
 @Composable
 fun DashboardTopBar(title: String = "HyperPods", onBack: () -> Unit) {
-    Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)
-        .statusBarsPadding().height(48.dp).padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-            Icon(MiuixIcons.Useful.Back, stringResource(R.string.dashboard_back), modifier = Modifier.size(22.dp))
+    // Keep the compact title beside Back, as in the selected design.
+    SmallTopAppBar(title = "", navigationIcon = {
+        Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                Icon(MiuixIcons.Useful.Back, stringResource(R.string.dashboard_back), modifier = Modifier.size(22.dp))
+            }
+            Text(title, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
-        Text(title, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-    }
+    })
 }
 
 @Composable
@@ -178,22 +186,19 @@ fun DashboardNavigation(pagerState: PagerState) {
 
 @Composable
 fun DashboardNavigation(selected: Int, onSelect: (Int) -> Unit) {
-    Column(Modifier.background(MiuixTheme.colorScheme.background).navigationBarsPadding()) {
-        DashboardDivider()
-        Row(Modifier.fillMaxWidth().selectableGroup()) {
-            listOf(R.string.dashboard_headphones, R.string.dashboard_about).forEachIndexed { index, label ->
-                val tint by animateColorAsState(
-                    if (selected == index) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    animationSpec = tween(180), label = "DashboardTabTint")
-                Column(Modifier.weight(1f).selectable(selected == index, role = Role.Tab,
-                    onClick = { onSelect(index) }).padding(vertical = 5.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (index == 0) Icon(painterResource(R.drawable.dashboard_headphones), null,
-                        tint = tint, modifier = Modifier.size(24.dp))
-                    else Icon(MiuixIcons.Useful.Info, null, tint = tint, modifier = Modifier.size(24.dp))
-                    Text(stringResource(label), color = tint, fontSize = 12.sp, lineHeight = 16.sp,
-                        modifier = Modifier.padding(top = 4.dp))
-                }
+    val items = listOf(
+        NavigationItem(stringResource(R.string.dashboard_headphones), ImageVector.vectorResource(R.drawable.dashboard_headphones)),
+        NavigationItem(stringResource(R.string.dashboard_about), MiuixIcons.Useful.Info))
+    Box {
+        NavigationBar(items, selected, onSelect, color = MiuixTheme.colorScheme.background,
+            modifier = Modifier.clearAndSetSemantics {})
+        // Miuix 0.6.1 renders tabs with pointerInput only. Supply one accessible,
+        // selectable hit target per tab over the library's 64 dp content area.
+        Row(Modifier.fillMaxWidth().height(64.dp).selectableGroup()) {
+            items.forEachIndexed { index, item ->
+                Box(Modifier.weight(1f).fillMaxHeight()
+                    .selectable(selected == index, role = Role.Tab, onClick = { onSelect(index) })
+                    .semantics { text = AnnotatedString(item.label) })
             }
         }
     }
@@ -201,41 +206,22 @@ fun DashboardNavigation(selected: Int, onSelect: (Int) -> Unit) {
 
 @Composable
 fun DashboardToggle(title: String, summary: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
-        .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
-        .semantics { contentDescription = title }
-        .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, lineHeight = 22.sp,
-                color = MiuixTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else .45f))
-            Text(summary, fontSize = 12.sp, lineHeight = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 4.dp))
-        }
-        Switch(checked = checked, onCheckedChange = null, enabled = enabled,
-            modifier = Modifier.clearAndSetSemantics {},
-            colors = SwitchDefaults.switchColors(
-                checkedTrackColor = MiuixTheme.colorScheme.primaryVariant,
-                checkedThumbColor = Color.White))
-    }
+    BasicComponent(title = title, summary = summary, enabled = enabled,
+        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+            .semantics { contentDescription = title },
+        rightActions = {
+            Switch(checked = checked, onCheckedChange = null, enabled = enabled,
+                modifier = Modifier.clearAndSetSemantics {},
+                colors = SwitchDefaults.switchColors(
+                    checkedTrackColor = MiuixTheme.colorScheme.primaryVariant,
+                    checkedThumbColor = Color.White))
+        })
 }
 
 @Composable
-fun DashboardLink(title: String, summary: String? = null, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick)
-        .heightIn(min = if (summary == null) 56.dp else 64.dp).padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, lineHeight = 22.sp)
-            summary?.let { Text(it, fontSize = 12.sp, lineHeight = 16.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 5.dp)) }
-        }
-        Icon(MiuixIcons.Basic.ArrowRight, null, modifier = Modifier.size(20.dp),
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-    }
+fun DashboardLink(title: String, summary: String? = null, rightText: String? = null, onClick: () -> Unit) {
+    SuperArrow(title = title, summary = summary, rightText = rightText, onClick = onClick)
 }
 
 @Composable

@@ -19,8 +19,10 @@ fun AppTheme(
         background = Color(0xFFF6F6F6), onBackground = Color(0xFF171717),
         surface = Color.White, onSurface = Color(0xFF171717),
         surfaceVariant = Color(0xFFF0F0F0),
+        onSurfaceContainer = Color(0xFF006BE6), onSurfaceContainerVariant = Color(0xFF66717E),
         onBackgroundVariant = Color(0xFF66717E),
         onSurfaceVariantSummary = Color(0xFF66717E),
+        onSurfaceVariantActions = Color(0xFF66717E),
         dividerLine = Color(0xFFECEEF1)
     )
     val dark = darkColorScheme(
@@ -28,7 +30,9 @@ fun AppTheme(
         primaryVariant = Color(0xFF006BE6), onPrimaryVariant = Color.White,
         background = Color(0xFF101010), surface = Color(0xFF202020),
         onBackgroundVariant = Color(0xFFA6ABB2), onSurfaceVariantSummary = Color(0xFFA6ABB2),
-        surfaceVariant = Color(0xFF2C2C2C), dividerLine = Color(0xFF333333)
+        onSurfaceVariantActions = Color(0xFFA6ABB2),
+        surfaceVariant = Color(0xFF2C2C2C), dividerLine = Color(0xFF333333),
+        onSurfaceContainer = Color(0xFF82B1FF), onSurfaceContainerVariant = Color(0xFFA6ABB2)
     )
     return MiuixTheme(
         colors = when (colorMode) {

@@ -23,7 +23,9 @@ class MiuixLayoutTest {
         }
         bounds.forEach { assertEquals(bounds.first().top, it.top, 1f) }
         for (index in 1..3) org.junit.Assert.assertTrue(bounds[index].left >= bounds[index - 1].right - .5f)
-        compose.onNodeWithText(text(R.string.dashboard_more_summary)).assertIsDisplayed()
+        compose.revealSetting(hasContentDescription(text(R.string.dashboard_detection_title))).assertIsDisplayed()
+        compose.revealSetting(text(R.string.eq_title)).assertIsDisplayed()
+        compose.revealSetting(text(R.string.dashboard_more)).assertIsDisplayed()
     }
 
     @Test fun advancedControlsRemainAvailableWithoutCrowdingTheHomePage() {
@@ -34,6 +36,17 @@ class MiuixLayoutTest {
         compose.revealSetting(hasContentDescription(text(R.string.head_gestures_title))).assertIsEnabled()
         compose.revealSetting(hasContentDescription(text(R.string.sleep_detection_title))).assertIsEnabled()
         compose.onNodeWithText(text(R.string.head_test_title)).assertExists()
+    }
+
+    @Test fun homeEqualizerShowsOnlyTheReportedMode() {
+        compose.revealSetting(text(R.string.eq_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.eq_recommended)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.eq_custom)).assertDoesNotExist()
+        compose.runOnUiThread { compose.activity.intent.putExtra("eq_state", 2) }
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        compose.revealSetting(text(R.string.eq_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.eq_custom)).assertIsDisplayed()
     }
 
     @Test fun theWholePreferenceRowIsOneAccessibleSwitch() {

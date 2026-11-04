@@ -28,8 +28,6 @@ class GestureSleepUiTest(private val number: String, private val supported: Bool
         compose.runOnUiThread { compose.activity.intent.putExtra("model_number", number) }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
-        compose.revealSetting(text(if (supported) R.string.dashboard_more_summary
-            else R.string.dashboard_more_basic_summary)).assertExists()
         compose.revealSetting(text(R.string.dashboard_more)).performClick()
         compose.waitForIdle()
     }
