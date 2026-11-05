@@ -911,4 +911,36 @@ class L2CAPControllerWearTest {
         } finally { MediaControl.mContext = null }
     }
 
+    @Test fun physicalDisconnectStillIsolatesTheNextSessionFromItsOldRouteTimeout() = runBlocking {
+        val router = mock(MediaRouter2::class.java)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val newContext = mock(Context::class.java)
+        val newSocket = mock(BluetoothSocket::class.java)
+        field("mediaRouter").set(controller, router)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        type.getDeclaredMethod("requestAudioRoute", MediaRoute2Info::class.java)
+            .apply { isAccessible = true }.invoke(controller, speaker)
+        val oldTimeout = field("routeTransferTimeout").get(controller) as Job
+        // No receiver/router registration belongs to this fixture.
+        field("mContext").set(controller, null)
+        controller.disconnectedPod(ContextWrapper(null), device)
+        assertTrue(oldTimeout.isCancelled)
+        assertTrue(field("audioSessionId").getLong(controller) > audioGeneration)
+        field("mContext").set(controller, newContext)
+        field("socket").set(controller, newSocket)
+        field("pendingAudioRoute").set(controller, speaker)
+        field("pausedAudio").setBoolean(controller, true)
+        try {
+            withTimeout(1000) { oldTimeout.join() }
+            assertSame(speaker, field("pendingAudioRoute").get(controller))
+            assertSame(newContext, field("mContext").get(controller))
+            assertTrue(field("pausedAudio").getBoolean(controller))
+            verify(newSocket, never()).close()
+            verify(router, times(1)).transferTo(speaker)
+        } finally {
+            field("pendingAudioRoute").set(controller, null)
+            field("pausedAudio").setBoolean(controller, false)
+        }
+    }
+
 }

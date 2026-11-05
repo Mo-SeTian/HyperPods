@@ -82,6 +82,8 @@ object L2CAPController {
     private var customEqConnectionId = 0L
     private var connectionJob: Job? = null
     private var sessionId = 0L
+    // Control recovery must not invalidate an in-flight transfer on the same audio connection.
+    private var audioSessionId = 0L
     private var connectionState = "disconnected"
     private var audioConnectionState = -1
     private var localControlClose: Pair<BluetoothSocket, String>? = null
@@ -838,7 +840,7 @@ object L2CAPController {
             switchedToSpeaker = false
             resumePausedAudio()
         } else if (wantsHeadphoneRoute() && routeRetryCount < 2) {
-            val thisSession = sessionId
+            val thisSession = audioSessionId
             val waitMs = 500L * ++routeRetryCount
             routeRetryJob?.cancel()
             routeRetryJob = CoroutineScope(Dispatchers.Default).launch {
@@ -846,7 +848,7 @@ object L2CAPController {
                 runAudioRouteTask {
                     synchronized(this@L2CAPController) {
                         ensureActive()
-                        if (sessionId == thisSession && wantsHeadphoneRoute()) restoreHeadphoneRoute()
+                        if (audioSessionId == thisSession && wantsHeadphoneRoute()) restoreHeadphoneRoute()
                     }
                 }
             }
@@ -858,13 +860,13 @@ object L2CAPController {
     private fun requestAudioRoute(route: MediaRoute2Info) {
         if (pendingAudioRoute != null) return
         pendingAudioRoute = route
-        val generation = sessionId
+        val generation = audioSessionId
         routeTransferTimeout = CoroutineScope(Dispatchers.Default).launch {
             delay(3000)
             runAudioRouteTask {
                 synchronized(this@L2CAPController) {
                     ensureActive()
-                    if (sessionId == generation && pendingAudioRoute?.id == route.id) handleAudioRouteFailure(route)
+                    if (audioSessionId == generation && pendingAudioRoute?.id == route.id) handleAudioRouteFailure(route)
                 }
             }
         }
@@ -1246,6 +1248,7 @@ object L2CAPController {
         if (connectionJob?.isActive == true && mContext != null && mDevice == device) return
         if (mContext != null && mDevice != device) disconnectedPod(context, mDevice)
         val newDeviceSession = mContext == null
+        if (newDeviceSession) ++audioSessionId
         val thisSession = ++sessionId
         mContext = context
         mDevice = device
@@ -1624,6 +1627,7 @@ object L2CAPController {
         conversationAwarenessActive = false
         clearHeadTracking()
         ++sessionId
+        ++audioSessionId
         clearPendingSettings()
         resetConversationVolume()
         headphoneRouteId = null
@@ -1724,6 +1728,7 @@ object L2CAPController {
 
     private fun scheduleSpeakerRoute() {
         if (switchedToSpeaker || speakerSwitchJob?.isActive == true) return
+        val generation = audioSessionId
         speakerSwitchJob = CoroutineScope(Dispatchers.Default).launch {
             // Keep the existing pause delay, but never let it outlive a wear
             // change, a disabled setting, or the current Bluetooth session.
@@ -1731,6 +1736,7 @@ object L2CAPController {
             runAudioRouteTask {
                 synchronized(this@L2CAPController) {
                     ensureActive()
+                    if (audioSessionId != generation) return@synchronized
                     speakerSwitchJob = null
                     if (mContext == null || !earDetection || !autoSwitchToSpeaker) return@synchronized
                     if (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR ||

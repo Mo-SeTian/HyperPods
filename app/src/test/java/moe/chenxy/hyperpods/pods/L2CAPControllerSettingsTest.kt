@@ -26,6 +26,7 @@ import moe.chenxy.hyperpods.utils.AirPods5
 import moe.chenxy.hyperpods.utils.AppPreferences
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.SinglePodAnc
+import moe.chenxy.hyperpods.utils.MediaControl
 import moe.chenxy.hyperpods.utils.LowBatterySettings
 import moe.chenxy.hyperpods.utils.LowBatteryReminder
 import moe.chenxy.hyperpods.utils.data.BatteryParams
@@ -1650,6 +1651,7 @@ class L2CAPControllerSettingsTest {
         field("socket").set(controller, socket)
         field("pausedAudio").setBoolean(controller, true)
         val generation = field("sessionId").getLong(controller)
+        val audioGeneration = field("audioSessionId").getLong(controller)
         val actions = mutableListOf<Any?>()
         try {
             mockConstruction(Intent::class.java) { _, construction -> actions.add(construction.arguments().firstOrNull()) }.use {
@@ -1659,6 +1661,7 @@ class L2CAPControllerSettingsTest {
             }
             (field("connectionJob").get(controller) as Job?)?.cancel()
             assertEquals(generation + 1, field("sessionId").getLong(controller))
+            assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
             assertNull(field("aacpManager").get(controller))
             assertSame(context, field("mContext").get(controller))
             assertSame(device, controller.mDevice)
@@ -1671,6 +1674,131 @@ class L2CAPControllerSettingsTest {
         } finally {
             (field("connectionJob").get(controller) as Job?)?.cancel()
             field("pausedAudio").setBoolean(controller, false)
+        }
+    }
+
+    private suspend fun recoverWhileTransferringAudio(toSpeaker: Boolean) {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        fun route(id: String, type: Int) = mock(MediaRoute2Info::class.java).apply {
+            `when`(this.id).thenReturn(id)
+            `when`(this.type).thenReturn(type)
+            `when`(this.name).thenReturn("Test headset")
+        }
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val target = if (toSpeaker) speaker else headset
+        `when`(device.name).thenReturn("Test headset")
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.mode).thenReturn(AudioManager.MODE_NORMAL)
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(if (toSpeaker) headset else speaker))
+        field("mContext").set(controller, context)
+        field("mediaRouter").set(controller, router)
+        field("socket").set(controller, socket)
+        field("pausedAudio").setBoolean(controller, true)
+        field("switchedToSpeaker").setBoolean(controller, true)
+        controller.routes = listOf(headset, speaker)
+        coreReports()
+        controller.currentEarDetectionParams = EarDetectionParams(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.OUT_OF_EAR)
+        manager.sendSetFeatureFlagsPacket()
+        assertFalse(initialReady()) // Missing listening mode still permits explicit control recovery.
+        val generation = field("sessionId").getLong(controller)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        try {
+            type.getDeclaredMethod("requestAudioRoute", MediaRoute2Info::class.java)
+                .apply { isAccessible = true }.invoke(controller, target)
+            val timeout = field("routeTransferTimeout").get(controller) as Job
+            val retry = mock(Intent::class.java)
+            `when`(retry.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
+            controller.handleUIEvent(retry)
+            (field("connectionJob").get(controller) as Job?)?.cancel()
+            withTimeout(5000) { timeout.join() }
+            assertEquals(generation + 1, field("sessionId").getLong(controller))
+            assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
+            assertNull(field("pendingAudioRoute").get(controller))
+            assertSame(context, field("mContext").get(controller))
+            assertTrue(field("pausedAudio").getBoolean(controller))
+            verify(socket, timeout(1000)).close() // Only the replaced control socket.
+            verify(audio, never()).dispatchMediaKeyEvent(any())
+
+            // A fresh wear report may restore the route, but cannot play on the phone speaker.
+            type.getDeclaredMethod("handleInEarStatusChanged", List::class.java).apply { isAccessible = true }
+                .invoke(controller, listOf(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR))
+            if (!toSpeaker) {
+                verify(audio, never()).dispatchMediaKeyEvent(any())
+                verify(router, times(2)).transferTo(headset)
+                `when`(routing.selectedRoutes).thenReturn(listOf(headset))
+            }
+            repeat(2) { type.getDeclaredMethod("handleAudioRouteChanged").apply { isAccessible = true }.invoke(controller) }
+            verify(audio, times(2)).dispatchMediaKeyEvent(any()) // One Play down/up pair, never duplicate.
+            assertNull(field("pendingAudioRoute").get(controller))
+            assertFalse(field("pausedAudio").getBoolean(controller))
+        } finally {
+            (field("connectionJob").get(controller) as Job?)?.cancel()
+            MediaControl.mContext = null
+        }
+    }
+
+    @Test fun controlRecoveryKeepsSpeakerTransferTimeoutAndLaterRewearResume() = runBlocking {
+        recoverWhileTransferringAudio(toSpeaker = true)
+    }
+
+    @Test fun controlRecoveryKeepsHeadphoneTransferTimeoutAndWaitsForTheSelectedRoute() = runBlocking {
+        recoverWhileTransferringAudio(toSpeaker = false)
+    }
+
+    @Test fun scheduledHeadphoneRetrySurvivesControlRecoveryAndResumesOnlyAfterTransfer() = runBlocking {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val headset = mock(MediaRoute2Info::class.java)
+        val speaker = mock(MediaRoute2Info::class.java)
+        `when`(device.name).thenReturn("Test headset")
+        `when`(headset.id).thenReturn("headset")
+        `when`(headset.name).thenReturn("Test headset")
+        `when`(headset.type).thenReturn(MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        `when`(speaker.id).thenReturn("speaker")
+        `when`(speaker.type).thenReturn(MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.mode).thenReturn(AudioManager.MODE_NORMAL)
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(speaker))
+        field("mContext").set(controller, context)
+        field("mediaRouter").set(controller, router)
+        field("socket").set(controller, socket)
+        field("switchedToSpeaker").setBoolean(controller, true)
+        field("pausedAudio").setBoolean(controller, true)
+        controller.routes = listOf(headset, speaker)
+        try {
+            val audioGeneration = field("audioSessionId").getLong(controller)
+            val retryJob = synchronized(controller) {
+                coreReports()
+                field("pendingAudioRoute").set(controller, headset)
+                type.getDeclaredMethod("handleAudioRouteFailure", MediaRoute2Info::class.java)
+                    .apply { isAccessible = true }.invoke(controller, headset)
+                val task = field("routeRetryJob").get(controller) as Job
+                val intent = mock(Intent::class.java)
+                `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
+                controller.handleUIEvent(intent)
+                (field("connectionJob").get(controller) as Job?)?.cancel()
+                coreReports()
+                task
+            }
+            withTimeout(2000) { retryJob.join() }
+            assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
+            verify(router).transferTo(headset)
+            verify(audio, never()).dispatchMediaKeyEvent(any())
+            `when`(routing.selectedRoutes).thenReturn(listOf(headset))
+            repeat(2) { type.getDeclaredMethod("handleAudioRouteChanged").apply { isAccessible = true }.invoke(controller) }
+            verify(audio, times(2)).dispatchMediaKeyEvent(any())
+            assertFalse(field("pausedAudio").getBoolean(controller))
+        } finally {
+            (field("connectionJob").get(controller) as Job?)?.cancel()
+            MediaControl.mContext = null
         }
     }
 
