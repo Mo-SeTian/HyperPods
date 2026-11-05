@@ -29,7 +29,7 @@ object PodsSettings {
     // report is still authoritative; sending is not evidence that firmware applied it.
     val optimistic = setOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS, Key.SLEEP_DETECTION,
         Key.MICROPHONE_MODE, Key.LISTENING_MODE_BYTE, Key.CHIME_VOLUME,
-        Key.ADJUST_VOLUME_BY_SWIPER, Key.SINGLE_POD_ANC, Key.ALLOW_OFF_OPTION)
+        Key.ADJUST_VOLUME_BY_SWIPER, Key.SINGLE_POD_ANC, Key.ALLOW_OFF_OPTION, Key.ADAPTIVE_AUDIO_LEVEL)
     // Older firmware may not report this newer option. It must not block battery,
     // the settings page or the existing initial-status recovery loop.
     val optionalReports = setOf(Key.SLEEP_DETECTION)

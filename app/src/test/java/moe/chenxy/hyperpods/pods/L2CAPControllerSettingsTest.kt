@@ -588,6 +588,45 @@ class L2CAPControllerSettingsTest {
         }
     }
 
+    @Test fun adaptiveStrengthKeepsTheLatestWriteWithoutAnEchoAndLaterReportsWin() = runBlocking {
+        val id = AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH
+        receive(id.value, 50)
+        request(Key.ADAPTIVE_AUDIO_LEVEL, 30)
+        request(Key.ADAPTIVE_AUDIO_LEVEL, 70)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, id.value, 30, 0, 0, 0,
+            4, 0, 4, 0, 9, 0, id.value, 70, 0, 0, 0), output.toByteArray())
+        assertTrue(pending().isEmpty())
+        assertEquals(70.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertEquals(50, manager.reportedControlValue(id))
+        assertTrue(manager.isAwaitingReport(id))
+        // Missing echoes must not turn successful writes into timeout failures.
+        delay(3150)
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        assertEquals(70.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        receive(id.value, 65)
+        assertEquals(65.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertEquals(65, manager.reportedControlValue(id))
+        assertFalse(manager.isAwaitingReport(id))
+        assertEquals("reported", field("lastSettingStatus").get(controller))
+    }
+
+    @Test fun failedAdaptiveStrengthWritePreservesTheHeadsetValueAndAllowsRetry() {
+        val id = AACPManager.Companion.ControlCommandIdentifiers.AUTO_ANC_STRENGTH
+        receive(id.value, 50)
+        `when`(socket.isConnected).thenReturn(false)
+        request(Key.ADAPTIVE_AUDIO_LEVEL, 70)
+        assertEquals("write_failed", field("lastSettingStatus").get(controller))
+        assertEquals(50.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertFalse(manager.isAwaitingReport(id))
+        assertTrue(pending().isEmpty())
+        assertEquals(0, output.size())
+        `when`(socket.isConnected).thenReturn(true)
+        request(Key.ADAPTIVE_AUDIO_LEVEL, 70)
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        assertEquals(70.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertTrue(manager.isAwaitingReport(id))
+    }
+
     @Test fun chimeVolumePreservesTheSecondByteWithoutWaitingForAnEcho() {
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x1f, 80, 67, 0, 0))
         request(Key.CHIME_VOLUME, 35)

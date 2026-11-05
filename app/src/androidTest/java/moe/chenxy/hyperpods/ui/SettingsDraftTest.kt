@@ -19,13 +19,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
-/** A failed write must restore the real headset value, even when it has not changed. */
+/** Failed writes restore the headset value; successful writes settle locally until a report arrives. */
 class SettingsDraftTest {
     @get:Rule val compose = createAndroidComposeRule<DashboardPreviewActivity>()
 
-    @Test fun adaptiveSliderResetsAfterImmediateFailureAndAfterTimeout() {
+    @Test fun adaptiveSliderRestoresFailedWritesAndKeepsSuccessfulWritesUntilAReport() {
         val feedback = mutableStateOf(emptyMap<String, String>())
-        val pending = mutableStateOf(emptySet<String>())
+        val settings = mutableStateOf(mapOf(Key.ADAPTIVE_AUDIO_LEVEL to 50, PodsSettings.NOISE_MODE to 4))
         var immediateFailure = true
         compose.runOnUiThread {
             compose.activity.setContent {
@@ -39,16 +39,16 @@ class SettingsDraftTest {
                         personlizedVolume = false, onPersonlizedVolumeChange = {},
                         conversationAwareness = false, onConversationAwarenessChange = {},
                         adjustVolumeBySwiper = false, onAdjustVolumeBySwiperChange = {},
-                        adaptiveAudioLevel = 0.5f, onAdaptiveAudioLevelChange = {
+                        adaptiveAudioLevel = 1f - settings.value.getValue(Key.ADAPTIVE_AUDIO_LEVEL) / 100f, onAdaptiveAudioLevelChange = {
                             feedback.value = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to if (immediateFailure) "write_failed" else "sent")
-                            if (!immediateFailure) pending.value = setOf(Key.ADAPTIVE_AUDIO_LEVEL)
+                            if (!immediateFailure) settings.value = settings.value +
+                                (Key.ADAPTIVE_AUDIO_LEVEL to (100 - it * 100).toInt())
                         },
                         onListeningModeChange = {}, ancMode = NoiseControlMode.ADAPTIVE, onAncModeChange = {},
                         podsInfo = AACPManager.Companion.AirPodsInformation("Demo", "A3049", "", "", "", "", "", "", "", "", ""),
                         onNameChange = {}, microphoneMode = 0, onMicrophoneModeChange = {},
                         noiseCancellationSingleAirPod = false, onNoiseCancellationSingleAirPodChange = {},
-                        settings = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to 50, PodsSettings.NOISE_MODE to 4),
-                        pendingSettings = pending.value, settingFeedback = feedback.value,
+                        settings = settings.value, settingFeedback = feedback.value,
                     )
                 }
             }
@@ -68,12 +68,16 @@ class SettingsDraftTest {
         slider.performTouchInput { swipe(center, centerRight, 300) }
         compose.waitForIdle()
         assertEquals("sent", feedback.value[Key.ADAPTIVE_AUDIO_LEVEL])
+        val localLevel = 1f - settings.value.getValue(Key.ADAPTIVE_AUDIO_LEVEL) / 100f
+        assertEquals(1f, localLevel, 0.01f)
+        assertEquals(localLevel, slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0.01f)
+        // A later, different firmware value corrects the locally published slider.
         compose.runOnIdle {
-            pending.value = emptySet()
-            feedback.value = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to "timeout")
+            settings.value = settings.value + (Key.ADAPTIVE_AUDIO_LEVEL to 65)
+            feedback.value = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to "reported")
         }
         compose.waitForIdle()
-        assertEquals(0.5f, slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0.01f)
+        assertEquals(0.35f, slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0.01f)
         compose.onNodeWithText(compose.activity.getString(R.string.adaptive_audio_title)).assertIsDisplayed()
     }
 }
