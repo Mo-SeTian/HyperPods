@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.ParcelUuid
 import org.junit.Assert.*
 import org.junit.Test
 import org.mockito.ArgumentCaptor
@@ -70,5 +71,20 @@ class HeadsetUuidDiscoveryTest {
         result(receiver)
         assertEquals(listOf(current), queried)
         assertTrue(connected.isEmpty())
+    }
+
+    @Test fun emptyUuidCacheAlsoStartsDiscoveryAndCanResolveTheCurrentHeadset() {
+        `when`(device.uuids).thenReturn(emptyArray())
+        discovery.discover(first, device)
+        verify(device).fetchUuidsWithSdp()
+        result(receiver())
+        assertEquals(listOf(first), connected)
+    }
+
+    @Test fun knownNonPodsUuidsAreNotProbed() {
+        `when`(device.uuids).thenReturn(arrayOf(mock(ParcelUuid::class.java)))
+        discovery.discover(first, device)
+        verify(device, never()).fetchUuidsWithSdp()
+        verify(app, never()).registerReceiver(any(), any(IntentFilter::class.java), anyInt())
     }
 }

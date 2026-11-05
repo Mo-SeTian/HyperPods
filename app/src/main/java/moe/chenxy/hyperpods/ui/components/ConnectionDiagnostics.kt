@@ -74,6 +74,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
     val fields = listOf(
         stringResource(R.string.diagnostics_audio) to stringResource(when {
             snapshot == null -> R.string.module_no_report
+            snapshot.containsKey("audio") -> audioState(snapshot.getInt("audio", -1))
             snapshot.getString("connection") == "disconnected" -> R.string.diagnostics_no_session
             else -> R.string.diagnostics_audio_connected
         }),
@@ -128,6 +129,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         listOf(
             stringResource(R.string.diagnostics_history) to time(it.getLong("recorded_at")),
             stringResource(R.string.diagnostics_failure) to stringResource(failureReason(it.getString("failure"))),
+            stringResource(R.string.diagnostics_audio) to stringResource(audioState(it.getInt("audio", -1))),
             stringResource(R.string.diagnostics_stage) to stringResource(when (it.getString("stage")) {
                 "HANDSHAKE" -> R.string.diagnostics_handshake
                 "FEATURES" -> R.string.diagnostics_features
@@ -188,7 +190,10 @@ private fun eventSummary(event: DiagnosticEvents.Event): String = when (event.ki
         "failed" -> R.string.diagnostics_failed
         else -> R.string.diagnostics_no_session
     })
-    "retry" -> stringResource(R.string.diagnostics_retries) + ": " + event.detail
+    "audio" -> stringResource(R.string.diagnostics_audio) + ": " +
+        stringResource(audioState(event.detail[0].digitToInt())) + " → " +
+        stringResource(audioState(event.detail[2].digitToInt()))
+    "retry" -> stringResource(R.string.diagnostics_control_retries) + ": " + event.detail
     "sync" -> stringResource(R.string.diagnostics_stage) + ": " + stringResource(when (event.detail) {
         "HANDSHAKE" -> R.string.diagnostics_handshake
         "FEATURES" -> R.string.diagnostics_features
@@ -208,8 +213,23 @@ private fun failureReason(code: String?): Int = when (code) {
     "write_failed", "setting_write_failed" -> R.string.setting_write_failed
     "status_timeout" -> R.string.diagnostics_status_timeout
     "status_session_ended" -> R.string.diagnostics_session_ended
+    "stream_closed" -> R.string.diagnostics_stream_closed
+    "socket_disconnected" -> R.string.diagnostics_socket_disconnected
+    "read_failed" -> R.string.diagnostics_read_failed
+    "packet_processing_failed" -> R.string.diagnostics_packet_processing_failed
+    "write_timeout" -> R.string.diagnostics_write_timeout
+    "write_queue_full" -> R.string.diagnostics_write_queue_full
+    "media_route_failed" -> R.string.diagnostics_media_route_failed
     "setting_timeout" -> R.string.setting_failed
     else -> R.string.diagnostics_no_failure
+}
+
+private fun audioState(state: Int): Int = when (state) {
+    0 -> R.string.diagnostics_audio_disconnected
+    1 -> R.string.diagnostics_connecting
+    2 -> R.string.diagnostics_audio_connected
+    3 -> R.string.diagnostics_audio_disconnecting
+    else -> R.string.module_no_report
 }
 
 private fun settingStatus(status: String?): Int = when (status) {

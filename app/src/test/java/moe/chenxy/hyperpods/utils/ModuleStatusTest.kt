@@ -99,6 +99,27 @@ class ModuleStatusTest {
         assertEquals(listOf(HyperPodsBroadcasts.SYSTEM_UI), check.missing)
     }
 
+    @Test fun nativeFailureRemainsVisibleEvenWhenAllHostsRunTheInstalledVersion() {
+        val host = HyperPodsBroadcasts.BLUETOOTH
+        val reports = loaded().toMutableMap()
+        reports[host] = reports.getValue(host).copy(detail = "native_failed")
+        assertEquals(ModuleStatus.Issue.HOOK_FAILED, ModuleStatus.Check(reports, checking = false).issue)
+        assertEquals(ModuleStatus.Issue.HOOK_FAILED,
+            ModuleStatus.Check(reports - HyperPodsBroadcasts.SYSTEM_UI, checking = false).issue)
+        reports[host] = reports.getValue(host).copy(revision = "00000000")
+        assertEquals(ModuleStatus.Issue.RESTART, ModuleStatus.Check(reports, checking = false).issue)
+    }
+
+    @Test fun unknownNativeStatusDoesNotInventAFailureAndARecheckCanClearIt() {
+        val host = HyperPodsBroadcasts.BLUETOOTH
+        val reports = loaded().toMutableMap()
+        reports[host] = reports.getValue(host).copy(detail = "native_unknown")
+        assertNull(ModuleStatus.Check(reports, checking = false).issue)
+        val checking = ModuleStatus.Check(previousIssue = ModuleStatus.Issue.HOOK_FAILED)
+        assertEquals(ModuleStatus.Issue.HOOK_FAILED, checking.issue)
+        assertNull(checking.copy(reports = loaded(), checking = false).issue)
+    }
+
     @Test fun oldCodeInAHostRequestsARestartEvenWhenVersionCodeHasNotChanged() {
         val host = HyperPodsBroadcasts.BLUETOOTH
         val reports = loaded().toMutableMap()

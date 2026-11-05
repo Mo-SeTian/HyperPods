@@ -15,7 +15,7 @@ object ModuleStatus {
             get() = version == BuildConfig.VERSION_CODE && revision == BuildConfig.BUILD_REVISION
     }
 
-    enum class Issue { NO_REPORT, PARTIAL, RESTART }
+    enum class Issue { NO_REPORT, PARTIAL, RESTART, HOOK_FAILED }
 
     data class Check(val reports: Map<String, Report> = emptyMap(), val checking: Boolean = true,
         val previousIssue: Issue? = null) {
@@ -24,6 +24,7 @@ object ModuleStatus {
         val issue: Issue? get() = when {
             checking -> previousIssue
             reports.values.any { !it.matchesInstalled } -> Issue.RESTART
+            reports[HyperPodsBroadcasts.BLUETOOTH]?.detail == "native_failed" -> Issue.HOOK_FAILED
             reports.isEmpty() -> Issue.NO_REPORT
             missing.isNotEmpty() -> Issue.PARTIAL
             else -> null

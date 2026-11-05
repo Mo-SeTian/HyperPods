@@ -34,6 +34,8 @@ internal class HeadsetUuidDiscovery(
 
     @Synchronized
     fun discover(service: Context, device: BluetoothDevice) {
+        // Both null and an empty cache need SDP. Do not probe known non-Pods UUIDs.
+        if (!device.uuids.isNullOrEmpty()) return
         if (!registered) {
             service.applicationContext.registerReceiver(receiver, IntentFilter(BluetoothDevice.ACTION_UUID), Context.RECEIVER_EXPORTED)
             registered = true

@@ -13,7 +13,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * A stuck write closes only this control socket, unblocking its reader and recovery loop.
  * true means queued, not acknowledged by the headset; any later failure ends the session. */
 internal class AACPWriter(private val socket: BluetoothSocket, private val timeoutMs: Long = 3000,
-    private val onFailure: () -> Unit) : Closeable {
+    private val onFailure: (Failure) -> Unit) : Closeable {
+    enum class Failure(val code: String) {
+        IO("write_failed"), TIMEOUT("write_timeout"), QUEUE_FULL("write_queue_full")
+    }
     private val closed = AtomicBoolean()
     private val worker = ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(32),
         { task -> Thread(task, "HyperPods-AACP-writer").apply { isDaemon = true } })
@@ -28,14 +31,14 @@ internal class AACPWriter(private val socket: BluetoothSocket, private val timeo
             worker.execute {
                 if (!closed.get()) {
                     val timeout = try {
-                        watchdog.schedule({ fail() }, timeoutMs, TimeUnit.MILLISECONDS)
+                        watchdog.schedule({ fail(Failure.TIMEOUT) }, timeoutMs, TimeUnit.MILLISECONDS)
                     } catch (_: RejectedExecutionException) { return@execute }
                     try {
                         val output = socket.outputStream ?: error("Missing control output")
                         output.write(copy)
                         output.flush()
                     } catch (_: Exception) {
-                        fail()
+                        fail(Failure.IO)
                     } finally {
                         timeout.cancel(false)
                     }
@@ -44,16 +47,16 @@ internal class AACPWriter(private val socket: BluetoothSocket, private val timeo
             true
         } catch (_: RejectedExecutionException) {
             // Queue exhaustion is a failed session, not permission to drop commands silently.
-            if (!closed.get()) runCatching { watchdog.execute { fail() } }
+            if (!closed.get()) runCatching { watchdog.execute { fail(Failure.QUEUE_FULL) } }
             false
         }
     }
 
-    private fun fail() {
+    private fun fail(reason: Failure) {
         if (!closed.compareAndSet(false, true)) return
         worker.shutdownNow()
         // Record the cause before close wakes the reader. This callback must not block.
-        try { onFailure() } finally {
+        try { onFailure(reason) } finally {
             runCatching { socket.close() }
             watchdog.shutdownNow()
         }

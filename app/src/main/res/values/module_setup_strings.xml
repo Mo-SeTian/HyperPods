@@ -1,4 +1,6 @@
 <resources>
+    <string name="module_setup_hook_failed_title">Native Bluetooth hook failed</string>
+    <string name="module_setup_hook_failed_summary">The module loaded, but its native Bluetooth hook failed. Headphone controls may be unavailable. Check that this version supports your system. If restarting does not help, share connection diagnostics and LSPosed logs.</string>
     <string name="module_setup_title">Module not detected yet</string>
     <string name="module_setup_summary">HyperPods is an LSPosed module. Installing the app alone does not enable headphone controls.</string>
     <string name="module_setup_partial_title">Some module reports are missing</string>

@@ -138,4 +138,18 @@ class ModuleActivationUiTest {
         show(); compose.onNodeWithText(text(R.string.module_setup_help)).performScrollTo().performClick()
         capture("help")
     }
+    @Test fun nativeHookFailureIsShownEvenWhenEveryHostReportedTheInstalledBuild() {
+        val host = HyperPodsBroadcasts.BLUETOOTH
+        check = ModuleStatus.Check(reports().mapValues { (pkg, report) ->
+            if (pkg == host) report.copy(detail = "native_failed") else report
+        }, false)
+        show()
+        compose.onNodeWithText(text(R.string.module_setup_hook_failed_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.module_setup_hook_failed_summary)).assertIsDisplayed()
+        capture("native-failed")
+        compose.onNodeWithText(text(R.string.module_setup_title)).assertDoesNotExist()
+        compose.runOnIdle { check = ModuleStatus.Check(reports(), false) }
+        compose.onNodeWithText(text(R.string.launcher_disconnected_title)).assertIsDisplayed()
+    }
+
 }

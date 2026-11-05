@@ -1,4 +1,6 @@
 <resources>
+    <string name="module_setup_hook_failed_title">蓝牙原生 Hook 未成功</string>
+    <string name="module_setup_hook_failed_summary">模块已加载，但蓝牙原生 Hook 未成功，耳机控制可能无法使用。请确认安装了适配当前系统的版本；重启后仍失败，请提供连接诊断和 LSPosed 日志。</string>
     <string name="module_setup_title">尚未检测到模块运行</string>
     <string name="module_setup_summary">HyperPods 是 LSPosed 模块，单独安装应用无法启用耳机控制。</string>
     <string name="module_setup_partial_title">部分进程尚未回报</string>

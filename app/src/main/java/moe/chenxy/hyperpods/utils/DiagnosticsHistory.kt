@@ -20,7 +20,9 @@ class DiagnosticsHistory : BroadcastReceiver() {
 
     companion object {
         val failureCodes = setOf("socket_create_failed", "socket_connect_failed", "write_failed",
-            "status_timeout", "status_session_ended", "setting_write_failed", "setting_timeout")
+            "status_timeout", "status_session_ended", "setting_write_failed", "setting_timeout",
+            "stream_closed", "socket_disconnected", "read_failed", "packet_processing_failed",
+            "write_timeout", "write_queue_full", "media_route_failed")
         private val stages = setOf("NONE", "HANDSHAKE", "FEATURES", "STATUS")
 
         fun preferences(context: Context): SharedPreferences =
@@ -36,6 +38,7 @@ class DiagnosticsHistory : BroadcastReceiver() {
                 .putLong("last_packet_at", snapshot.getLong("last_packet_at").coerceAtLeast(0))
                 .putInt("received", snapshot.getInt("received").coerceAtLeast(0))
                 .putInt("retries", snapshot.getInt("retries").coerceAtLeast(0))
+                .putInt("audio", snapshot.getInt("audio", -1).takeIf { it in 0..3 } ?: -1)
                 .putString("setting_key", snapshot.getString("setting_key")
                     ?.takeIf { it in PodsSettings.identifiers || it == PodsSettings.RENAME || it == PodsSettings.CUSTOM_EQ }.orEmpty())
                 .apply()
@@ -59,6 +62,7 @@ class DiagnosticsHistory : BroadcastReceiver() {
                 putLong("last_packet_at", preferences.getLong("last_packet_at", 0))
                 putInt("received", preferences.getInt("received", 0))
                 putInt("retries", preferences.getInt("retries", 0))
+                putInt("audio", preferences.getInt("audio", -1).takeIf { it in 0..3 } ?: -1)
                 putString("setting_key", preferences.getString("setting_key", ""))
             }
         }

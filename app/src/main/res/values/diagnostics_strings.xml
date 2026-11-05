@@ -73,7 +73,7 @@
     <string name="diagnostics_socket_connect_failed">Could not connect the headset control socket.</string>
     <string name="diagnostics_status_timeout">Status recovery timed out before all headset data arrived.</string>
     <string name="diagnostics_session_ended">The headset control stream ended unexpectedly.</string>
-    <string name="diagnostics_retries">Status recovery attempts</string>
+    <string name="diagnostics_retries">Status refresh requests</string>
     <string name="diagnostics_battery">Battery status</string>
     <string name="diagnostics_wear">Wearing status</string>
     <string name="diagnostics_information">Device information</string>
@@ -98,4 +98,14 @@
     <string name="control_longer">Longer</string>
     <string name="control_longest">Longest</string>
     <string name="control_chime_volume">Earbud tone volume</string>
+    <string name="diagnostics_audio_disconnected">Disconnected</string>
+    <string name="diagnostics_audio_disconnecting">Disconnecting</string>
+    <string name="diagnostics_control_retries">Control channel reconnect attempt</string>
+    <string name="diagnostics_stream_closed">The control stream reached EOF. The disconnect initiator is not yet known.</string>
+    <string name="diagnostics_socket_disconnected">The headset control socket disconnected.</string>
+    <string name="diagnostics_read_failed">Reading headset control data raised an exception.</string>
+    <string name="diagnostics_packet_processing_failed">Processing a headset report raised an exception and ended this control session.</string>
+    <string name="diagnostics_write_timeout">A control write timed out. Only this control channel was closed for recovery.</string>
+    <string name="diagnostics_write_queue_full">The control send queue was full. This channel was stopped for recovery.</string>
+    <string name="diagnostics_media_route_failed">A media route callback raised an exception. It was contained without requesting a Bluetooth disconnect.</string>
 </resources>

@@ -23,6 +23,7 @@ class DiagnosticsHistoryTest {
         `when`(it.getLong("last_packet_at")).thenReturn(4000L)
         `when`(it.getInt("received")).thenReturn(8)
         `when`(it.getInt("retries")).thenReturn(2)
+        `when`(it.getInt("audio", -1)).thenReturn(-1)
         `when`(it.getString("setting_key")).thenReturn(HyperPodsPrefsKey.CONVERSATION_AWARENESS)
     }
 
@@ -56,6 +57,7 @@ class DiagnosticsHistoryTest {
         verify(editor).putLong("last_packet_at", 4000L)
         verify(editor).putInt("received", 8)
         verify(editor).putInt("retries", 2)
+        verify(editor).putInt("audio", -1)
         verify(editor).putString("setting_key", HyperPodsPrefsKey.CONVERSATION_AWARENESS)
         verify(editor).apply()
         verifyNoMoreInteractions(editor)
@@ -70,6 +72,20 @@ class DiagnosticsHistoryTest {
         `when`(snapshot.getString("failure")).thenReturn("UNRECOGNIZED_FAILURE")
         DiagnosticsHistory.save(preferences, snapshot)
         verify(preferences, never()).edit()
+    }
+
+    @Test fun detailedFailuresAndAudioStatesRemainWhitelisted() {
+        for (code in listOf("stream_closed", "read_failed", "socket_disconnected", "packet_processing_failed",
+            "write_timeout", "write_queue_full", "media_route_failed")) {
+            `when`(snapshot.getString("failure")).thenReturn(code)
+            `when`(snapshot.getInt("audio", -1)).thenReturn(3)
+            DiagnosticsHistory.save(preferences, snapshot)
+            verify(editor).putString("failure", code)
+        }
+        verify(editor, times(7)).putInt("audio", 3)
+        `when`(snapshot.getInt("audio", -1)).thenReturn(99)
+        DiagnosticsHistory.save(preferences, snapshot)
+        verify(editor).putInt("audio", -1)
     }
 
     @Test fun unknownStageAndSettingAreDiscardedAndCountsCannotBeNegative() {

@@ -13,6 +13,7 @@ object DiagnosticEvents {
         if (at <= 0 || kind == null || detail == null) return null
         val valid = when (kind) {
             "connection" -> detail in setOf("connecting", "connected", "ready", "failed", "disconnected")
+            "audio" -> detail.matches(Regex("[0-3],[0-3]")) && detail[0] != detail[2]
             "retry" -> detail in setOf("1", "2", "3")
             "sync" -> detail in setOf("HANDSHAKE", "FEATURES", "STATUS", "request")
             "role" -> detail in setOf("left", "right")

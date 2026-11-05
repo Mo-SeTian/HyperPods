@@ -28,12 +28,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private fun issueTitle(issue: ModuleStatus.Issue?) = when (issue) {
     ModuleStatus.Issue.RESTART -> R.string.module_setup_restart_title
     ModuleStatus.Issue.PARTIAL -> R.string.module_setup_partial_title
+    ModuleStatus.Issue.HOOK_FAILED -> R.string.module_setup_hook_failed_title
     else -> R.string.module_setup_title
 }
 
 private fun issueSummary(issue: ModuleStatus.Issue?) = when (issue) {
     ModuleStatus.Issue.RESTART -> R.string.module_setup_restart_summary
     ModuleStatus.Issue.PARTIAL -> R.string.module_setup_partial_summary
+    ModuleStatus.Issue.HOOK_FAILED -> R.string.module_setup_hook_failed_summary
     else -> R.string.module_setup_summary
 }
 

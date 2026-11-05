@@ -73,7 +73,7 @@
     <string name="diagnostics_socket_connect_failed">耳机控制通道连接失败。</string>
     <string name="diagnostics_status_timeout">状态恢复超时，耳机数据仍未完整返回。</string>
     <string name="diagnostics_session_ended">耳机控制数据流意外中断。</string>
-    <string name="diagnostics_retries">状态恢复次数</string>
+    <string name="diagnostics_retries">状态补请求次数</string>
     <string name="diagnostics_battery">电量状态</string>
     <string name="diagnostics_wear">佩戴状态</string>
     <string name="diagnostics_information">设备信息</string>
@@ -98,4 +98,14 @@
     <string name="control_longer">较长</string>
     <string name="control_longest">最长</string>
     <string name="control_chime_volume">耳机提示音音量</string>
+    <string name="diagnostics_audio_disconnected">已断开</string>
+    <string name="diagnostics_audio_disconnecting">正在断开</string>
+    <string name="diagnostics_control_retries">控制通道重连次数</string>
+    <string name="diagnostics_stream_closed">耳机控制通道读取到结束（EOF），尚不能确定断开发起方。</string>
+    <string name="diagnostics_socket_disconnected">耳机控制 Socket 已断开。</string>
+    <string name="diagnostics_read_failed">读取耳机控制数据时发生异常。</string>
+    <string name="diagnostics_packet_processing_failed">处理耳机回报时发生异常，本次控制会话已终止。</string>
+    <string name="diagnostics_write_timeout">写入耳机控制数据超时，已关闭该控制通道。</string>
+    <string name="diagnostics_write_queue_full">耳机控制发送队列已满，已停止该控制通道。</string>
+    <string name="diagnostics_media_route_failed">媒体路由回调发生异常；已拦截此异常，未主动断开蓝牙。</string>
 </resources>

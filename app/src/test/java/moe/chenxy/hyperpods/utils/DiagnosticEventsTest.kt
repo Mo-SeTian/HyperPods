@@ -45,6 +45,16 @@ class DiagnosticEventsTest {
         assertEquals("[]", DiagnosticEvents.encode(listOf(DiagnosticEvents.Event(1, "failure", "PRIVATE_VALUE"))))
     }
 
+    @Test fun audioTransitionsRoundTripWithoutDeviceIdentifiers() {
+        val events = listOf("0,1", "1,2", "2,3", "3,0").mapIndexed { index, transition ->
+            DiagnosticEvents.create(index + 1L, "audio", transition)!!
+        }
+        assertEquals(events, DiagnosticEvents.decode(DiagnosticEvents.encode(events)))
+        assertNull(DiagnosticEvents.create(1, "audio", "2,2"))
+        assertNull(DiagnosticEvents.create(1, "audio", "2,4"))
+        assertNull(DiagnosticEvents.create(1, "audio", "PRIVATE_VALUE"))
+    }
+
     @Test fun corruptAndOversizedHistoryIsIgnored() {
         assertTrue(DiagnosticEvents.decode(null).isEmpty())
         assertTrue(DiagnosticEvents.decode("not json").isEmpty())

@@ -1506,4 +1506,69 @@ class L2CAPControllerSettingsTest {
         assertTrue(timeout.isCancelled)
         assertTrue(pending().isEmpty())
     }
+    @Test fun coreReportsRefreshOnlyTheSubscriptionEvenWhenFullRecoveryWasRequested() {
+        coreReports()
+        assertFalse(statusSyncComplete())
+        output.reset()
+        val sent = type.getDeclaredMethod("requestHeadsetStatus", AACPManager::class.java, Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller, manager, true) as Boolean
+        assertTrue(sent)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 0x0f, 0, -1, -1, -1, -1), output.toByteArray())
+        verify(socket, never()).close()
+    }
+
+    @Test fun missingCoreDataStillAllowsFullHandshakeRecovery() {
+        val sent = type.getDeclaredMethod("requestHeadsetStatus", AACPManager::class.java, Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller, manager, true) as Boolean
+        assertTrue(sent)
+        assertEquals(40, output.size())
+        assertArrayEquals(manager.createHandshakePacket(), output.toByteArray().copyOfRange(0, 16))
+    }
+
+    @Test fun manualAndPageRefreshDoNotResetAWorkingCoreSessionForMissingModeOrSettings() {
+        coreReports()
+        field("socket").set(controller, socket)
+        val generation = field("sessionId").getLong(controller)
+        for (action in listOf(HyperPodsAction.ACTION_PODS_STATUS_RETRY, HyperPodsAction.ACTION_PODS_UI_INIT)) {
+            output.reset()
+            val intent = mock(Intent::class.java)
+            `when`(intent.action).thenReturn(action)
+            controller.handleUIEvent(intent)
+            assertArrayEquals(byteArrayOf(4, 0, 4, 0, 0x0f, 0, -1, -1, -1, -1), output.toByteArray())
+            assertEquals(generation, field("sessionId").getLong(controller))
+            assertSame(manager, field("aacpManager").get(controller))
+            verify(socket, never()).close()
+        }
+    }
+
+    @Test fun audioTransitionsAreRecordedBeforeControlSetupWithoutStoringDeviceData() {
+        field("mContext").set(controller, null)
+        val context = mock(Context::class.java)
+        mockConstruction(android.os.Bundle::class.java).use { bundles ->
+            controller.onAudioConnectionState(context, device, 1, 2, true)
+            val event = bundles.constructed().single()
+            verify(event).putString("kind", "audio")
+            verify(event).putString("detail", "1,2")
+            verify(event, never()).putString(eq("mac"), anyString())
+            verify(event, never()).putString(eq("device_name"), anyString())
+        }
+        mockConstruction(android.os.Bundle::class.java).use { bundles ->
+            controller.onAudioConnectionState(context, device, 2, 0, false)
+            controller.onAudioConnectionState(context, device, 2, 2, true)
+            assertTrue(bundles.constructed().isEmpty())
+        }
+    }
+
+    @Test fun diagnosticBroadcastFailureCannotInterruptAnAudioStateEvent() {
+        val context = mock(Context::class.java)
+        doThrow(SecurityException("Synthetic diagnostics failure")).`when`(context)
+            .sendBroadcast(any(Intent::class.java), isNull(), nullable(android.os.Bundle::class.java))
+        field("mContext").set(controller, context)
+        controller.onAudioConnectionState(context, device, 2, 3, true)
+        verify(context).sendBroadcast(any(Intent::class.java), isNull(), nullable(android.os.Bundle::class.java))
+        assertEquals(3, field("audioConnectionState").getInt(controller))
+        assertSame(manager, field("aacpManager").get(controller))
+        assertSame(context, field("mContext").get(controller))
+    }
+
 }

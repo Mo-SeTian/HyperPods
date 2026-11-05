@@ -66,6 +66,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
                                 "A2DP Connection State: $currState, isAirPod ${isPods(device)}"
                             )
                             val context = this.instance as ContextWrapper
+                            L2CAPController.onAudioConnectionState(context, device, fromState, currState, isPods(device))
                             if (currState == BluetoothProfile.STATE_DISCONNECTING || currState == BluetoothProfile.STATE_DISCONNECTED) {
                                 uuidDiscovery.disconnected(context, device)
                                 // UUIDs may be absent again during teardown.
@@ -74,7 +75,7 @@ object HeadsetStateDispatcher : YukiBaseHooker() {
                             if (!isPods(device)) {
                                 // UUID discovery can finish after the A2DP event.
                                 // Inspect its result once instead of dropping this connection.
-                                if (currState == BluetoothProfile.STATE_CONNECTED && device.uuids == null) {
+                                if (currState == BluetoothProfile.STATE_CONNECTED) {
                                     uuidDiscovery.discover(context, device)
                                 }
                                 return@post
