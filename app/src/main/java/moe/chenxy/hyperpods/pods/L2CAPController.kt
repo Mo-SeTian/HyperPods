@@ -347,7 +347,7 @@ object L2CAPController {
                 sendDiagnostics(force = true)
             }
             HyperPodsAction.ACTION_PODS_STATUS_RETRY -> {
-                if (aacpManager != null && coreStatusReady()) {
+                if (aacpManager != null && initialStatusReady()) {
                     initialStatusRetries++
                     recordEvent("sync", "request")
                     lastStatusFailure = if (requestHeadsetStatus(aacpManager!!)) "" else "write_failed"
@@ -843,9 +843,11 @@ object L2CAPController {
             routeRetryJob?.cancel()
             routeRetryJob = CoroutineScope(Dispatchers.Default).launch {
                 delay(waitMs)
-                synchronized(this@L2CAPController) {
-                    ensureActive()
-                    if (sessionId == thisSession && wantsHeadphoneRoute()) restoreHeadphoneRoute()
+                runAudioRouteTask {
+                    synchronized(this@L2CAPController) {
+                        ensureActive()
+                        if (sessionId == thisSession && wantsHeadphoneRoute()) restoreHeadphoneRoute()
+                    }
                 }
             }
         } else {
@@ -859,9 +861,11 @@ object L2CAPController {
         val generation = sessionId
         routeTransferTimeout = CoroutineScope(Dispatchers.Default).launch {
             delay(3000)
-            synchronized(this@L2CAPController) {
-                ensureActive()
-                if (sessionId == generation && pendingAudioRoute?.id == route.id) handleAudioRouteFailure(route)
+            runAudioRouteTask {
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    if (sessionId == generation && pendingAudioRoute?.id == route.id) handleAudioRouteFailure(route)
+                }
             }
         }
         try {
@@ -1047,21 +1051,23 @@ object L2CAPController {
             handleAudioRouteFailure(route)
         }
     }
+    // Callbacks and delayed route tasks share the same optional-operation boundary.
+    private fun runAudioRouteTask(block: () -> Unit) {
+        try {
+            block()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Log.w(TAG, "Media route task failed", error)
+            synchronized(this@L2CAPController) {
+                runCatching { recordFailure(diagnosticsSnapshot(), "media_route_failed") }
+            }
+        }
+    }
+
     private fun startRoutesScan() {
         val executor = Executor { p0 ->
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    p0?.run()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    // An optional routing failure must never escape into the Bluetooth host.
-                    Log.w(TAG, "Media route callback failed", error)
-                    synchronized(this@L2CAPController) {
-                        runCatching { recordFailure(diagnosticsSnapshot(), "media_route_failed") }
-                    }
-                }
-            }
+            CoroutineScope(Dispatchers.IO).launch { runAudioRouteTask { p0?.run() } }
         }
 
         val preferredFeature = listOf(MediaRoute2Info.FEATURE_LIVE_AUDIO, MediaRoute2Info.FEATURE_LIVE_VIDEO)
@@ -1379,8 +1385,8 @@ object L2CAPController {
     }
 
     private fun requestHeadsetStatus(manager: AACPManager, fullRecovery: Boolean = false): Boolean =
-        if (coreStatusReady()) manager.sendNotificationRequest()
-        else manager.requestInitialStatus(full = fullRecovery)
+        // STATUS still sends feature flags once if unsolicited core reports arrived first.
+        manager.requestInitialStatus(full = fullRecovery && !coreStatusReady())
 
     private fun finishInitialStatus(manager: AACPManager, generation: Long) {
         val reconnect = synchronized(this@L2CAPController) {
@@ -1705,7 +1711,8 @@ object L2CAPController {
 
     // Unread ancillary settings still get bounded refreshes, but must not mark
     // working battery/listening controls as unusable or force a reconnection.
-    private fun statusSyncComplete(): Boolean = initialStatusReady() && missingSettings().isEmpty()
+    private fun statusSyncComplete(): Boolean = initialStatusReady() &&
+        aacpManager?.featureFlagsSent == true && missingSettings().isEmpty()
 
     private fun missingSettings(): Set<String> {
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) ?: return emptySet()
@@ -1721,18 +1728,20 @@ object L2CAPController {
             // Keep the existing pause delay, but never let it outlive a wear
             // change, a disabled setting, or the current Bluetooth session.
             delay(500)
-            synchronized(this@L2CAPController) {
-                ensureActive()
-                speakerSwitchJob = null
-                if (mContext == null || !earDetection || !autoSwitchToSpeaker) return@synchronized
-                if (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR ||
-                    currentEarDetectionParams.right == EarDetectionStatus.IN_EAR) return@synchronized
-                routes.firstOrNull { it.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER }?.let {
-                    // A wear event must not take over a route selected by the user.
-                    if (findHeadphoneRoute(mediaRouter.systemController.selectedRoutes) == null) return@synchronized
-                    // Only change the media route. HFP/A2DP must stay connected.
-                    switchedToSpeaker = true
-                    requestAudioRoute(it)
+            runAudioRouteTask {
+                synchronized(this@L2CAPController) {
+                    ensureActive()
+                    speakerSwitchJob = null
+                    if (mContext == null || !earDetection || !autoSwitchToSpeaker) return@synchronized
+                    if (currentEarDetectionParams.left == EarDetectionStatus.IN_EAR ||
+                        currentEarDetectionParams.right == EarDetectionStatus.IN_EAR) return@synchronized
+                    routes.firstOrNull { it.type == MediaRoute2Info.TYPE_BUILTIN_SPEAKER }?.let {
+                        // A wear event must not take over a route selected by the user.
+                        if (findHeadphoneRoute(mediaRouter.systemController.selectedRoutes) == null) return@synchronized
+                        // Only change the media route. HFP/A2DP must stay connected.
+                        switchedToSpeaker = true
+                        requestAudioRoute(it)
+                    }
                 }
             }
         }

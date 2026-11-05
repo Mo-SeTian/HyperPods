@@ -10,6 +10,7 @@ import android.media.MediaRoute2Info
 import android.media.AudioManager
 import android.media.MediaRouter2
 import android.telephony.TelephonyManager
+import android.view.KeyEvent
 import android.content.BroadcastReceiver
 import java.io.IOException
 import java.io.InputStream
@@ -17,12 +18,14 @@ import java.util.concurrent.Executor
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import org.mockito.ArgumentCaptor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import moe.chenxy.hyperpods.utils.AACPManager
@@ -736,6 +739,176 @@ class L2CAPControllerWearTest {
         with(controller) { runControlAttempt(context, device, field("sessionId").getLong(controller)) { socket } }
         assertEquals("packet_processing_failed", field("lastStatusFailure").get(controller))
         verify(socket).close()
+    }
+
+    private fun assertRouteTaskContained(start: () -> Job) {
+        val uncaught = AtomicReference<Throwable>()
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        try {
+            Thread.setDefaultUncaughtExceptionHandler { _, error -> uncaught.set(error) }
+            runBlocking { withTimeout(6000) { start().join() } }
+            assertNull("A delayed route failure escaped into the Bluetooth host", uncaught.get())
+        } finally { Thread.setDefaultUncaughtExceptionHandler(previous) }
+    }
+
+    @Test fun delayedSpeakerFailureKeepsTheControlChannelAndPauseOwnership() {
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val controlSocket = mock(BluetoothSocket::class.java)
+        val manager = AACPManager(controlSocket)
+        val context = field("mContext").get(controller)
+        val entered = AtomicBoolean()
+        `when`(device.name).thenReturn("Test headset")
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(headset))
+        field("mediaRouter").set(controller, router)
+        controller.routes = listOf(headset, speaker)
+        try {
+            assertRouteTaskContained {
+                wear(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.OUT_OF_EAR)
+                val task = requireNotNull(pendingSwitch())
+                field("aacpManager").set(controller, manager)
+                field("socket").set(controller, controlSocket)
+                field("pausedAudio").setBoolean(controller, true)
+                `when`(router.systemController).thenAnswer {
+                    entered.set(true)
+                    throw IllegalStateException("Synthetic delayed speaker failure")
+                }
+                task
+            }
+            assertTrue(entered.get())
+            assertTrue(field("pausedAudio").getBoolean(controller))
+            assertSame(manager, field("aacpManager").get(controller))
+            assertSame(context, field("mContext").get(controller))
+            verify(controlSocket, never()).close()
+            verify(router, never()).transferTo(any())
+        } finally {
+            doReturn(routing).`when`(router).systemController
+            field("switchedToSpeaker").setBoolean(controller, false)
+        }
+    }
+
+    @Test fun delayedHeadphoneRetryFailureRetainsOwnershipWithoutDisconnecting() {
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val controlSocket = mock(BluetoothSocket::class.java)
+        val entered = AtomicBoolean()
+        `when`(device.name).thenReturn("Test headset")
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(speaker))
+        field("mediaRouter").set(controller, router)
+        field("socket").set(controller, controlSocket)
+        controller.routes = listOf(headset, speaker)
+        wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+        field("switchedToSpeaker").setBoolean(controller, true)
+        field("pausedAudio").setBoolean(controller, true)
+        field("pendingAudioRoute").set(controller, headset)
+        try {
+            assertRouteTaskContained {
+                type.getDeclaredMethod("handleAudioRouteFailure", MediaRoute2Info::class.java)
+                    .apply { isAccessible = true }.invoke(controller, headset)
+                val task = field("routeRetryJob").get(controller) as Job
+                `when`(router.systemController).thenAnswer {
+                    entered.set(true)
+                    throw IllegalStateException("Synthetic delayed retry failure")
+                }
+                task
+            }
+            assertTrue(entered.get())
+            assertTrue(field("switchedToSpeaker").getBoolean(controller))
+            assertTrue(field("pausedAudio").getBoolean(controller))
+            verify(controlSocket, never()).close()
+            verify(router, never()).transferTo(any())
+        } finally {
+            doReturn(routing).`when`(router).systemController
+            field("switchedToSpeaker").setBoolean(controller, false)
+        }
+    }
+
+    @Test fun transferTimeoutFailureCannotResumeUntilTheHeadsetRouteIsAvailableAgain() {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        val speaker = route("speaker", MediaRoute2Info.TYPE_BUILTIN_SPEAKER)
+        val controlSocket = mock(BluetoothSocket::class.java)
+        val entered = AtomicBoolean()
+        `when`(device.name).thenReturn("Test headset")
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.mode).thenReturn(AudioManager.MODE_NORMAL)
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(headset))
+        field("mContext").set(controller, context)
+        field("mediaRouter").set(controller, router)
+        field("socket").set(controller, controlSocket)
+        controller.routes = listOf(headset, speaker)
+        MediaControl.mContext = context
+        wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+        field("pausedAudio").setBoolean(controller, true)
+        field("switchedToSpeaker").setBoolean(controller, true)
+        try {
+            assertRouteTaskContained {
+                type.getDeclaredMethod("requestAudioRoute", MediaRoute2Info::class.java)
+                    .apply { isAccessible = true }.invoke(controller, speaker)
+                val task = field("routeTransferTimeout").get(controller) as Job
+                `when`(router.systemController).thenAnswer {
+                    entered.set(true)
+                    throw IllegalStateException("Synthetic route timeout failure")
+                }
+                task
+            }
+            assertTrue(entered.get())
+            assertNull(field("pendingAudioRoute").get(controller))
+            assertTrue(field("pausedAudio").getBoolean(controller))
+            verify(audio, never()).dispatchMediaKeyEvent(any())
+            verify(controlSocket, never()).close()
+            doReturn(routing).`when`(router).systemController
+            invokeRouteChanged()
+            invokeRouteChanged()
+            verify(audio, times(2)).dispatchMediaKeyEvent(any())
+            assertFalse(field("pausedAudio").getBoolean(controller))
+        } finally {
+            doReturn(routing).`when`(router).systemController
+            field("switchedToSpeaker").setBoolean(controller, false)
+            MediaControl.mContext = null
+        }
+    }
+
+    @Test fun ordinaryRemovalAndRewearPauseAndResumeOnlyOnce() {
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        val router = mock(MediaRouter2::class.java)
+        val routing = mock(MediaRouter2.RoutingController::class.java)
+        val headset = route("headset", MediaRoute2Info.TYPE_BLUETOOTH_A2DP)
+        `when`(device.name).thenReturn("Test headset")
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        `when`(audio.mode).thenReturn(AudioManager.MODE_NORMAL)
+        `when`(router.systemController).thenReturn(routing)
+        `when`(routing.selectedRoutes).thenReturn(listOf(headset))
+        field("mContext").set(controller, context)
+        field("mediaRouter").set(controller, router)
+        settings(true, false)
+        MediaControl.mContext = context
+        val codes = mutableListOf<Int>()
+        try {
+            mockConstruction(KeyEvent::class.java) { _, construction -> codes.add(construction.arguments()[3] as Int) }.use {
+                `when`(audio.isMusicActive).thenReturn(true)
+                wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+                wear(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_EAR)
+                assertTrue(field("pausedAudio").getBoolean(controller))
+                `when`(audio.isMusicActive).thenReturn(false)
+                wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+                wear(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR)
+                assertEquals(listOf(KeyEvent.KEYCODE_MEDIA_PAUSE, KeyEvent.KEYCODE_MEDIA_PAUSE,
+                    KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PLAY), codes)
+                assertFalse(field("pausedAudio").getBoolean(controller))
+            }
+        } finally { MediaControl.mContext = null }
     }
 
 }

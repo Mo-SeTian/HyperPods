@@ -288,6 +288,7 @@ class L2CAPControllerSettingsTest {
         assertFalse(statusSyncComplete())
         receive(0x25, 1)
         receive(0x23, 1)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x2b, 0))
         assertTrue(initialReady())
         assertTrue(statusSyncComplete())
     }
@@ -437,6 +438,7 @@ class L2CAPControllerSettingsTest {
         assertTrue("Missing ancillary settings must not block usable controls", initialReady())
         assertFalse("Continue bounded requests for unread settings", statusSyncComplete())
         receiveRemainingSettings()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x2b, 0))
         assertTrue(initialReady())
         assertTrue(statusSyncComplete())
         controller.currentPodsInfo = null
@@ -1508,6 +1510,7 @@ class L2CAPControllerSettingsTest {
     }
     @Test fun coreReportsRefreshOnlyTheSubscriptionEvenWhenFullRecoveryWasRequested() {
         coreReports()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x2b, 0))
         assertFalse(statusSyncComplete())
         output.reset()
         val sent = type.getDeclaredMethod("requestHeadsetStatus", AACPManager::class.java, Boolean::class.javaPrimitiveType)
@@ -1525,8 +1528,12 @@ class L2CAPControllerSettingsTest {
         assertArrayEquals(manager.createHandshakePacket(), output.toByteArray().copyOfRange(0, 16))
     }
 
-    @Test fun manualAndPageRefreshDoNotResetAWorkingCoreSessionForMissingModeOrSettings() {
+    @Test fun manualAndPageRefreshDoNotResetAReadySessionForMissingAncillarySettings() {
         coreReports()
+        receive(0x0d, 4)
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x2b, 0))
+        assertTrue(initialReady())
+        assertFalse(statusSyncComplete())
         field("socket").set(controller, socket)
         val generation = field("sessionId").getLong(controller)
         for (action in listOf(HyperPodsAction.ACTION_PODS_STATUS_RETRY, HyperPodsAction.ACTION_PODS_UI_INIT)) {
@@ -1569,6 +1576,102 @@ class L2CAPControllerSettingsTest {
         assertEquals(3, field("audioConnectionState").getInt(controller))
         assertSame(manager, field("aacpManager").get(controller))
         assertSame(context, field("mContext").get(controller))
+    }
+
+    private fun unsolicitedCoreReports() {
+        field("mContext").set(controller, null)
+        controller.currentPodsInfo = null
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 80, 2, 0, 2, 1, 70, 2, 0))
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x1d, 0, 0) +
+            "protocol\u0000Test headset\u0000A3049\u0000".toByteArray())
+        assertNotNull(controller.currentPodsInfo)
+        assertEquals(AACPManager.InitializationStage.STATUS, manager.initializationStage)
+        assertFalse(manager.featureFlagsSent)
+        field("mContext").set(controller, ContextWrapper(null))
+        output.reset()
+    }
+
+    private fun refreshStatus(full: Boolean = false): Boolean =
+        type.getDeclaredMethod("requestHeadsetStatus", AACPManager::class.java, Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller, manager, full) as Boolean
+
+    @Test fun unsolicitedCoreReportsDoNotSkipTheFirstFeatureConfiguration() {
+        unsolicitedCoreReports()
+        val generation = field("sessionId").getLong(controller)
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_UI_INIT)
+        controller.handleUIEvent(intent)
+        assertTrue(manager.featureFlagsSent)
+        assertArrayEquals(manager.createDataPacket(manager.createSetFeatureFlagsPacket()) +
+            manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
+        output.reset()
+        controller.handleUIEvent(intent)
+        assertArrayEquals(manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
+        assertEquals(generation, field("sessionId").getLong(controller))
+        verify(socket, never()).close()
+    }
+
+    @Test fun completeReportsStillRequireTheInitialFeatureConfigurationBeforeStoppingRecovery() {
+        unsolicitedCoreReports()
+        receiveRemainingSettings()
+        assertTrue(initialReady())
+        assertFalse(statusSyncComplete())
+        output.reset()
+        assertTrue(refreshStatus(full = true))
+        assertTrue(statusSyncComplete())
+        assertArrayEquals(manager.createDataPacket(manager.createSetFeatureFlagsPacket()) +
+            manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
+    }
+
+    @Test fun rejectedFeatureWriteRemainsEligibleForTheNextBoundedRefresh() {
+        unsolicitedCoreReports()
+        receiveRemainingSettings()
+        `when`(socket.outputStream).thenThrow(IOException("Synthetic feature write failure"))
+        assertFalse(refreshStatus(full = true))
+        assertFalse(manager.featureFlagsSent)
+        assertFalse(statusSyncComplete())
+        doReturn(output).`when`(socket).outputStream
+        assertTrue(refreshStatus(full = true))
+        assertTrue(statusSyncComplete())
+    }
+
+    @Test fun explicitRetryForMissingListeningModeRebuildsOnlyTheControlChannel() {
+        unsolicitedCoreReports()
+        manager.sendSetFeatureFlagsPacket()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x2b, 0))
+        assertFalse(initialReady())
+        val context = mock(Context::class.java)
+        val audio = mock(AudioManager::class.java)
+        val router = mock(MediaRouter2::class.java)
+        `when`(context.getSystemService(AudioManager::class.java)).thenReturn(audio)
+        field("mContext").set(controller, context)
+        field("mediaRouter").set(controller, router)
+        field("socket").set(controller, socket)
+        field("pausedAudio").setBoolean(controller, true)
+        val generation = field("sessionId").getLong(controller)
+        val actions = mutableListOf<Any?>()
+        try {
+            mockConstruction(Intent::class.java) { _, construction -> actions.add(construction.arguments().firstOrNull()) }.use {
+                val intent = mock(Intent::class.java)
+                `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
+                controller.handleUIEvent(intent)
+            }
+            (field("connectionJob").get(controller) as Job?)?.cancel()
+            assertEquals(generation + 1, field("sessionId").getLong(controller))
+            assertNull(field("aacpManager").get(controller))
+            assertSame(context, field("mContext").get(controller))
+            assertSame(device, controller.mDevice)
+            assertTrue(field("pausedAudio").getBoolean(controller))
+            verify(socket, timeout(1000)).close()
+            verify(audio, never()).dispatchMediaKeyEvent(any())
+            verify(router, never()).transferTo(any())
+            assertFalse(actions.contains(HyperPodsAction.ACTION_PODS_DISCONNECTED))
+            assertFalse(actions.contains(HyperPodsAction.ACTION_CANCEL_NOTIFICATION))
+        } finally {
+            (field("connectionJob").get(controller) as Job?)?.cancel()
+            field("pausedAudio").setBoolean(controller, false)
+        }
     }
 
 }

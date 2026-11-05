@@ -339,6 +339,7 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
     var initializationStage = InitializationStage.HANDSHAKE
         private set
     private var featuresSent = false
+    val featureFlagsSent: Boolean get() = featuresSent
     var receivedPacketCount = 0
         private set
     var lastPacketAt = 0L
