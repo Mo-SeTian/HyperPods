@@ -39,6 +39,14 @@
     <string name="diagnostics_share">Share diagnostic report</string>
     <string name="diagnostics_share_privacy">Only module builds, status codes and timestamps; no device names, addresses, serial numbers or packet payloads.</string>
     <string name="diagnostics_title">Connection diagnostics</string>
+    <string name="diagnostics_overview">Current status</string>
+    <string name="diagnostics_connection_group">Connection and synchronization</string>
+    <string name="diagnostics_data_group">Status reports</string>
+    <string name="diagnostics_settings_group">Headset settings</string>
+    <string name="diagnostics_actions">Diagnostic actions</string>
+    <string name="diagnostics_logs">Diagnostic logs</string>
+    <string name="diagnostics_logs_summary">View recent failures and events</string>
+    <string name="diagnostics_log_count">Total: %1$d, newest first</string>
     <string name="diagnostics_connection">Control connection</string>
     <string name="diagnostics_stage">Initialization step</string>
     <string name="diagnostics_handshake">Waiting for handshake confirmation</string>

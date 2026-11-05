@@ -8,6 +8,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.performClick
 import moe.chenxy.hyperpods.R
 import org.junit.Assert.assertEquals
@@ -50,6 +52,11 @@ class AboutPageTest(private val theme: Int) {
         }
         compose.revealSetting("Art_Chen").assertIsDisplayed()
         compose.revealSetting("Mo-SeTian").assertIsDisplayed()
+    }
+
+    @Test fun aboutPageHasNoDuplicateDiagnosticsEntry() {
+        compose.revealSetting(compose.activity.getString(R.string.dashboard_fork_donate)).assertIsDisplayed()
+        compose.onAllNodesWithText(compose.activity.getString(R.string.diagnostics_title)).assertCountEquals(0)
     }
 
     @Test fun eachRepositoryLinkOpensItsOwnRepository() {

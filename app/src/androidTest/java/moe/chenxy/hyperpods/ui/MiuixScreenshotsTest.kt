@@ -1,6 +1,7 @@
 package moe.chenxy.hyperpods.ui
 
 import android.graphics.Bitmap
+import android.os.Bundle
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -10,6 +11,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsSelected
 import androidx.test.platform.app.InstrumentationRegistry
 import moe.chenxy.hyperpods.R
+import moe.chenxy.hyperpods.utils.DiagnosticsHistory
+import moe.chenxy.hyperpods.utils.DiagnosticEvents
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
@@ -63,6 +66,40 @@ class MiuixScreenshotsTest {
         render(caseConnected = false); capture("two-ears")
         render(model = "A3057"); capture("airpods-4")
         render(model = "A3531"); capture("airpods-5")
+    }
+
+    @Test fun captureDiagnosticsAndLogs() {
+        val preferences = DiagnosticsHistory.preferences(compose.activity)
+        val originalHistory = DiagnosticsHistory.read(preferences)
+        val originalEvents = preferences.getString("events", null)
+        try {
+            DiagnosticsHistory.save(preferences, Bundle().apply {
+                putString("failure", "read_failed")
+                putString("stage", "STATUS")
+                putLong("recorded_at", 1_794_000_000_000L)
+                putLong("last_packet_at", 1_793_999_998_000L)
+                putInt("received", 48)
+                putInt("retries", 2)
+                putInt("audio", 2)
+            })
+            preferences.edit().putString("events", DiagnosticEvents.encode(listOf(
+                DiagnosticEvents.Event(1_794_000_000_000L, "failure", "read_failed"),
+                DiagnosticEvents.Event(1_794_000_001_000L, "connection", "connecting"),
+                DiagnosticEvents.Event(1_794_000_002_000L, "connection", "connected"),
+                DiagnosticEvents.Event(1_794_000_003_000L, "sync", "STATUS"),
+            ))).commit()
+            for (theme in listOf(1, 2)) {
+                render(theme = theme)
+                open(R.string.diagnostics_title); capture("diagnostics-grouped-$theme")
+                open(R.string.diagnostics_logs); capture("diagnostics-logs-$theme")
+                compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+                compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+            }
+        } finally {
+            if (originalHistory == null) preferences.edit().remove("failure").commit()
+            else DiagnosticsHistory.save(preferences, originalHistory)
+            preferences.edit().putString("events", originalEvents).commit()
+        }
     }
 
     @Test fun captureSecondaryPages() {

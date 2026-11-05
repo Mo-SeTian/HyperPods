@@ -2,7 +2,6 @@ package moe.chenxy.hyperpods.ui
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.Image
@@ -34,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.BuildConfig
-import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
 import moe.chenxy.hyperpods.ui.components.DashboardSection
@@ -48,7 +46,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun AboutPage(
     padding: PaddingValues,
-    diagnostics: Bundle? = null,
 ) {
     val context = LocalContext.current
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
@@ -157,13 +154,6 @@ fun AboutPage(
                         }
                     )
                 }
-            }
-            item(key = "diagnostics") {
-                DashboardSection(stringResource(R.string.diagnostics_title))
-                Card {
-                    ConnectionDiagnostics(diagnostics)
-                }
-
             }
         }
     }

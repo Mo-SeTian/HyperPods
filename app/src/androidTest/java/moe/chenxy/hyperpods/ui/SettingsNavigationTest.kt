@@ -13,7 +13,13 @@ import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import moe.chenxy.hyperpods.R
+import moe.chenxy.hyperpods.utils.DiagnosticEvents
+import moe.chenxy.hyperpods.utils.DiagnosticsHistory
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -92,6 +98,37 @@ class SettingsNavigationTest(private val durationScale: Float) {
             assertEquals("Home scroll changed after returning", before, scrollPosition(), 0.000001f)
             compose.onNodeWithText(text(id)).assertIsDisplayed()
             compose.onAllNodesWithContentDescription(text(R.string.dashboard_back)).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun diagnosticLogsReturnToDiagnosticsAndKeepScrollAfterRecreation() {
+        val preferences = DiagnosticsHistory.preferences(compose.activity)
+        val original = preferences.getString("events", null)
+        try {
+            val events = (1..40).map { DiagnosticEvents.Event(it * 1000L, "sync", "request") }
+            preferences.edit().putString("events", DiagnosticEvents.encode(events)).commit()
+            reveal(R.string.diagnostics_title)
+            val homePosition = scrollPosition()
+            compose.onNodeWithText(text(R.string.diagnostics_title)).performClick()
+            open(R.string.diagnostics_logs)
+            val middleTime = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(events[20].at))
+            compose.revealSetting(middleTime).performScrollTo().assertIsDisplayed()
+            val logPosition = scrollPosition()
+            assertTrue(logPosition > 0f)
+            compose.activityRule.scenario.recreate()
+            compose.waitForIdle()
+            assertEquals(logPosition, scrollPosition(), 0.000001f)
+            back()
+            compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.diagnostics_title))).assertExists()
+            compose.onNodeWithText(text(R.string.diagnostics_logs)).assertIsDisplayed()
+            open(R.string.diagnostics_logs)
+            assertEquals(logPosition, scrollPosition(), 0.000001f)
+            back()
+            back()
+            assertEquals(homePosition, scrollPosition(), 0.000001f)
+        } finally {
+            preferences.edit().putString("events", original).commit()
         }
     }
 

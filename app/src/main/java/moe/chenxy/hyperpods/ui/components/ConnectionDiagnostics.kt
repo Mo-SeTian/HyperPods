@@ -29,7 +29,7 @@ import java.util.Locale
 
 /** Only fixed diagnostic fields are displayed/copied; no addresses, names, serials or keys. */
 @Composable
-fun ConnectionDiagnostics(snapshot: Bundle?) {
+fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLogs: () -> Unit = {}) {
     val context = LocalContext.current
     val preferences = remember(context) { DiagnosticsHistory.preferences(context) }
     var history by remember(preferences) { mutableStateOf(DiagnosticsHistory.read(preferences)) }
@@ -71,7 +71,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         2 -> R.string.diagnostics_setting_disabled
         else -> R.string.diagnostics_never
     })
-    val fields = listOf(
+    val connectionFields = listOf(
         stringResource(R.string.diagnostics_audio) to stringResource(when {
             snapshot == null -> R.string.module_no_report
             snapshot.containsKey("audio") -> audioState(snapshot.getInt("audio", -1))
@@ -84,6 +84,8 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         stringResource(R.string.diagnostics_packets) to received.toString(),
         stringResource(R.string.diagnostics_retries) to (snapshot?.getInt("retries") ?: 0).toString(),
         stringResource(R.string.diagnostics_last_packet) to time(snapshot?.getLong("last_packet_at")),
+    )
+    val dataFields = listOf(
         stringResource(R.string.diagnostics_battery) to (stringResource(when {
             snapshot?.getBoolean("battery") != true -> R.string.settings_reading
             snapshot.getString("connection") == "failed" -> R.string.diagnostics_retained
@@ -100,6 +102,8 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         stringResource(R.string.diagnostics_right_update) to time(snapshot?.getLong("right_battery_at")),
         stringResource(R.string.diagnostics_case_update) to time(snapshot?.getLong("case_battery_at")),
         stringResource(R.string.diagnostics_wear_update) to time(snapshot?.getLong("wear_report_at")),
+    )
+    val settingFields = listOf(
         stringResource(R.string.diagnostics_missing_settings) to
             (snapshot?.takeIf { it.getBoolean("information") }?.getInt("missing_settings", -1)?.takeIf { it >= 0 }?.toString()
                 ?: stringResource(R.string.diagnostics_model_unknown)),
@@ -125,7 +129,8 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
             else -> R.string.diagnostics_no_failure
         }),
     )
-    val historyReport = history?.let {
+    val fields = connectionFields + dataFields + settingFields
+    val historyFields = history?.let {
         listOf(
             stringResource(R.string.diagnostics_history) to time(it.getLong("recorded_at")),
             stringResource(R.string.diagnostics_failure) to stringResource(failureReason(it.getString("failure"))),
@@ -140,8 +145,10 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
             stringResource(R.string.diagnostics_retries) to it.getInt("retries").toString(),
             stringResource(R.string.diagnostics_last_packet) to time(it.getLong("last_packet_at")),
             stringResource(R.string.diagnostics_last_setting) to stringResource(settingTitle(it.getString("setting_key"))),
-        ).joinToString("\n") { (label, value) -> "$label: $value" }
-    }
+        )
+    }.orEmpty()
+    val historyReport = historyFields.takeIf { it.isNotEmpty() }
+        ?.joinToString("\n") { (label, value) -> "$label: $value" }
     val explanation = when {
         snapshot == null -> R.string.diagnostics_no_report
         snapshot.getBoolean("ready") -> R.string.diagnostics_ready
@@ -149,36 +156,66 @@ fun ConnectionDiagnostics(snapshot: Bundle?) {
         received == 0 -> R.string.diagnostics_no_packets
         else -> R.string.diagnostics_incomplete
     }
-    ModuleSelfCheck { moduleReport = it }
-    // Read-only information is not a disabled action; keep its text contrast intact.
-    BasicComponent(title = stringResource(R.string.diagnostics_title), summary = stringResource(explanation))
-    fields.forEach { (label, value) -> BasicComponent(title = label, summary = value) }
-    BasicComponent(title = stringResource(R.string.diagnostics_history),
-        summary = historyReport ?: stringResource(R.string.diagnostics_no_history))
     val timeline = events.map { event -> time(event.at) + " · " + eventSummary(event) }
         .joinToString("\n").ifEmpty { stringResource(R.string.diagnostics_no_events) }
-    BasicComponent(title = stringResource(R.string.diagnostics_timeline), summary = timeline)
     val report = "HyperPods ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_REVISION})\n" +
-        moduleReport + "\n\n" + fields.joinToString("\n") { (label, value) -> "$label: $value" } +
+        (if (showLogs) "" else moduleReport + "\n\n" + fields.joinToString("\n") { (label, value) -> "$label: $value" }) +
         "\n\n" + (historyReport ?: context.getString(R.string.diagnostics_no_history)) + "\n\n" + timeline
-    BasicComponent(title = stringResource(R.string.diagnostics_refresh), onClick = {
-        HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST), HyperPodsBroadcasts.BLUETOOTH)
-    })
-    BasicComponent(title = stringResource(R.string.diagnostics_retry), summary = stringResource(R.string.diagnostics_retry_summary),
-        enabled = snapshot?.getString("connection") in listOf("connected", "failed"), onClick = {
-            HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY), HyperPodsBroadcasts.BLUETOOTH)
+    // Current status and historical events have separate destinations and scroll positions.
+    if (showLogs) {
+        DashboardSection(stringResource(R.string.diagnostics_history))
+        DashboardGroup {
+            if (historyFields.isEmpty()) BasicComponent(title = stringResource(R.string.diagnostics_no_history))
+            else BasicComponent(title = stringResource(failureReason(history?.getString("failure"))),
+                summary = historyFields.filterIndexed { index, _ -> index != 1 }
+                    .joinToString("\n") { (label, value) -> "$label: $value" })
+        }
+        DashboardSection(stringResource(R.string.diagnostics_timeline))
+        DashboardGroup {
+            BasicComponent(title = stringResource(R.string.diagnostics_log_count, events.size))
+            if (events.isEmpty()) BasicComponent(title = stringResource(R.string.diagnostics_no_events))
+            else events.asReversed().forEach { event ->
+                DashboardDivider()
+                BasicComponent(title = eventSummary(event), summary = time(event.at))
+            }
+        }
+    } else {
+        DashboardGroup {
+            BasicComponent(title = stringResource(R.string.diagnostics_overview), summary = stringResource(explanation))
+            DashboardDivider()
+            DashboardLink(stringResource(R.string.diagnostics_logs), stringResource(R.string.diagnostics_logs_summary), onClick = onOpenLogs)
+        }
+        DashboardSection(stringResource(R.string.module_self_check))
+        DashboardGroup { ModuleSelfCheck { moduleReport = it } }
+        listOf(R.string.diagnostics_connection_group to connectionFields,
+            R.string.diagnostics_data_group to dataFields, R.string.diagnostics_settings_group to settingFields).forEach { (title, entries) ->
+            DashboardSection(stringResource(title))
+            DashboardGroup { entries.forEach { (label, value) -> BasicComponent(title = label, summary = value) } }
+        }
+    }
+    DashboardSection(stringResource(R.string.diagnostics_actions))
+    DashboardGroup {
+        if (!showLogs) {
+            BasicComponent(title = stringResource(R.string.diagnostics_refresh), onClick = {
+                HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST), HyperPodsBroadcasts.BLUETOOTH)
+            })
+            BasicComponent(title = stringResource(R.string.diagnostics_retry), summary = stringResource(R.string.diagnostics_retry_summary),
+                enabled = snapshot?.getString("connection") in listOf("connected", "failed"), onClick = {
+                    HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY), HyperPodsBroadcasts.BLUETOOTH)
+                })
+        }
+        BasicComponent(title = stringResource(R.string.diagnostics_copy), onClick = {
+            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("HyperPods", report))
+            Toast.makeText(context, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
         })
-    BasicComponent(title = stringResource(R.string.diagnostics_copy), onClick = {
-        context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("HyperPods", report))
-        Toast.makeText(context, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
-    })
-    BasicComponent(title = stringResource(R.string.diagnostics_share), summary = stringResource(R.string.diagnostics_share_privacy), onClick = {
-        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "HyperPods diagnostics")
-            putExtra(Intent.EXTRA_TEXT, report)
-        }, context.getString(R.string.diagnostics_share)))
-    })
+        BasicComponent(title = stringResource(R.string.diagnostics_share), summary = stringResource(R.string.diagnostics_share_privacy), onClick = {
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "HyperPods diagnostics")
+                putExtra(Intent.EXTRA_TEXT, report)
+            }, context.getString(R.string.diagnostics_share)))
+        })
+    }
 }
 
 @Composable

@@ -172,12 +172,13 @@ fun PodDetailPage(
     }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
     var equalizerParent by rememberSaveable { mutableIntStateOf(0) }
-    fun back() { detailPage = when (detailPage) { 4 -> 1; 5 -> equalizerParent; else -> 0 } }
+    fun back() { detailPage = when (detailPage) { 4 -> 1; 5 -> equalizerParent; 6 -> 3; else -> 0 } }
     BackHandler(enabled = isActive && detailPage != 0) { back() }
     // Keep every page's saveable state outside the animated content. Switching the
     // content key must not discard the previous page's scroll position.
     val listStates = listOf(rememberLazyListState(), rememberLazyListState(),
-        rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState())
+        rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState(),
+        rememberLazyListState())
     val travel = with(LocalDensity.current) { 28.dp.roundToPx() }
     AnimatedContent(
         targetState = detailPage,
@@ -197,6 +198,7 @@ fun PodDetailPage(
             3 -> R.string.diagnostics_title
             4 -> R.string.head_test_title
             5 -> R.string.eq_title
+            6 -> R.string.diagnostics_logs
             else -> R.string.dashboard_headphones
         })
         val interaction = if (page == detailPage) Modifier.semantics { paneTitle = pageTitle }
@@ -322,9 +324,11 @@ fun PodDetailPage(
                     }
                     return@LazyColumn
                 }
-                if (page == 3) {
+                if (page == 3 || page == 6) {
                     item(key = "diagnostics") {
-                        Card(modifier = Modifier.padding(16.dp)) { ConnectionDiagnostics(diagnostics) }
+                        Column(Modifier.padding(horizontal = 16.dp)) {
+                            ConnectionDiagnostics(diagnostics, showLogs = page == 6, onOpenLogs = { detailPage = 6 })
+                        }
                     }
                     return@LazyColumn
                 }

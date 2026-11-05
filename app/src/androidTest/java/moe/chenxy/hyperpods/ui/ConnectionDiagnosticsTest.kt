@@ -19,6 +19,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.BatteryStatus
 import moe.chenxy.hyperpods.utils.AirPodsPro2USBC
+import moe.chenxy.hyperpods.utils.DiagnosticEvents
+import moe.chenxy.hyperpods.utils.DiagnosticsHistory
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
@@ -104,6 +106,37 @@ class ConnectionDiagnosticsTest {
         compose.mainClock.advanceTimeBy(3500)
         compose.waitForIdle()
         compose.onAllNodesWithText(compose.activity.getString(R.string.module_no_report)).assertCountEquals(3)
+    }
+
+    @Test fun logPageShowsAnEmptyStateAndThenIndividualEventsNewestFirst() {
+        val preferences = DiagnosticsHistory.preferences(compose.activity)
+        val original = preferences.getString("events", null)
+        try {
+            preferences.edit().remove("events").commit()
+            compose.runOnUiThread {
+                compose.activity.setContent {
+                    AppTheme(1) { Column(Modifier.verticalScroll(rememberScrollState())) {
+                        ConnectionDiagnostics(null, showLogs = true)
+                    } }
+                }
+            }
+            compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_no_events)).assertIsDisplayed()
+            compose.runOnIdle {
+                DiagnosticsHistory.append(preferences, DiagnosticEvents.Event(1000L, "sync", "STATUS"))
+                DiagnosticsHistory.append(preferences, DiagnosticEvents.Event(2000L, "sync", "FEATURES"))
+            }
+            compose.waitForIdle()
+            val older = compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_stage) + ": " +
+                compose.activity.getString(R.string.diagnostics_status)).performScrollTo().fetchSemanticsNode().boundsInRoot.top
+            val newer = compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_stage) + ": " +
+                compose.activity.getString(R.string.diagnostics_features)).fetchSemanticsNode().boundsInRoot.top
+            assertTrue("Newest event must be above the older event", newer < older)
+            compose.onAllNodesWithText(compose.activity.getString(R.string.diagnostics_no_events)).assertCountEquals(0)
+            compose.onNodeWithText(compose.activity.getString(R.string.diagnostics_log_count, 2)).assertIsDisplayed()
+            compose.onAllNodesWithText(compose.activity.getString(R.string.diagnostics_retry)).assertCountEquals(0)
+        } finally {
+            preferences.edit().putString("events", original).commit()
+        }
     }
 
     @Test fun copyingADiagnosticReportIgnoresSensitiveExtraFields() {

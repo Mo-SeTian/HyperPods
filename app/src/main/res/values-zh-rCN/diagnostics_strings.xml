@@ -39,6 +39,14 @@
     <string name="diagnostics_share">分享脱敏诊断报告</string>
     <string name="diagnostics_share_privacy">只包含构建版本、状态代码和时间，不包含设备名称、地址、序列号或协议包内容。</string>
     <string name="diagnostics_title">连接诊断</string>
+    <string name="diagnostics_overview">当前状态</string>
+    <string name="diagnostics_connection_group">连接与同步</string>
+    <string name="diagnostics_data_group">数据回报</string>
+    <string name="diagnostics_settings_group">耳机设置</string>
+    <string name="diagnostics_actions">诊断操作</string>
+    <string name="diagnostics_logs">诊断日志</string>
+    <string name="diagnostics_logs_summary">查看最近异常和事件记录</string>
+    <string name="diagnostics_log_count">共 %1$d 条，最新记录在前</string>
     <string name="diagnostics_connection">耳机控制连接</string>
     <string name="diagnostics_stage">状态同步阶段</string>
     <string name="diagnostics_handshake">等待握手确认</string>

@@ -436,7 +436,6 @@ fun AppHorizontalPager(
                     }
 
                 1 -> AboutPage(
-                    diagnostics = diagnostics,
                     padding = padding
                 )
             }
