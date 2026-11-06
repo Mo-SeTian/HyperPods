@@ -2,6 +2,7 @@ package moe.chenxy.hyperpods.pods
 
 import android.app.BroadcastOptions
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothSocket
 import android.content.ContextWrapper
 import android.content.Context
@@ -411,6 +412,64 @@ class L2CAPControllerSettingsTest {
             if (singleEar) EarDetectionStatus.IN_CASE else EarDetectionStatus.IN_EAR)
         field("batteryStateValid").setBoolean(controller, true)
         field("earDetectionStateValid").setBoolean(controller, true)
+    }
+
+    private fun startModeChangeOnReadyControlChannel(): Job {
+        coreReports(singleEar = true)
+        field("socket").set(controller, socket)
+        field("connectionState").set(controller, "connected")
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        receive(0x0d, 4)
+        assertTrue(initialReady())
+        output.reset()
+        controller.setANCMode(3)
+        field("mContext").set(controller, null)
+        val entry = pending().values.single()!!
+        return entry.javaClass.getDeclaredField("timeout").apply { isAccessible = true }.get(entry) as Job
+    }
+
+    @Test fun unansweredModeAndStatusRequestCloseOnlyTheControlSocket() = runBlocking {
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        val expiry = startModeChangeOnReadyControlChannel()
+        withTimeout(7000) { expiry.join() }
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, 0x0d, 3, 0, 0, 0,
+            4, 0, 4, 0, 0x0f, 0, -1, -1, -1, -1), output.toByteArray())
+        assertEquals("timeout", field("lastSettingStatus").get(controller))
+        assertEquals("control_no_reply", field("lastStatusFailure").get(controller))
+        assertEquals("failed", field("connectionState").get(controller))
+        assertEquals(4, field("currentAnc").getInt(controller))
+        assertEquals(BluetoothProfile.STATE_CONNECTED, field("audioConnectionState").getInt(controller))
+        assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
+        assertTrue(pending().isEmpty())
+        verify(socket).close()
+    }
+
+    private suspend fun awaitModeStatusProbe() {
+        withTimeout(5000) {
+            while (synchronized(controller) { output.size() == 11 }) delay(20)
+        }
+    }
+
+    @Test fun anUnchangedModeReportDuringTheProbePreventsReopeningTheChannel() = runBlocking {
+        val expiry = startModeChangeOnReadyControlChannel()
+        awaitModeStatusProbe()
+        receive(0x0d, 4)
+        withTimeout(4000) { expiry.join() }
+        assertEquals(21, output.size())
+        assertEquals("timeout", field("lastSettingStatus").get(controller))
+        assertEquals("connected", field("connectionState").get(controller))
+        verify(socket, never()).close()
+    }
+
+    @Test fun lateModeConfirmationDuringStatusProbeKeepsTheChannel() = runBlocking {
+        val expiry = startModeChangeOnReadyControlChannel()
+        awaitModeStatusProbe()
+        receive(0x0d, 3)
+        withTimeout(1000) { expiry.join() }
+        assertTrue(expiry.isCancelled)
+        assertEquals("confirmed", field("lastSettingStatus").get(controller))
+        assertEquals(3, field("currentAnc").getInt(controller))
+        verify(socket, never()).close()
     }
 
     private fun receiveRemainingSettings() {

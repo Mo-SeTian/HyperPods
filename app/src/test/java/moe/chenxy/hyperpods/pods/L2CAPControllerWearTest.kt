@@ -1,6 +1,7 @@
 package moe.chenxy.hyperpods.pods
 
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothProfile
 import android.app.BroadcastOptions
 import android.content.ContextWrapper
 import android.content.Context
@@ -178,6 +179,32 @@ class L2CAPControllerWearTest {
         assertTrue(controller.currentBatteryParams.right!!.isInCase)
         assertEquals(82, controller.currentBatteryParams.left!!.battery)
         assertEquals(65, controller.currentBatteryParams.right!!.battery)
+    }
+
+    @Test fun anOutOfCaseWearReportOverridesChargingUntilTheEarReturnsToTheCase() {
+        val manager = protocolReceiver()
+        val charging = batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT, BatteryComponent.CASE).apply {
+            this[10] = BatteryStatus.CHARGING.toByte()
+            this[15] = BatteryStatus.CHARGING.toByte()
+            this[20] = BatteryStatus.CHARGING.toByte()
+        }
+        manager.receivePacket(charging)
+        manager.receivePacket(earReport(EarDetectionStatus.IN_CASE, EarDetectionStatus.IN_CASE))
+        assertTrue(controller.currentBatteryParams.left!!.isCharging)
+
+        manager.receivePacket(earReport(EarDetectionStatus.OUT_OF_EAR, EarDetectionStatus.IN_CASE))
+        assertFalse(controller.currentBatteryParams.left!!.isCharging)
+        assertFalse(controller.currentBatteryParams.left!!.isInCase)
+        assertTrue(controller.currentBatteryParams.right!!.isCharging)
+        assertTrue(controller.currentBatteryParams.case!!.isCharging)
+        assertEquals(82, controller.currentBatteryParams.left!!.battery)
+
+        manager.receivePacket(charging)
+        assertFalse(controller.currentBatteryParams.left!!.isCharging)
+        assertEquals(BatteryStatus.CHARGING, controller.currentBatteryParams.left!!.rawStatus)
+
+        manager.receivePacket(earReport(EarDetectionStatus.IN_CASE, EarDetectionStatus.IN_CASE))
+        assertTrue(controller.currentBatteryParams.left!!.isCharging)
     }
 
     @Test fun caseOnlyReportRetainsThePrimaryAndCaseFirstIsNotAnEar() {
@@ -437,6 +464,68 @@ class L2CAPControllerWearTest {
         sockets.forEach { verify(it).close() }
         assertSame(context, field("mContext").get(controller))
         assertEquals("failed", field("connectionState").get(controller))
+    }
+
+    @Test fun initialBatteryAndInfoMissingAfterFeatureAckRecoverOnAFreshControlSocket() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        field("mContext").set(controller, null) // No broadcasts from the timeout thread in this fixture.
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        val first = closedStreamSocket()
+        val closed = CountDownLatch(1)
+        doAnswer { closed.countDown(); null }.`when`(first).close()
+        `when`(first.inputStream).thenReturn(object : InputStream() {
+            private var sentFeaturesAck = false
+            override fun read(): Int = error("Use SDU reads")
+            override fun read(buffer: ByteArray): Int {
+                if (!sentFeaturesAck) {
+                    sentFeaturesAck = true
+                    val packet = byteArrayOf(4, 0, 4, 0, 0x2b, 0)
+                    packet.copyInto(buffer)
+                    return packet.size
+                }
+                if (!closed.await(14, TimeUnit.SECONDS)) throw IOException("Initial recovery did not close the socket")
+                return -1
+            }
+        })
+        val second = closedStreamSocket()
+        val reports = ArrayDeque(listOf(
+            batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT),
+            earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR),
+            byteArrayOf(4, 0, 4, 0, 0x1d, 0, 0) + "protocol\u0000Test headset\u0000A3049\u0000".toByteArray(),
+        ))
+        `when`(second.inputStream).thenReturn(object : InputStream() {
+            override fun read(): Int = error("Use SDU reads")
+            override fun read(buffer: ByteArray): Int {
+                val packet = reports.removeFirstOrNull() ?: throw CancellationException("Finished reading recovery reports")
+                packet.copyInto(buffer)
+                return packet.size
+            }
+        })
+
+        try {
+            var attempts = 0
+            with(controller) {
+                try {
+                    recoverControlSession(context, device, field("sessionId").getLong(controller)) {
+                        if (++attempts == 1) first else {
+                            assertEquals("status_timeout", field("lastStatusFailure").get(controller))
+                            second
+                        }
+                    }
+                } catch (expected: CancellationException) {
+                    assertEquals("Finished reading recovery reports", expected.message)
+                }
+            }
+            assertEquals(2, attempts)
+            assertEquals(82, controller.currentBatteryParams.left!!.battery)
+            assertEquals(65, controller.currentBatteryParams.right!!.battery)
+            assertEquals("A3049", controller.currentPodsInfo?.modelNumber)
+            assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
+            assertEquals(BluetoothProfile.STATE_CONNECTED, field("audioConnectionState").getInt(controller))
+        } finally {
+            controller.disconnectedPod(context, device)
+        }
     }
 
     @Test fun physicalDisconnectDuringRetryDelayStopsRecovery() = runBlocking {

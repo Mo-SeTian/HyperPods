@@ -69,6 +69,7 @@ import kotlin.experimental.or
 @SuppressLint("MissingPermission", "StaticFieldLeak")
 object L2CAPController {
     private const val TAG = "HyperPods-L2CAPController"
+    private const val MAX_CONTROL_RETRIES = 3
 
     // Basic Object
     private var socket: BluetoothSocket? = null
@@ -610,8 +611,16 @@ object L2CAPController {
             return
         }
         val identifier = PodsSettings.identifiers[key] ?: return
-        val manager = aacpManager
-        val written = if (key == HyperPodsPrefsKey.CHIME_VOLUME && manager != null) {
+        val manager = aacpManager ?: run {
+            failedSettings[key] = value
+            sendSettingResult(key, false, status = "write_failed")
+            return
+        }
+        val modePacketCount = manager.receivedPacketCount.takeIf {
+            key == PodsSettings.NOISE_MODE && !singlePodAnc.restoring &&
+                values[PodsSettings.NOISE_MODE]?.let { reported -> reported != value } == true
+        }
+        val written = if (key == HyperPodsPrefsKey.CHIME_VOLUME) {
             // Change only the volume; retain the second configuration byte from the headset.
             val second = manager.getControlCommandStatus(identifier)?.value?.getOrNull(1) ?: run {
                 failedSettings[key] = value
@@ -619,7 +628,7 @@ object L2CAPController {
                 return
             }
             manager.sendControlCommand(identifier.value, byteArrayOf(value.toByte(), second))
-        } else manager?.sendControlCommand(identifier.value, value) == true
+        } else manager.sendControlCommand(identifier.value, value)
         if (!written) {
             failedSettings[key] = value
             sendSettingResult(key, false, status = "write_failed")
@@ -640,12 +649,30 @@ object L2CAPController {
         val generation = sessionId
         val timeout = CoroutineScope(Dispatchers.Default).launch {
             delay(3000)
+            // A different listening mode normally reports back. Probe once if the
+            // entire channel has gone quiet, and keep accepting late confirmations.
+            val probed = synchronized(this@L2CAPController) {
+                ensureActive()
+                if (modePacketCount != null && sessionId == generation && aacpManager === manager &&
+                    connectionState == "connected" && audioConnectionState == BluetoothProfile.STATE_CONNECTED &&
+                    manager.receivedPacketCount == modePacketCount && manager.sendNotificationRequest()) {
+                    initialStatusRetries++
+                    recordEvent("sync", "request")
+                    sendDiagnostics()
+                    true
+                } else false
+            }
+            if (probed) delay(2000)
             synchronized(this@L2CAPController) {
                 ensureActive()
-                if (sessionId == generation) pendingSettings.remove(key)?.let {
-                    failedSettings[key] = it.value
-                    sendSettingResult(key, false)
-                }
+                if (sessionId != generation) return@launch
+                val expired = pendingSettings.remove(key) ?: return@launch
+                failedSettings[key] = expired.value
+                sendSettingResult(key, false)
+            }
+            if (probed) failControlChannel(manager.socket, generation, "control_no_reply") {
+                aacpManager === manager && connectionState == "connected" &&
+                    audioConnectionState == BluetoothProfile.STATE_CONNECTED && manager.receivedPacketCount == modePacketCount
             }
         }
         pendingSettings[key] = PendingSetting(value, timeout)
@@ -690,16 +717,12 @@ object L2CAPController {
         changeUIInEarStatus(currentEarDetectionParams)
 
         if (batteryStateValid && ::currentBatteryParams.isInitialized) {
-            val leftInCase = isInCaseStatus(status[0])
-            val rightInCase = isInCaseStatus(status[1])
-            val caseStateChanged = currentBatteryParams.left?.isInCase != leftInCase ||
-                    currentBatteryParams.right?.isInCase != rightInCase
-            currentBatteryParams.left?.isInCase = leftInCase
-            currentBatteryParams.right?.isInCase = rightInCase
-            if (caseStateChanged) {
-                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, currentBatteryParams, mDevice, lowBatterySettings,
+            val updatedBattery = batteryWithWear(currentBatteryParams)
+            if (updatedBattery != currentBatteryParams) {
+                currentBatteryParams = updatedBattery
+                MiuiStrongToastUtil.showPodsNotificationByMiuiBt(mContext, updatedBattery, mDevice, lowBatterySettings,
                     modelNumber = currentPodsInfo?.modelNumber)
-                changeUIBatteryStatus(currentBatteryParams)
+                changeUIBatteryStatus(updatedBattery)
             }
         }
 
@@ -889,23 +912,17 @@ object L2CAPController {
         AirPodsNotifications.EarDetection.getLeftRightStatus(
             AirPodsNotifications.BatteryNotification.primaryComponent)?.let(::handleInEarStatusChanged)
         val batteries = AirPodsNotifications.BatteryNotification.getBattery()
-        val leftInCase = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
-                isInCaseStatus(currentEarDetectionParams.left)
-        val rightInCase = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
-                isInCaseStatus(currentEarDetectionParams.right)
         val left = PodBatteryParams(
             batteries[0].level,
             batteries[0].status == BatteryStatus.CHARGING,
             batteries[0].isAvailable,
             batteries[0].status,
-            leftInCase
         )
         val right = PodBatteryParams(
             batteries[1].level,
             batteries[1].status == BatteryStatus.CHARGING,
             batteries[1].isAvailable,
             batteries[1].status,
-            rightInCase
         )
         val case = PodBatteryParams(
             batteries[2].level,
@@ -925,7 +942,7 @@ object L2CAPController {
         }
 
         val shouldShowToast = !mShowedConnectedToast || (lastCaseConnected != case.isConnected && !lastCaseConnected)
-        val batteryParams = BatteryParams(left, right, case)
+        val batteryParams = batteryWithWear(BatteryParams(left, right, case))
         currentBatteryParams = batteryParams
         batteryStateValid = left.isConnected || right.isConnected
 
@@ -957,6 +974,17 @@ object L2CAPController {
 
     private fun isInCaseStatus(status: Byte): Boolean {
         return status == EarDetectionStatus.IN_CASE || status == 0x3.toByte()
+    }
+
+    private fun batteryWithWear(params: BatteryParams): BatteryParams {
+        if (!earDetectionStateValid || !::currentEarDetectionParams.isInitialized) return params
+        fun update(battery: PodBatteryParams?, wear: Byte): PodBatteryParams? {
+            val inCase = isInCaseStatus(wear)
+            // An earbud can retain its last charging report after leaving the case.
+            return battery?.copy(isInCase = inCase, isCharging = inCase && battery.rawStatus == BatteryStatus.CHARGING)
+        }
+        return params.copy(left = update(params.left, currentEarDetectionParams.left),
+            right = update(params.right, currentEarDetectionParams.right))
     }
 
     @OptIn(ExperimentalStdlibApi::class)
@@ -1362,23 +1390,26 @@ object L2CAPController {
         }
     }
 
-    private fun failControlChannel(expectedSocket: BluetoothSocket, generation: Long, reason: String) {
-        val current = synchronized(this@L2CAPController) {
+    private fun failControlChannel(expectedSocket: BluetoothSocket, generation: Long, reason: String,
+        stillFailed: () -> Boolean = { true }): Boolean {
+        synchronized(this@L2CAPController) {
             if (sessionId != generation || socket !== expectedSocket ||
-                reason == "status_timeout" && coreStatusReady()) false else {
-                connectionState = "failed"
-                lastStatusFailure = reason
-                localControlClose = expectedSocket to reason
-                sendDiagnostics()
-                true
-            }
+                localControlClose?.first === expectedSocket || !stillFailed()) return false
+            connectionState = "failed"
+            lastStatusFailure = reason
+            localControlClose = expectedSocket to reason
+            sendDiagnostics()
         }
-        if (current) runCatching { expectedSocket.close() }
+        runCatching { expectedSocket.close() }
+        return true
     }
 
-    private fun coreStatusReady(): Boolean {
-        if (!batteryStateValid || !earDetectionStateValid || currentPodsInfo == null ||
-            !::currentEarDetectionParams.isInitialized) return false
+    private fun coreStatusReady(): Boolean = earDetectionStateValid &&
+        ::currentEarDetectionParams.isInitialized && initialBatteryAndInfoReady()
+
+    private fun initialBatteryAndInfoReady(): Boolean {
+        if (!batteryStateValid || currentPodsInfo == null) return false
+        if (!earDetectionStateValid || !::currentEarDetectionParams.isInitialized) return true
         val wear = listOf(currentEarDetectionParams.left, currentEarDetectionParams.right)
         // An out-of-case ear must have its own reading. A disconnected in-case peer
         // and the case itself are not required for a valid single-ear session.
@@ -1400,14 +1431,14 @@ object L2CAPController {
                 !coreStatusReady()
             }
         }
-        if (reconnect) failControlChannel(manager.socket, generation, "status_timeout")
+        if (reconnect) failControlChannel(manager.socket, generation, "status_timeout") { !coreStatusReady() }
     }
 
     internal suspend fun CoroutineScope.recoverControlSession(context: Context, device: BluetoothDevice,
         thisSession: Long, getBtSocket: () -> BluetoothSocket) {
         // AACP can fail while A2DP remains connected. Retry only this socket,
         // retaining the UI receiver and physical audio route.
-        for (attempt in 0..3) {
+        for (attempt in 0..MAX_CONTROL_RETRIES) {
             if (attempt > 0) {
                 delay(1000L shl (attempt - 1))
                 synchronized(this@L2CAPController) {
@@ -1422,12 +1453,13 @@ object L2CAPController {
                         modelNumber = currentPodsInfo?.modelNumber)
                 }
             }
-            runControlAttempt(context, device, thisSession, getBtSocket)
+            runControlAttempt(context, device, thisSession, allowEarlyReconnect = attempt < MAX_CONTROL_RETRIES,
+                getBtSocket = getBtSocket)
         }
     }
 
     internal suspend fun CoroutineScope.runControlAttempt(context: Context, device: BluetoothDevice,
-        thisSession: Long, getBtSocket: () -> BluetoothSocket) {
+        thisSession: Long, allowEarlyReconnect: Boolean = true, getBtSocket: () -> BluetoothSocket) {
         val connectingSocket = try {
             getBtSocket()
         } catch (e: CancellationException) {
@@ -1498,12 +1530,26 @@ object L2CAPController {
             if (!manager.requestInitialStatus()) throw java.io.IOException("Initial handshake write failed")
             statusRequestJob = launch(Dispatchers.Default) {
                 // Retry the missing protocol step on this socket. The reader is already active.
-                for ((index, waitMs) in listOf(1000L, 2000L, 4000L, 8000L, 15000L).withIndex()) {
+                var missingRequiredReportsAtFullRetry = false
+                for ((index, waitMs) in listOf(1000L, 2000L, 4000L, 3000L, 5000L, 15000L).withIndex()) {
                     delay(waitMs)
+                    if (index == 3) {
+                        // After the first full retry, give required reports 3s to arrive.
+                        // Device information is sent on connection and can be missed here.
+                        ensureActive()
+                        if (missingRequiredReportsAtFullRetry && failControlChannel(connectedSocket, thisSession, "status_timeout") {
+                                aacpManager === manager && connectionState == "connected" &&
+                                    audioConnectionState == BluetoothProfile.STATE_CONNECTED && !initialBatteryAndInfoReady()
+                            }) return@launch
+                        continue
+                    }
                     val stop = synchronized(this@L2CAPController) {
                         ensureActive()
-                        if (sessionId != thisSession || statusSyncComplete() || !connectedSocket.isConnected) true
+                        if (sessionId != thisSession || aacpManager !== manager || connectionState != "connected" ||
+                            statusSyncComplete() || !connectedSocket.isConnected) true
                         else {
+                            // Keep the full wait window on the last socket for slower firmware.
+                            if (index == 2 && allowEarlyReconnect) missingRequiredReportsAtFullRetry = !initialBatteryAndInfoReady()
                             initialStatusRetries++
                             recordEvent("sync", "request")
                             Log.i(TAG, "Initial headset status incomplete; retrying ${manager.initializationStage}")

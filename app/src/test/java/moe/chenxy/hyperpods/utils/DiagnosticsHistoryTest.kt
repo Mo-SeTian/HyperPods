@@ -75,14 +75,15 @@ class DiagnosticsHistoryTest {
     }
 
     @Test fun detailedFailuresAndAudioStatesRemainWhitelisted() {
-        for (code in listOf("stream_closed", "read_failed", "socket_disconnected", "packet_processing_failed",
-            "write_timeout", "write_queue_full", "media_route_failed")) {
+        val codes = listOf("stream_closed", "read_failed", "socket_disconnected", "packet_processing_failed",
+            "write_timeout", "write_queue_full", "media_route_failed", "control_no_reply")
+        for (code in codes) {
             `when`(snapshot.getString("failure")).thenReturn(code)
             `when`(snapshot.getInt("audio", -1)).thenReturn(3)
             DiagnosticsHistory.save(preferences, snapshot)
             verify(editor).putString("failure", code)
         }
-        verify(editor, times(7)).putInt("audio", 3)
+        verify(editor, times(codes.size)).putInt("audio", 3)
         `when`(snapshot.getInt("audio", -1)).thenReturn(99)
         DiagnosticsHistory.save(preferences, snapshot)
         verify(editor).putInt("audio", -1)
