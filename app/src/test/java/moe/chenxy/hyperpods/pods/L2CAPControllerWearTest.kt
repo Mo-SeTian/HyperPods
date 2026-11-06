@@ -402,6 +402,29 @@ class L2CAPControllerWearTest {
         `when`(inputStream).thenReturn(ByteArrayInputStream(byteArrayOf()))
     }
 
+    @Test fun stuckConnectIsClosedAndLeavesAudioSessionConnected() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        field("mContext").set(controller, null)
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        val generation = field("sessionId").getLong(controller)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        val socket = closedStreamSocket()
+        val closed = CountDownLatch(1)
+        doAnswer { closed.countDown(); null }.`when`(socket).close()
+        doAnswer {
+            if (!closed.await(15, TimeUnit.SECONDS)) throw IOException("Watchdog did not close the socket")
+            throw IOException("Socket closed during connect")
+        }.`when`(socket).connect()
+        val attempt = launch(kotlinx.coroutines.Dispatchers.IO) {
+            with(controller) { runControlAttempt(context, device, generation) { socket } }
+        }
+        withTimeout(16000) { attempt.join() }
+        verify(socket, atLeastOnce()).close()
+        assertEquals("socket_connect_failed", field("lastStatusFailure").get(controller))
+        assertEquals(BluetoothProfile.STATE_CONNECTED, field("audioConnectionState").getInt(controller))
+        assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
+    }
+
     @Test fun controlStreamEndClosesOnlyTheControlSocketAndKeepsTheUiSession() = runBlocking {
         val context = field("mContext").get(controller) as ContextWrapper
         val socket = closedStreamSocket()

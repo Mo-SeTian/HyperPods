@@ -63,6 +63,7 @@ import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.collections.get
 import kotlin.experimental.or
 
@@ -70,6 +71,7 @@ import kotlin.experimental.or
 object L2CAPController {
     private const val TAG = "HyperPods-L2CAPController"
     private const val MAX_CONTROL_RETRIES = 3
+    private const val CONTROL_CONNECT_TIMEOUT_MS = 12000L
 
     // Basic Object
     private var socket: BluetoothSocket? = null
@@ -130,6 +132,7 @@ object L2CAPController {
     private val pendingSettings = mutableMapOf<String, PendingSetting>()
     private val failedSettings = mutableMapOf<String, Int>()
     private var pendingOffSelection = false
+    private var manualStatusProbe: Job? = null
     private var pendingRename: String? = null
     private var renameTimeout: Job? = null
     private var conversationTimeout: Job? = null
@@ -353,7 +356,19 @@ object L2CAPController {
                 if (aacpManager != null && initialStatusReady()) {
                     initialStatusRetries++
                     recordEvent("sync", "request")
-                    lastStatusFailure = if (requestHeadsetStatus(aacpManager!!)) "" else "write_failed"
+                    val manager = aacpManager!!
+                    val packetCount = manager.receivedPacketCount
+                    val generation = sessionId
+                    lastStatusFailure = if (requestHeadsetStatus(manager)) "" else "write_failed"
+                    manualStatusProbe?.cancel()
+                    manualStatusProbe = CoroutineScope(Dispatchers.Default).launch {
+                        delay(3000)
+                        failControlChannel(manager.socket, generation, "manual_probe_no_reply") {
+                            aacpManager === manager && connectionState == "connected" &&
+                                audioConnectionState == BluetoothProfile.STATE_CONNECTED &&
+                                manager.receivedPacketCount == packetCount
+                        }
+                    }
                 } else {
                     // A silent connected socket cannot be repaired by another identical write.
                     val previous = socket
@@ -1427,16 +1442,20 @@ object L2CAPController {
         // STATUS still sends feature flags once if unsolicited core reports arrived first.
         manager.requestInitialStatus(full = fullRecovery && !coreStatusReady())
 
-    private fun finishInitialStatus(manager: AACPManager, generation: Long) {
+    private fun finishInitialStatus(manager: AACPManager, generation: Long, expectedPacketCount: Int?) {
         val reconnect = synchronized(this@L2CAPController) {
-            if (sessionId != generation || aacpManager !== manager || initialStatusReady()) false else {
+            if (sessionId != generation || aacpManager !== manager || initialStatusReady() ||
+                (expectedPacketCount != null && manager.receivedPacketCount != expectedPacketCount)) false else {
                 lastStatusFailure = "status_timeout"
                 sendDiagnostics()
                 // Keep a working session when only some setting reports are missing.
                 !coreStatusReady()
             }
         }
-        if (reconnect) failControlChannel(manager.socket, generation, "status_timeout") { !coreStatusReady() }
+        if (reconnect) failControlChannel(manager.socket, generation, "status_timeout") {
+            aacpManager === manager && !coreStatusReady() &&
+                (expectedPacketCount == null || manager.receivedPacketCount == expectedPacketCount)
+        }
     }
 
     internal suspend fun CoroutineScope.recoverControlSession(context: Context, device: BluetoothDevice,
@@ -1480,14 +1499,25 @@ object L2CAPController {
             }
             return
         }
+        val connectFinished = AtomicBoolean(false)
+        var connectWatchdog: Job? = null
         try {
             synchronized(this@L2CAPController) {
                 ensureActive()
                 if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
                 socket = connectingSocket
             }
+            connectWatchdog = launch(Dispatchers.Default) {
+                delay(CONTROL_CONNECT_TIMEOUT_MS)
+                val shouldClose = synchronized(this@L2CAPController) {
+                    sessionId == thisSession && socket === connectingSocket &&
+                        connectFinished.compareAndSet(false, true)
+                }
+                if (shouldClose) runCatching { connectingSocket.close() }
+            }
             Log.d(TAG, "connecting AirPods!")
             connectingSocket.connect()
+            if (!connectFinished.compareAndSet(false, true)) throw java.io.IOException("Control connection timed out")
             ensureActive()
         } catch (e: CancellationException) {
             runCatching { connectingSocket.close() }
@@ -1507,8 +1537,10 @@ object L2CAPController {
                 }
             }
             return
+        } finally {
+            connectFinished.set(true)
+            connectWatchdog?.cancel()
         }
-
 
         Log.d(TAG, "connected!")
         val connectedSocket = connectingSocket
@@ -1537,6 +1569,7 @@ object L2CAPController {
                 // Retry the missing protocol step on this socket. The reader is already active.
                 var missingRequiredReportsAtFullRetry = false
                 var packetsAtFullRetry = 0
+                var packetsAtLastRetry = 0
                 for ((index, waitMs) in listOf(1000L, 2000L, 4000L, 3000L, 5000L, 15000L).withIndex()) {
                     delay(waitMs)
                     if (index == 3) {
@@ -1546,6 +1579,8 @@ object L2CAPController {
                         if (missingRequiredReportsAtFullRetry && failControlChannel(connectedSocket, thisSession, "status_timeout") {
                                 aacpManager === manager && connectionState == "connected" &&
                                     audioConnectionState == BluetoothProfile.STATE_CONNECTED && !initialBatteryAndInfoReady() &&
+                                    manager.batteryReceivedAt == 0L && manager.wearReceivedAt == 0L &&
+                                    manager.informationReceivedAt == 0L && manager.settingsReceivedAt == 0L &&
                                     manager.receivedPacketCount == packetsAtFullRetry
                             }) return@launch
                         continue
@@ -1560,6 +1595,7 @@ object L2CAPController {
                                 missingRequiredReportsAtFullRetry = !initialBatteryAndInfoReady()
                                 packetsAtFullRetry = manager.receivedPacketCount
                             }
+                            if (index == 5) packetsAtLastRetry = manager.receivedPacketCount
                             initialStatusRetries++
                             recordEvent("sync", "request")
                             Log.i(TAG, "Initial headset status incomplete; retrying ${manager.initializationStage}")
@@ -1572,7 +1608,7 @@ object L2CAPController {
                 }
                 delay(3000)
                 ensureActive()
-                finishInitialStatus(manager, thisSession)
+                finishInitialStatus(manager, thisSession, packetsAtLastRetry)
             }
             // Read handshake and feature acknowledgements immediately, without fixed sleeps.
             while (connectedSocket.isConnected) {
@@ -1640,6 +1676,8 @@ object L2CAPController {
     }
 
     private fun resetControlState() {
+        manualStatusProbe?.cancel()
+        manualStatusProbe = null
         localControlClose = null
         singlePodAnc.reset()
         singlePodAncRestoreAttempts = 0
@@ -1684,6 +1722,8 @@ object L2CAPController {
         clearHeadTracking()
         ++sessionId
         ++audioSessionId
+        manualStatusProbe?.cancel()
+        manualStatusProbe = null
         clearPendingSettings()
         resetConversationVolume()
         headphoneRouteId = null

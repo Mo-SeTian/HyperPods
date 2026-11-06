@@ -255,6 +255,7 @@ private fun failureReason(code: String?): Int = when (code) {
     "write_failed", "setting_write_failed" -> R.string.setting_write_failed
     "status_timeout" -> R.string.diagnostics_status_timeout
     "control_no_reply" -> R.string.diagnostics_control_no_reply
+    "manual_probe_no_reply" -> R.string.diagnostics_manual_probe_no_reply
     "status_session_ended" -> R.string.diagnostics_session_ended
     "stream_closed" -> R.string.diagnostics_stream_closed
     "socket_disconnected" -> R.string.diagnostics_socket_disconnected

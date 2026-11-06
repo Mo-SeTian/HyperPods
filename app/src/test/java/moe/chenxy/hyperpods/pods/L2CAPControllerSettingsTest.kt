@@ -980,8 +980,54 @@ class L2CAPControllerSettingsTest {
     }
 
     private fun finishInitialStatus(generation: Long = field("sessionId").getLong(controller)) {
-        type.getDeclaredMethod("finishInitialStatus", AACPManager::class.java, Long::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, manager, generation)
+        type.getDeclaredMethod("finishInitialStatus", AACPManager::class.java, Long::class.javaPrimitiveType,
+            Int::class.javaObjectType).apply { isAccessible = true }.invoke(controller, manager, generation, null)
+    }
+
+    @Test fun latePacketPreventsFinalInitializationTimeoutFromClosingTheSocket() {
+        field("socket").set(controller, socket)
+        field("connectionState").set(controller, "connected")
+        val before = manager.receivedPacketCount
+        receive(0x0d, 4)
+        type.getDeclaredMethod("finishInitialStatus", AACPManager::class.java, Long::class.javaPrimitiveType,
+            Int::class.javaObjectType).apply { isAccessible = true }
+            .invoke(controller, manager, field("sessionId").getLong(controller), before)
+        verify(socket, never()).close()
+        assertEquals("connected", field("connectionState").get(controller))
+    }
+
+    @Test fun manualRetryReopensSilentReadyControlChannel() = runBlocking {
+        coreReports(singleEar = true)
+        receive(0x0d, 4)
+        field("socket").set(controller, socket)
+        field("connectionState").set(controller, "connected")
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
+        controller.handleUIEvent(intent)
+        field("mContext").set(controller, null)
+        val probe = field("manualStatusProbe").get(controller) as Job
+        withTimeout(5000) { probe.join() }
+        verify(socket).close()
+        assertEquals("manual_probe_no_reply", field("lastStatusFailure").get(controller))
+        assertEquals(BluetoothProfile.STATE_CONNECTED, field("audioConnectionState").getInt(controller))
+    }
+
+    @Test fun manualRetryKeepsReadyControlChannelWhenPacketArrives() = runBlocking {
+        coreReports(singleEar = true)
+        receive(0x0d, 4)
+        field("socket").set(controller, socket)
+        field("connectionState").set(controller, "connected")
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        val intent = mock(Intent::class.java)
+        `when`(intent.action).thenReturn(HyperPodsAction.ACTION_PODS_STATUS_RETRY)
+        controller.handleUIEvent(intent)
+        receive(0x0d, 4)
+        field("mContext").set(controller, null)
+        val probe = field("manualStatusProbe").get(controller) as Job
+        withTimeout(5000) { probe.join() }
+        verify(socket, never()).close()
+        assertEquals("connected", field("connectionState").get(controller))
     }
 
     @Test fun missingCoreStatusAtSyncTimeoutClosesOnlyTheControlSocket() {
