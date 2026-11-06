@@ -616,8 +616,13 @@ object L2CAPController {
             sendSettingResult(key, false, status = "write_failed")
             return
         }
+        // During case opening the last wear report can still say both buds are
+        // in the case. A quiet control channel alone is not a reliable failure
+        // signal in that state; allow the command to time out without reopening it.
+        val bothReportedInCase = earDetectionStateValid && ::currentEarDetectionParams.isInitialized &&
+            isInCaseStatus(currentEarDetectionParams.left) && isInCaseStatus(currentEarDetectionParams.right)
         val modePacketCount = manager.receivedPacketCount.takeIf {
-            key == PodsSettings.NOISE_MODE && !singlePodAnc.restoring &&
+            key == PodsSettings.NOISE_MODE && !bothReportedInCase && !singlePodAnc.restoring &&
                 values[PodsSettings.NOISE_MODE]?.let { reported -> reported != value } == true
         }
         val written = if (key == HyperPodsPrefsKey.CHIME_VOLUME) {
@@ -1531,6 +1536,7 @@ object L2CAPController {
             statusRequestJob = launch(Dispatchers.Default) {
                 // Retry the missing protocol step on this socket. The reader is already active.
                 var missingRequiredReportsAtFullRetry = false
+                var packetsAtFullRetry = 0
                 for ((index, waitMs) in listOf(1000L, 2000L, 4000L, 3000L, 5000L, 15000L).withIndex()) {
                     delay(waitMs)
                     if (index == 3) {
@@ -1539,7 +1545,8 @@ object L2CAPController {
                         ensureActive()
                         if (missingRequiredReportsAtFullRetry && failControlChannel(connectedSocket, thisSession, "status_timeout") {
                                 aacpManager === manager && connectionState == "connected" &&
-                                    audioConnectionState == BluetoothProfile.STATE_CONNECTED && !initialBatteryAndInfoReady()
+                                    audioConnectionState == BluetoothProfile.STATE_CONNECTED && !initialBatteryAndInfoReady() &&
+                                    manager.receivedPacketCount == packetsAtFullRetry
                             }) return@launch
                         continue
                     }
@@ -1549,7 +1556,10 @@ object L2CAPController {
                             statusSyncComplete() || !connectedSocket.isConnected) true
                         else {
                             // Keep the full wait window on the last socket for slower firmware.
-                            if (index == 2 && allowEarlyReconnect) missingRequiredReportsAtFullRetry = !initialBatteryAndInfoReady()
+                            if (index == 2 && allowEarlyReconnect) {
+                                missingRequiredReportsAtFullRetry = !initialBatteryAndInfoReady()
+                                packetsAtFullRetry = manager.receivedPacketCount
+                            }
                             initialStatusRetries++
                             recordEvent("sync", "request")
                             Log.i(TAG, "Initial headset status incomplete; retrying ${manager.initializationStage}")

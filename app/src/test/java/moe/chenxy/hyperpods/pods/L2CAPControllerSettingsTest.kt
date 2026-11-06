@@ -444,6 +444,25 @@ class L2CAPControllerSettingsTest {
         verify(socket).close()
     }
 
+    @Test fun modeTimeoutWithBothBudsReportedInCaseKeepsControlSocket() = runBlocking {
+        coreReports(singleEar = true)
+        controller.currentEarDetectionParams = EarDetectionParams(EarDetectionStatus.IN_CASE, EarDetectionStatus.IN_CASE)
+        field("socket").set(controller, socket)
+        field("connectionState").set(controller, "connected")
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        receive(0x0d, 4)
+        output.reset()
+        controller.setANCMode(3)
+        field("mContext").set(controller, null)
+        val entry = pending().values.single()!!
+        val expiry = entry.javaClass.getDeclaredField("timeout").apply { isAccessible = true }.get(entry) as Job
+        withTimeout(5000) { expiry.join() }
+        assertEquals("timeout", field("lastSettingStatus").get(controller))
+        assertEquals("connected", field("connectionState").get(controller))
+        assertEquals(11, output.size())
+        verify(socket, never()).close()
+    }
+
     private suspend fun awaitModeStatusProbe() {
         withTimeout(5000) {
             while (synchronized(controller) { output.size() == 11 }) delay(20)
