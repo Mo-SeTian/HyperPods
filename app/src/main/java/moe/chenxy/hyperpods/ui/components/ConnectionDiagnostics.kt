@@ -161,6 +161,32 @@ fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLo
     val report = "HyperPods ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}, ${BuildConfig.BUILD_REVISION})\n" +
         (if (showLogs) "" else moduleReport + "\n\n" + fields.joinToString("\n") { (label, value) -> "$label: $value" }) +
         "\n\n" + (historyReport ?: context.getString(R.string.diagnostics_no_history)) + "\n\n" + timeline
+    @Composable
+    fun Actions() {
+        DashboardSection(stringResource(R.string.diagnostics_actions))
+        DashboardGroup {
+            if (!showLogs) {
+                BasicComponent(title = stringResource(R.string.diagnostics_refresh), onClick = {
+                    HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST), HyperPodsBroadcasts.BLUETOOTH)
+                })
+                BasicComponent(title = stringResource(R.string.diagnostics_retry), summary = stringResource(R.string.diagnostics_retry_summary),
+                    enabled = snapshot?.getString("connection") in listOf("connected", "failed"), onClick = {
+                        HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY), HyperPodsBroadcasts.BLUETOOTH)
+                    })
+            }
+            BasicComponent(title = stringResource(R.string.diagnostics_copy), onClick = {
+                context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("HyperPods", report))
+                Toast.makeText(context, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
+            })
+            BasicComponent(title = stringResource(R.string.diagnostics_share), summary = stringResource(R.string.diagnostics_share_privacy), onClick = {
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "HyperPods diagnostics")
+                    putExtra(Intent.EXTRA_TEXT, report)
+                }, context.getString(R.string.diagnostics_share)))
+            })
+        }
+    }
     // Current status and historical events have separate destinations and scroll positions.
     if (showLogs) {
         DashboardSection(stringResource(R.string.diagnostics_history))
@@ -185,6 +211,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLo
             DashboardDivider()
             DashboardLink(stringResource(R.string.diagnostics_logs), stringResource(R.string.diagnostics_logs_summary), onClick = onOpenLogs)
         }
+        Actions()
         DashboardSection(stringResource(R.string.module_self_check))
         DashboardGroup { ModuleSelfCheck { moduleReport = it } }
         listOf(R.string.diagnostics_connection_group to connectionFields,
@@ -193,29 +220,7 @@ fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLo
             DashboardGroup { entries.forEach { (label, value) -> BasicComponent(title = label, summary = value) } }
         }
     }
-    DashboardSection(stringResource(R.string.diagnostics_actions))
-    DashboardGroup {
-        if (!showLogs) {
-            BasicComponent(title = stringResource(R.string.diagnostics_refresh), onClick = {
-                HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST), HyperPodsBroadcasts.BLUETOOTH)
-            })
-            BasicComponent(title = stringResource(R.string.diagnostics_retry), summary = stringResource(R.string.diagnostics_retry_summary),
-                enabled = snapshot?.getString("connection") in listOf("connected", "failed"), onClick = {
-                    HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY), HyperPodsBroadcasts.BLUETOOTH)
-                })
-        }
-        BasicComponent(title = stringResource(R.string.diagnostics_copy), onClick = {
-            context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("HyperPods", report))
-            Toast.makeText(context, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
-        })
-        BasicComponent(title = stringResource(R.string.diagnostics_share), summary = stringResource(R.string.diagnostics_share_privacy), onClick = {
-            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "HyperPods diagnostics")
-                putExtra(Intent.EXTRA_TEXT, report)
-            }, context.getString(R.string.diagnostics_share)))
-        })
-    }
+    if (showLogs) Actions()
 }
 
 @Composable
