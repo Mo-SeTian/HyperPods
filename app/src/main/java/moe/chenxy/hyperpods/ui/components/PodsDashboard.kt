@@ -36,6 +36,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
@@ -60,6 +62,7 @@ import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.extra.SuperArrow
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.icons.basic.ArrowRight
 import top.yukonga.miuix.kmp.icon.icons.useful.Back
 import top.yukonga.miuix.kmp.icon.icons.useful.Info
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -221,7 +224,29 @@ fun DashboardToggle(title: String, summary: String, checked: Boolean, onChange: 
 
 @Composable
 fun DashboardLink(title: String, summary: String? = null, rightText: String? = null, onClick: () -> Unit) {
-    SuperArrow(title = title, summary = summary, rightText = rightText, onClick = onClick)
+    if (rightText == null) {
+        SuperArrow(title = title, summary = summary, onClick = onClick)
+        return
+    }
+    BasicComponent(title = title, summary = summary, onClick = onClick, rightActions = {
+        val color = MiuixTheme.colorScheme.onSurfaceVariantActions
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = rightText,
+                modifier = Modifier.weight(1f, fill = false).widthIn(max = 130.dp),
+                color = color,
+                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                textAlign = TextAlign.End,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Icon(MiuixIcons.Basic.ArrowRight, contentDescription = null,
+                modifier = Modifier.size(10.dp, 16.dp), tint = color)
+        }
+    })
 }
 
 @Composable
