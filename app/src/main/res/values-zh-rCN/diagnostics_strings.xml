@@ -80,6 +80,8 @@
     <string name="diagnostics_socket_create_failed">无法创建耳机控制通道。</string>
     <string name="diagnostics_socket_connect_failed">耳机控制通道连接失败。</string>
     <string name="diagnostics_status_timeout">状态恢复超时，耳机数据仍未完整返回。</string>
+    <string name="diagnostics_case_probe">入仓状态长时间未更新，正在自动探测耳机。</string>
+    <string name="diagnostics_case_probe_no_reply">自动探测未收到耳机回包，已关闭控制通道以便恢复。</string>
     <string name="diagnostics_manual_probe_no_reply">手动请求状态后未收到耳机回包，已关闭控制通道以便恢复。</string>
     <string name="diagnostics_control_no_reply">切换聆听模式和补请求后均未收到耳机回包，已关闭控制通道以便恢复。</string>
     <string name="diagnostics_session_ended">耳机控制数据流意外中断。</string>

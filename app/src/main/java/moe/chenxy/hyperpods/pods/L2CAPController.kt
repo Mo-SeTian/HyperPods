@@ -72,6 +72,7 @@ object L2CAPController {
     private const val TAG = "HyperPods-L2CAPController"
     private const val MAX_CONTROL_RETRIES = 3
     private const val CONTROL_CONNECT_TIMEOUT_MS = 12000L
+    private const val CASE_STATUS_QUIET_MS = 20000L
 
     // Basic Object
     private var socket: BluetoothSocket? = null
@@ -87,6 +88,7 @@ object L2CAPController {
     private var sessionId = 0L
     // Control recovery must not invalidate an in-flight transfer on the same audio connection.
     private var audioSessionId = 0L
+    private var caseProbeAudioSession: Long? = null
     private var connectionState = "disconnected"
     private var audioConnectionState = -1
     private var localControlClose: Pair<BluetoothSocket, String>? = null
@@ -1424,6 +1426,54 @@ object L2CAPController {
         return true
     }
 
+    private fun hasIncompleteInCaseStatus(): Boolean {
+        if (!earDetectionStateValid || !::currentEarDetectionParams.isInitialized ||
+            !isInCaseStatus(currentEarDetectionParams.left) || !isInCaseStatus(currentEarDetectionParams.right)) return false
+        val (left, right, case) = AirPodsNotifications.BatteryNotification.getBattery()
+        return case.isAvailable && (!left.isAvailable || !right.isAvailable)
+    }
+
+    internal suspend fun CoroutineScope.probeStaleCaseStatus(
+        manager: AACPManager, generation: Long, audioGeneration: Long, quietMs: Long = CASE_STATUS_QUIET_MS,
+    ) {
+        fun isCurrent() = sessionId == generation && audioSessionId == audioGeneration &&
+            aacpManager === manager && socket === manager.socket && connectionState == "connected" &&
+            audioConnectionState == BluetoothProfile.STATE_CONNECTED
+
+        fun canProbe() = isCurrent() && caseProbeAudioSession != audioGeneration &&
+            manualStatusProbe?.isActive != true && hasIncompleteInCaseStatus()
+
+        delay(quietMs)
+        var packetCount: Int? = null
+        // A new report restarts the quiet interval. The eventual request remains
+        // a single attempt, even if the control socket is later replaced.
+        while (packetCount == null) {
+            val remaining = synchronized(this@L2CAPController) {
+                ensureActive()
+                if (!canProbe()) return
+                val quietFor = (SystemClock.elapsedRealtime() - manager.lastStatusAtElapsed).coerceAtLeast(0)
+                val waitMs = (quietMs - quietFor).coerceAtLeast(0)
+                if (waitMs == 0L) {
+                    caseProbeAudioSession = audioGeneration
+                    val beforeRequest = manager.receivedPacketCount
+                    if (!manager.sendNotificationRequest()) return
+                    packetCount = beforeRequest
+                    initialStatusRetries++
+                    recordEvent("sync", "case_probe")
+                    sendDiagnostics()
+                }
+                waitMs
+            }
+            if (remaining > 0) delay(remaining)
+        }
+        delay(3000)
+        failControlChannel(manager.socket, generation, "case_probe_no_reply") {
+            ensureActive()
+            isCurrent() && manualStatusProbe?.isActive != true && hasIncompleteInCaseStatus() &&
+                manager.receivedPacketCount == packetCount
+        }
+    }
+
     private fun coreStatusReady(): Boolean = earDetectionStateValid &&
         ::currentEarDetectionParams.isInitialized && initialBatteryAndInfoReady()
 
@@ -1548,9 +1598,10 @@ object L2CAPController {
         val writer = AACPWriter(connectedSocket) { writeFailure.set(it) }
         val manager = AACPManager(connectedSocket, writer::send)
         var statusRequestJob: Job? = null
+        var staleCaseProbeJob: Job? = null
         var sessionFailure = "packet_processing_failed"
         try {
-            synchronized(this@L2CAPController) {
+            val audioGeneration = synchronized(this@L2CAPController) {
                 ensureActive()
                 if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
                 aacpManager = manager
@@ -1562,9 +1613,13 @@ object L2CAPController {
                 MiuiStrongToastUtil.showPodsNotificationByMiuiBt(context, currentBatteryParams, device, lowBatterySettings,
                     modelNumber = currentPodsInfo?.modelNumber)
                 sendConnectedStatus()
+                audioSessionId
             }
             sessionFailure = "write_failed"
             if (!manager.requestInitialStatus()) throw java.io.IOException("Initial handshake write failed")
+            staleCaseProbeJob = launch(Dispatchers.Default) {
+                probeStaleCaseStatus(manager, thisSession, audioGeneration)
+            }
             statusRequestJob = launch(Dispatchers.Default) {
                 // Retry the missing protocol step on this socket. The reader is already active.
                 var missingRequiredReportsAtFullRetry = false
@@ -1648,6 +1703,7 @@ object L2CAPController {
             }
         } finally {
             statusRequestJob?.cancel()
+            staleCaseProbeJob?.cancel()
             writer.close()
             synchronized(this@L2CAPController) {
                 if (aacpManager === manager) {

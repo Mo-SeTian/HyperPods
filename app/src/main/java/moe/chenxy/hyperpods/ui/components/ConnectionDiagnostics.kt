@@ -240,6 +240,7 @@ private fun eventSummary(event: DiagnosticEvents.Event): String = when (event.ki
         "HANDSHAKE" -> R.string.diagnostics_handshake
         "FEATURES" -> R.string.diagnostics_features
         "STATUS" -> R.string.diagnostics_status
+        "case_probe" -> R.string.diagnostics_case_probe
         else -> R.string.diagnostics_sync_requested
     })
     "role" -> stringResource(R.string.diagnostics_primary) + ": " + stringResource(
@@ -256,6 +257,7 @@ private fun failureReason(code: String?): Int = when (code) {
     "status_timeout" -> R.string.diagnostics_status_timeout
     "control_no_reply" -> R.string.diagnostics_control_no_reply
     "manual_probe_no_reply" -> R.string.diagnostics_manual_probe_no_reply
+    "case_probe_no_reply" -> R.string.diagnostics_case_probe_no_reply
     "status_session_ended" -> R.string.diagnostics_session_ended
     "stream_closed" -> R.string.diagnostics_stream_closed
     "socket_disconnected" -> R.string.diagnostics_socket_disconnected

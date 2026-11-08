@@ -15,7 +15,7 @@ object DiagnosticEvents {
             "connection" -> detail in setOf("connecting", "connected", "ready", "failed", "disconnected")
             "audio" -> detail.matches(Regex("[0-3],[0-3]")) && detail[0] != detail[2]
             "retry" -> detail in setOf("1", "2", "3")
-            "sync" -> detail in setOf("HANDSHAKE", "FEATURES", "STATUS", "request")
+            "sync" -> detail in setOf("HANDSHAKE", "FEATURES", "STATUS", "request", "case_probe")
             "role" -> detail in setOf("left", "right")
             "wear" -> detail.matches(Regex("[0-3],[0-3]"))
             "setting" -> detail in setOf("sent", "reported", "confirmed", "write_failed", "timeout", "invalid") &&

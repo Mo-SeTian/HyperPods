@@ -22,6 +22,7 @@
 package moe.chenxy.hyperpods.utils
 
 import android.bluetooth.BluetoothSocket
+import android.os.SystemClock
 import android.os.Parcelable
 import android.util.Log
 import kotlinx.parcelize.Parcelize
@@ -344,6 +345,8 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
         private set
     var lastPacketAt = 0L
         private set
+    var lastStatusAtElapsed = 0L
+        private set
     var batteryReceivedAt = 0L
         private set
     var wearReceivedAt = 0L
@@ -497,6 +500,8 @@ class AACPManager(val socket: BluetoothSocket, private val writer: ((ByteArray) 
             receiveValidatedPacket(packet)
             receivedPacketCount++
             lastPacketAt = now()
+            if (packet[4] == Opcodes.BATTERY_INFO || packet[4] == Opcodes.EAR_DETECTION)
+                lastStatusAtElapsed = SystemClock.elapsedRealtime()
             when (packet[4]) {
                 Opcodes.BATTERY_INFO -> batteryReceivedAt = lastPacketAt
                 Opcodes.EAR_DETECTION -> wearReceivedAt = lastPacketAt

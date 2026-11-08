@@ -16,11 +16,14 @@ import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Bundle
+import android.os.SystemClock
 import android.telephony.TelephonyManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import moe.chenxy.hyperpods.utils.AACPManager
 import moe.chenxy.hyperpods.utils.CustomEq
 import moe.chenxy.hyperpods.utils.AirPods5
@@ -44,6 +47,7 @@ import org.mockito.Mockito.*
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /** Exercises the real broadcast handler, writer, incoming parser and acknowledgement lifecycle. */
 class L2CAPControllerSettingsTest {
@@ -1027,6 +1031,177 @@ class L2CAPControllerSettingsTest {
         val probe = field("manualStatusProbe").get(controller) as Job
         withTimeout(5000) { probe.join() }
         verify(socket, never()).close()
+        assertEquals("connected", field("connectionState").get(controller))
+    }
+
+    private fun reportStaleCaseStatus(session: AACPManager = manager) {
+        // The first socket can be marked ready with only the left bud and case battery.
+        session.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 97, 2, 0, 8, 1, 68, 2, 0))
+        session.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 2, 3))
+        session.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x0d, 4, 0, 0, 0))
+        assertTrue(initialReady())
+    }
+
+    private fun prepareStaleCaseProbe() {
+        field("mContext").set(controller, null)
+        field("socket").set(controller, socket)
+        field("connectionState").set(controller, "connected")
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        reportStaleCaseStatus()
+        output.reset()
+    }
+
+    @Test fun staleCaseProbeClosesOnlySilentControlSocketAndDoesNotRepeatOnItsReplacement() = runBlocking {
+        prepareStaleCaseProbe()
+        val generation = field("sessionId").getLong(controller)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        withTimeout(5000) {
+            with(controller) { probeStaleCaseStatus(manager, generation, audioGeneration, quietMs = 0) }
+        }
+        assertArrayEquals(manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
+        verify(socket).close()
+        assertEquals("case_probe_no_reply", field("lastStatusFailure").get(controller))
+        assertEquals(BluetoothProfile.STATE_CONNECTED, field("audioConnectionState").getInt(controller))
+        assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
+
+        type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+        val replacementSocket = mock(BluetoothSocket::class.java)
+        val replacementOutput = ByteArrayOutputStream()
+        `when`(replacementSocket.isConnected).thenReturn(true)
+        `when`(replacementSocket.outputStream).thenReturn(replacementOutput)
+        val replacement = AACPManager(replacementSocket).apply {
+            setPacketCallback(field("packetCallback").get(controller) as AACPManager.PacketCallback)
+        }
+        controller.currentPodsInfo = AACPManager.Companion.AirPodsInformation(
+            "Demo", "A3049", "", "", "", "", "", "", "", "", "")
+        field("socket").set(controller, replacementSocket)
+        field("aacpManager").set(controller, replacement)
+        field("connectionState").set(controller, "connected")
+        reportStaleCaseStatus(replacement)
+        replacementOutput.reset()
+
+        with(controller) { probeStaleCaseStatus(replacement, generation, audioGeneration, quietMs = 0) }
+        assertEquals(0, replacementOutput.size())
+        verify(replacementSocket, never()).close()
+    }
+
+    @Test fun staleCaseProbeKeepsChannelIfAnyValidPacketArrives() = runBlocking {
+        prepareStaleCaseProbe()
+        val probe = launch {
+            with(controller) {
+                probeStaleCaseStatus(manager, field("sessionId").getLong(controller),
+                    field("audioSessionId").getLong(controller), quietMs = 0)
+            }
+        }
+        yield()
+        assertArrayEquals(manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
+        receive(0x0d, 4)
+        withTimeout(5000) { probe.join() }
+        assertEquals("connected", field("connectionState").get(controller))
+        verify(socket, never()).close()
+    }
+
+    @Test fun singleEarUseDoesNotTriggerStaleCaseProbe() = runBlocking {
+        prepareStaleCaseProbe()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 3))
+        output.reset()
+        with(controller) {
+            probeStaleCaseStatus(manager, field("sessionId").getLong(controller),
+                field("audioSessionId").getLong(controller), quietMs = 0)
+        }
+        assertEquals(0, output.size())
+        verify(socket, never()).close()
+    }
+
+    @Test fun newStatusDuringTheSecondQuietWaitStillAllowsOneLaterProbe() = runBlocking {
+        val elapsed = AtomicLong(1000)
+        val clockReads = AtomicInteger()
+        mockStatic(SystemClock::class.java).use { clock ->
+            clock.`when`<Long> { SystemClock.elapsedRealtime() }.thenAnswer {
+                clockReads.incrementAndGet()
+                elapsed.get()
+            }
+            prepareStaleCaseProbe()
+            clockReads.set(0)
+            val probe = launch {
+                with(controller) {
+                    probeStaleCaseStatus(manager, field("sessionId").getLong(controller),
+                        field("audioSessionId").getLong(controller), quietMs = 80)
+                }
+            }
+            withTimeout(2000) { while (clockReads.get() == 0) delay(5) }
+            // A report arrives during the extra wait for the initial quiet interval.
+            elapsed.set(1040)
+            manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 2, 3))
+            val afterReport = clockReads.get()
+            withTimeout(2000) { while (clockReads.get() == afterReport) delay(5) }
+            assertTrue(probe.isActive)
+            assertEquals(0, output.size())
+            elapsed.set(1120)
+            withTimeout(2000) { while (output.size() == 0) delay(5) }
+            receive(0x0d, 4)
+            withTimeout(5000) { probe.join() }
+            assertArrayEquals(manager.createDataPacket(manager.createRequestNotificationPacket()), output.toByteArray())
+            verify(socket, never()).close()
+        }
+    }
+
+    @Test fun completedBatteriesMissingCaseAndUnknownWearDoNotTriggerCaseProbe() = runBlocking {
+        prepareStaleCaseProbe()
+        val generation = field("sessionId").getLong(controller)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        AirPodsNotifications.BatteryNotification.setBattery(
+            byteArrayOf(4, 0, 4, 0, 4, 0, 1, 2, 1, 80, 2, 0))
+        with(controller) { probeStaleCaseStatus(manager, generation, audioGeneration, quietMs = 0) }
+
+        AirPodsNotifications.BatteryNotification.reset()
+        AirPodsNotifications.BatteryNotification.setBattery(
+            byteArrayOf(4, 0, 4, 0, 4, 0, 1, 4, 1, 97, 2, 0))
+        with(controller) { probeStaleCaseStatus(manager, generation, audioGeneration, quietMs = 0) }
+
+        reportStaleCaseStatus()
+        field("earDetectionStateValid").setBoolean(controller, false)
+        output.reset()
+        with(controller) { probeStaleCaseStatus(manager, generation, audioGeneration, quietMs = 0) }
+        assertEquals(0, output.size())
+        verify(socket, never()).close()
+    }
+
+    @Test fun cancelledCaseProbeDoesNotSendOrCloseTheChannel() = runBlocking {
+        prepareStaleCaseProbe()
+        val probe = launch {
+            with(controller) {
+                probeStaleCaseStatus(manager, field("sessionId").getLong(controller),
+                    field("audioSessionId").getLong(controller), quietMs = 20000)
+            }
+        }
+        yield()
+        probe.cancel()
+        probe.join()
+        assertEquals(0, output.size())
+        verify(socket, never()).close()
+    }
+
+    @Test fun audioDisconnectDuringCaseProbeCannotCloseTheNewControlSocket() = runBlocking {
+        prepareStaleCaseProbe()
+        val probe = launch {
+            with(controller) {
+                probeStaleCaseStatus(manager, field("sessionId").getLong(controller),
+                    field("audioSessionId").getLong(controller), quietMs = 0)
+            }
+        }
+        yield()
+        assertEquals(10, output.size())
+        val previousAudioSession = field("audioSessionId").getLong(controller)
+        controller.disconnectedPod(ContextWrapper(null), device)
+        assertNotEquals(previousAudioSession, field("audioSessionId").getLong(controller))
+        val replacementSocket = mock(BluetoothSocket::class.java)
+        field("socket").set(controller, replacementSocket)
+        field("aacpManager").set(controller, AACPManager(replacementSocket))
+        field("connectionState").set(controller, "connected")
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        withTimeout(5000) { probe.join() }
+        verify(replacementSocket, never()).close()
         assertEquals("connected", field("connectionState").get(controller))
     }
 

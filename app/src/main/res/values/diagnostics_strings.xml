@@ -80,6 +80,8 @@
     <string name="diagnostics_socket_create_failed">Could not create the headset control socket.</string>
     <string name="diagnostics_socket_connect_failed">Could not connect the headset control socket.</string>
     <string name="diagnostics_status_timeout">Status recovery timed out before all headset data arrived.</string>
+    <string name="diagnostics_case_probe">Automatically checking the headset after its in-case status stopped updating.</string>
+    <string name="diagnostics_case_probe_no_reply">The headset did not respond to the automatic status check. The control channel was closed for recovery.</string>
     <string name="diagnostics_manual_probe_no_reply">The headset did not respond to the manual status request. The control channel was closed for recovery.</string>
     <string name="diagnostics_control_no_reply">The headset stopped responding to a listening mode change and a status request. The control channel was closed for recovery.</string>
     <string name="diagnostics_session_ended">The headset control stream ended unexpectedly.</string>
