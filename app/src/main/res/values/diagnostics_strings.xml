@@ -122,4 +122,8 @@
     <string name="diagnostics_media_route_failed">A media route callback raised an exception. It was contained without requesting a Bluetooth disconnect.</string>
     <string name="diagnostics_frame_probe">Checking whether the headset control channel still responds.</string>
     <string name="diagnostics_frame_probe_no_reply">The control channel did not answer the automatic check and was closed for recovery.</string>
+    <string name="control_recovering">Restoring headset control…</string>
+    <string name="control_recovery_failed">Headset control recovery failed. Retry the connection.</string>
+    <string name="control_recovery_interrupted">Control connection changed. Please retry after recovery.</string>
+    <string name="control_recovery_retry_hint">Tap to retry the control connection</string>
 </resources>

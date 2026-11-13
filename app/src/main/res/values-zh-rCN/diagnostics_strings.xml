@@ -122,4 +122,8 @@
     <string name="diagnostics_media_route_failed">媒体路由回调发生异常；已拦截此异常，未主动断开蓝牙。</string>
     <string name="diagnostics_frame_probe">正在自动检查耳机控制通道是否仍有回包。</string>
     <string name="diagnostics_frame_probe_no_reply">控制通道未响应自动探测，已关闭该通道以便恢复。</string>
+    <string name="control_recovering">正在恢复耳机控制…</string>
+    <string name="control_recovery_failed">耳机控制连接失败，请重试连接。</string>
+    <string name="control_recovery_interrupted">控制连接已变化，请在恢复后重试此次操作。</string>
+    <string name="control_recovery_retry_hint">点击重试控制连接</string>
 </resources>

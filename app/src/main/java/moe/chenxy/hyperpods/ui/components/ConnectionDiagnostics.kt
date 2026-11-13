@@ -150,6 +150,8 @@ fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLo
     val historyReport = historyFields.takeIf { it.isNotEmpty() }
         ?.joinToString("\n") { (label, value) -> "$label: $value" }
     val explanation = when {
+        snapshot?.getString("recovery") == "recovering" -> R.string.control_recovering
+        snapshot?.getString("recovery") == "failed" -> R.string.control_recovery_failed
         snapshot == null -> R.string.diagnostics_no_report
         snapshot.getBoolean("ready") -> R.string.diagnostics_ready
         snapshot.getString("failure").orEmpty().isNotEmpty() -> R.string.diagnostics_failed_summary
@@ -170,7 +172,8 @@ fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLo
                     HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST), HyperPodsBroadcasts.BLUETOOTH)
                 })
                 BasicComponent(title = stringResource(R.string.diagnostics_retry), summary = stringResource(R.string.diagnostics_retry_summary),
-                    enabled = snapshot?.getString("connection") in listOf("connected", "failed"), onClick = {
+                    enabled = snapshot?.getString("connection") in listOf("connected", "failed") ||
+                        snapshot?.getString("recovery") == "failed", onClick = {
                         HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY), HyperPodsBroadcasts.BLUETOOTH)
                     })
             }

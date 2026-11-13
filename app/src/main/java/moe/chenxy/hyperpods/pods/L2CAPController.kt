@@ -89,6 +89,11 @@ object L2CAPController {
     // Control recovery must not invalidate an in-flight transfer on the same audio connection.
     private var audioSessionId = 0L
     private var silentFrameProbeAudioSession: Long? = null
+    private var recoveryState = ""
+    private var recoveryTimeout: Job? = null
+    private var recoveryProbePending = false
+    private var conversationRecoveryWear: EarDetectionParams? = null
+    private var conversationEndDuringRecovery = false
     private var caseProbeAudioSession: Long? = null
     private var connectionState = "disconnected"
     private var audioConnectionState = -1
@@ -356,7 +361,11 @@ object L2CAPController {
                 sendDiagnostics(force = true)
             }
             HyperPodsAction.ACTION_PODS_STATUS_RETRY -> {
-                if (aacpManager != null && initialStatusReady()) {
+                recoveryProbePending = false
+                val forceReconnect = recoveryState == "failed"
+                if (forceReconnect) finishControlRecovery()
+                if (!forceReconnect && connectionState == "connected" && aacpManager != null && initialStatusReady()) {
+                    beginControlRecovery()
                     initialStatusRetries++
                     recordEvent("sync", "request")
                     val manager = aacpManager!!
@@ -380,6 +389,7 @@ object L2CAPController {
                     socket = null
                     if (previous != null) CoroutineScope(Dispatchers.IO).launch { runCatching { previous.close() } }
                     connectPod(mContext!!, mDevice)
+                    beginControlRecovery()
                 }
                 sendDiagnostics()
             }
@@ -388,6 +398,10 @@ object L2CAPController {
                 setANCMode(status)
             }
             HyperPodsAction.ACTION_PODS_RENAME -> {
+                if (recoveryState.isNotEmpty()) {
+                    sendSettingResult(PodsSettings.RENAME, false, status = "interrupted")
+                    return
+                }
                 val name = intent.getStringExtra("name")?.trim() ?: return
                 if (name.isEmpty() || '\u0000' in name || name.toByteArray().size > 255 || pendingRename != null) return
                 findHeadphoneRoute(routes) // Capture stable identity before the display name changes.
@@ -437,6 +451,10 @@ object L2CAPController {
                         }
                     } else if (it == PodsSettings.CUSTOM_EQ) {
                         // A queued edit from a previous connection must never change the new headset.
+                        if (recoveryState.isNotEmpty()) {
+                            sendSettingResult(PodsSettings.CUSTOM_EQ, false, status = "interrupted")
+                            return
+                        }
                         if (!intent.hasExtra("session") || intent.getLongExtra("session", -1) != customEqConnectionId) return
                         val eq = intent.getParcelableExtra("custom_eq", CustomEq::class.java)
                         val manager = aacpManager
@@ -497,6 +515,7 @@ object L2CAPController {
 
     private fun diagnosticsSnapshot(): Bundle = Bundle().apply {
         putString("connection", connectionState)
+        putString("recovery", recoveryState)
         putInt("audio", audioConnectionState)
         putString("stage", aacpManager?.initializationStage?.name ?: "NONE")
         putInt("received", aacpManager?.receivedPacketCount ?: 0)
@@ -504,7 +523,7 @@ object L2CAPController {
         putBoolean("battery", batteryStateValid && !AirPodsNotifications.BatteryNotification.needsRefresh)
         putBoolean("wear", earDetectionStateValid)
         putBoolean("information", currentPodsInfo != null)
-        putBoolean("ready", connectionState == "connected" && initialStatusReady())
+        putBoolean("ready", recoveryState.isEmpty() && connectionState == "connected" && initialStatusReady())
         putInt("missing_settings", if (currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber) == null)
             -1 else missingSettings().size)
         putStringArrayList("missing_setting_keys", ArrayList(missingSettings()))
@@ -618,6 +637,10 @@ object L2CAPController {
 
     @Synchronized
     private fun sendSetting(key: String, value: Int, offOptionSent: Boolean = false) {
+        if (recoveryState.isNotEmpty()) {
+            sendSettingResult(key, false, status = "interrupted")
+            return
+        }
         val model = currentPodsInfo?.modelNumber?.let(AirPodsModels::getModelByModelNumber)
         // Only this explicit Off transaction may proceed after the writer accepts the prerequisite.
         // A stale permission echo must not prevent trying Off; the mode itself still needs a real report.
@@ -1159,6 +1182,8 @@ object L2CAPController {
                 conversationAwarenessActive = status in 1..3
                 if (conversationAwarenessActive) cancelSinglePodAncRestore()
             }
+            if (conversationRecoveryWear != null && (status in 1..3 || status in 6..9))
+                conversationEndDuringRecovery = status in 6..9
             if (confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
             if (status !in 1..3 && status !in 6..9) return
             if (conversationPauseMedia) {
@@ -1299,6 +1324,7 @@ object L2CAPController {
         if (connectionJob?.isActive == true && mContext != null && mDevice == device) return
         if (mContext != null && mDevice != device) disconnectedPod(context, mDevice)
         val newDeviceSession = mContext == null
+        if (newDeviceSession) finishControlRecovery()
         if (newDeviceSession) ++audioSessionId
         val thisSession = ++sessionId
         mContext = context
@@ -1418,6 +1444,8 @@ object L2CAPController {
         synchronized(this@L2CAPController) {
             if (sessionId != generation || socket !== expectedSocket ||
                 localControlClose?.first === expectedSocket || !stillFailed()) return false
+            recoveryProbePending = false
+            beginControlRecovery()
             connectionState = "failed"
             lastStatusFailure = reason
             localControlClose = expectedSocket to reason
@@ -1425,6 +1453,61 @@ object L2CAPController {
         }
         runCatching { expectedSocket.close() }
         return true
+    }
+
+    @Synchronized
+    internal fun beginControlRecovery() {
+        if (recoveryState.isNotEmpty()) return
+        recoveryState = "recovering"
+        recoveryTimeout?.cancel()
+        val audioGeneration = audioSessionId
+        recoveryTimeout = CoroutineScope(Dispatchers.Default).launch {
+            delay(10000)
+            synchronized(this@L2CAPController) {
+                ensureActive()
+                if (audioSessionId != audioGeneration) return@launch
+                finishControlRecovery("failed")
+                resetConversationVolume()
+            }
+        }
+        sendDiagnostics()
+    }
+
+    private fun finishControlRecovery(state: String = "") {
+        recoveryTimeout?.cancel()
+        recoveryTimeout = null
+        recoveryState = state
+        recoveryProbePending = false
+        sendDiagnostics()
+    }
+
+    private fun retainConversationForControlRecovery() {
+        if (conversationMedia == null || audioConnectionState != BluetoothProfile.STATE_CONNECTED ||
+            !conversationRouteIsSelected() || phoneInCall() || audioManager?.mode != AudioManager.MODE_NORMAL) {
+            resetConversationVolume()
+            return
+        }
+        if (conversationRecoveryWear == null && earDetectionStateValid) {
+            conversationRecoveryWear = currentEarDetectionParams
+            conversationEndDuringRecovery = !conversationAwarenessActive
+        }
+        conversationRestoreJob?.cancel()
+        conversationRestoreJob = null
+    }
+
+    private fun finishConversationRecovery() {
+        if (conversationRecoveryWear == null || !initialStatusReady() ||
+            confirmedSettings()[HyperPodsPrefsKey.CONVERSATION_AWARENESS] != 1) return
+        val previous = conversationRecoveryWear!!
+        if (previous.left == EarDetectionStatus.IN_EAR && currentEarDetectionParams.left != EarDetectionStatus.IN_EAR ||
+            previous.right == EarDetectionStatus.IN_EAR && currentEarDetectionParams.right != EarDetectionStatus.IN_EAR ||
+            !canResumeConversationMedia()) {
+            resetConversationVolume()
+            return
+        }
+        conversationRecoveryWear = null
+        if (conversationEndDuringRecovery) finishConversationMedia()
+        conversationEndDuringRecovery = false
     }
 
     // This frame preceded stalled control channels in captured sessions. The final
@@ -1443,8 +1526,13 @@ object L2CAPController {
         val packetsAtRequest = synchronized(this@L2CAPController) {
             ensureActive()
             if (!isCurrent() || silentFrameProbeAudioSession == audioGeneration) return
+            beginControlRecovery()
+            recoveryProbePending = true
             val before = manager.receivedPacketCount
-            if (!manager.sendNotificationRequest()) return
+            if (!manager.sendNotificationRequest()) {
+                finishControlRecovery("failed")
+                return
+            }
             silentFrameProbeAudioSession = audioGeneration
             initialStatusRetries++
             recordEvent("sync", "frame_probe")
@@ -1452,6 +1540,15 @@ object L2CAPController {
             before
         }
         delay(3000)
+        synchronized(this@L2CAPController) {
+            ensureActive()
+            if (!isCurrent()) return
+            recoveryProbePending = false
+            if (manager.receivedPacketCount != packetsAtRequest) {
+                if (initialStatusReady()) finishControlRecovery()
+                return
+            }
+        }
         failControlChannel(manager.socket, generation, "frame_probe_no_reply") {
             ensureActive()
             isCurrent() && manager.receivedPacketCount == packetsAtRequest
@@ -1713,6 +1810,7 @@ object L2CAPController {
                     if (sessionId != thisSession) throw CancellationException("Obsolete AirPods session")
                     sessionFailure = "packet_processing_failed"
                     val packet = buffer.copyOfRange(0, bytesRead)
+                    val packetsBeforeRead = manager.receivedPacketCount
                     manager.receivePacket(packet)
                     if (allowEarlyReconnect && silentFrameProbeAudioSession != audioGeneration &&
                         frameProbeJob?.isActive != true && shouldProbeAfterFrame(packet)) {
@@ -1720,7 +1818,12 @@ object L2CAPController {
                             probeAfterFrame(manager, thisSession, audioGeneration)
                         }
                     }
-                    if (initialStatusReady()) lastStatusFailure = ""
+                    if (initialStatusReady()) {
+                        lastStatusFailure = ""
+                        if (!recoveryProbePending && recoveryState.isNotEmpty() &&
+                            manager.receivedPacketCount > packetsBeforeRead) finishControlRecovery()
+                        finishConversationRecovery()
+                    }
                     // Pose streams are high frequency. Report state transitions and
                     // explicit diagnostic refreshes, not one IPC broadcast per sample.
                     if (bytesRead < 6 || buffer[4] != AACPManager.Companion.Opcodes.HEADTRACKING) sendDiagnostics()
@@ -1734,6 +1837,8 @@ object L2CAPController {
             Log.e(TAG, "AirPods status session ended", e)
             synchronized(this@L2CAPController) {
                 if (sessionId == thisSession) {
+                    beginControlRecovery()
+                    recoveryProbePending = false
                     connectionState = "failed"
                     lastStatusFailure = writeFailure.get()?.code
                         ?: localControlClose?.takeIf { it.first === connectedSocket }?.second
@@ -1749,7 +1854,7 @@ object L2CAPController {
             synchronized(this@L2CAPController) {
                 if (aacpManager === manager) {
                     clearHeadTracking()
-                    if (conversationMedia != null) resetConversationVolume()
+                    retainConversationForControlRecovery()
                     aacpManager = null
                 }
                 if (socket === connectedSocket) socket = null
@@ -1763,6 +1868,8 @@ object L2CAPController {
     }
 
     private fun clearPendingSettings() {
+        val interrupted = pendingSettings.keys.toList() + listOfNotNull(
+            PodsSettings.RENAME.takeIf { pendingRename != null })
         pendingSettings.values.forEach { it.timeout.cancel() }
         pendingSettings.clear()
         failedSettings.clear()
@@ -1770,6 +1877,7 @@ object L2CAPController {
         pendingRename = null
         renameTimeout?.cancel()
         renameTimeout = null
+        interrupted.forEach { sendSettingResult(it, false, status = "interrupted") }
     }
 
     private fun resetControlState() {
@@ -1778,10 +1886,10 @@ object L2CAPController {
         localControlClose = null
         singlePodAnc.reset()
         singlePodAncRestoreAttempts = 0
+        retainConversationForControlRecovery()
         conversationAwarenessActive = false
         clearHeadTracking()
         clearPendingSettings()
-        resetConversationVolume()
         batteryStateValid = false
         earDetectionStateValid = false
         mShowedConnectedToast = false
@@ -1803,7 +1911,10 @@ object L2CAPController {
         val current = mContext != null && ::mDevice.isInitialized && mDevice == device
         if ((!recognized && !current) || previous !in 0..3 || state !in 0..3 || previous == state) return
         // A2DP events can precede control setup or arrive after its receiver was removed.
-        if (current) audioConnectionState = state
+        if (current) {
+            audioConnectionState = state
+            if (state != BluetoothProfile.STATE_CONNECTED) resetConversationVolume()
+        }
         runCatching {
             recordEvent("audio", "$previous,$state", context = context)
             if (current) sendDiagnostics(force = true)
@@ -1819,6 +1930,7 @@ object L2CAPController {
         clearHeadTracking()
         ++sessionId
         ++audioSessionId
+        finishControlRecovery()
         manualStatusProbe?.cancel()
         manualStatusProbe = null
         clearPendingSettings()
@@ -1879,6 +1991,10 @@ object L2CAPController {
 
     @Synchronized
     fun setANCMode(mode: Int) {
+        if (recoveryState.isNotEmpty()) {
+            sendSettingResult(PodsSettings.NOISE_MODE, false, status = "interrupted")
+            return
+        }
         Log.d(TAG, "setANCMode: $mode")
         if (pendingOffSelection) return
         // A user choice must replace the automatic request, not be rejected by
@@ -1996,6 +2112,11 @@ object L2CAPController {
             audioManager?.mode == AudioManager.MODE_NORMAL
 
     private fun handleConversationMedia(status: Int, wasActive: Boolean) {
+        if (conversationRecoveryWear != null) {
+            conversationEndDuringRecovery = status !in 1..3
+            finishConversationRecovery()
+            return
+        }
         if (conversationRouteId != null && !conversationRouteIsSelected()) resetConversationVolume()
         if (status in 1..3) {
             if (!wasActive) {
@@ -2050,12 +2171,12 @@ object L2CAPController {
 
     private fun scheduleConversationTimeout() {
         conversationTimeout?.cancel()
-        val generation = sessionId
+        val generation = audioSessionId
         conversationTimeout = CoroutineScope(Dispatchers.Default).launch {
             delay(30000)
             synchronized(this@L2CAPController) {
                 ensureActive()
-                if (sessionId == generation) resetConversationVolume()
+                if (audioSessionId == generation) resetConversationVolume()
             }
         }
     }
@@ -2064,6 +2185,8 @@ object L2CAPController {
         // Interruptions release pause ownership without starting any player.
         conversationMedia?.finish(resume = false)
         conversationMedia = null
+        conversationRecoveryWear = null
+        conversationEndDuringRecovery = false
         conversationTimeout?.cancel()
         conversationTimeout = null
         conversationRestoreJob?.cancel()

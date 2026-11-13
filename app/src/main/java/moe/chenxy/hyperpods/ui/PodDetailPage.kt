@@ -1,6 +1,10 @@
 package moe.chenxy.hyperpods.ui
 
 import android.os.Bundle
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
+import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
+import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
@@ -141,7 +145,9 @@ fun PodDetailPage(
     homeNotice: (@Composable () -> Unit)? = null,
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
-    fun ready(key: String) = PodsSettings.supports(key, model) && key !in pendingSettings &&
+    val context = LocalContext.current
+    val controlsBlocked = diagnostics?.getString("recovery").orEmpty().isNotEmpty()
+    fun ready(key: String) = !controlsBlocked && PodsSettings.supports(key, model) && key !in pendingSettings &&
         (key in settings || (key == Key.MICROPHONE_MODE || key == Key.LISTENING_MODE_BYTE) &&
             diagnostics?.getString("connection") == "connected")
     @Composable
@@ -150,6 +156,7 @@ fun PodDetailPage(
             // Sent-only controls already settled locally. Keep the unverified
             // state in diagnostics, not as an endless waiting label on each row.
             "sent" -> if (key in pendingSettings) R.string.setting_pending else return null
+            "interrupted" -> R.string.control_recovery_interrupted
             "write_failed" -> R.string.setting_write_failed
             "timeout" -> R.string.setting_failed
             "invalid" -> R.string.setting_invalid
@@ -213,6 +220,15 @@ fun PodDetailPage(
             .consumeWindowInsets(padding).clipToBounds().then(interaction),
             horizontalAlignment = Alignment.CenterHorizontally) {
             if (page != 0) DashboardTopBar { back() }
+            if (controlsBlocked) top.yukonga.miuix.kmp.basic.BasicComponent(
+                title = stringResource(if (diagnostics?.getString("recovery") == "recovering")
+                    R.string.control_recovering else R.string.control_recovery_failed),
+                summary = stringResource(R.string.control_recovery_retry_hint),
+                onClick = {
+                    HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY),
+                        HyperPodsBroadcasts.BLUETOOTH)
+                },
+            )
             LazyColumn(
                 state = listStates[page],
                 // Keep the scroll/focus viewport between the fixed bars. Item-only
@@ -231,7 +247,7 @@ fun PodDetailPage(
                                         ?: deviceName.takeIf { it.isNotBlank() } ?: "AirPods",
                                         fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                                     RenamePod(Modifier.size(48.dp), onNameChange,
-                                        podsInfo?.name ?: deviceName, compact = true, pending = PodsSettings.RENAME in pendingSettings)
+                                        podsInfo?.name ?: deviceName, compact = true, pending = controlsBlocked || PodsSettings.RENAME in pendingSettings)
                                 }
                                 Row(Modifier.padding(start = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -313,7 +329,7 @@ fun PodDetailPage(
                     item(key = "equalizer") {
                         EqualizerPage(customEqState, podsInfo?.name ?: deviceName,
                             firmware = podsInfo?.version3.orEmpty(), available = eqAvailable,
-                            active = isActive && page == detailPage && customEqState.session > 0 && diagnostics?.getString("connection") == "connected",
+                            active = !controlsBlocked && isActive && page == detailPage && customEqState.session > 0 && diagnostics?.getString("connection") == "connected",
                             feedback = settingFeedback[PodsSettings.CUSTOM_EQ], onChange = onCustomEqChange)
                     }
                     return@LazyColumn

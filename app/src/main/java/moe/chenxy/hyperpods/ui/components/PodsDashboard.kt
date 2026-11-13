@@ -146,6 +146,8 @@ private fun BatteryColumn(params: PodBatteryParams?, ear: Byte?, image: Int, tit
 /** A2DP can be connected while the independent control channel is still unavailable. */
 fun dashboardConnectionStatus(diagnostics: Bundle?): Int = when {
     diagnostics == null -> R.string.diagnostics_audio_no_control_report
+    diagnostics.getString("recovery") == "recovering" -> R.string.control_recovering
+    diagnostics.getString("recovery") == "failed" -> R.string.control_recovery_failed
     diagnostics.getString("connection") == "failed" -> R.string.diagnostics_audio_control_failed
     diagnostics.getBoolean("ready") -> R.string.dashboard_connected
     diagnostics.getString("connection") == "disconnected" -> R.string.diagnostics_no_session

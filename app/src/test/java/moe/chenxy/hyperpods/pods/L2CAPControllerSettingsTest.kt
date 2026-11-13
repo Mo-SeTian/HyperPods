@@ -1051,6 +1051,34 @@ class L2CAPControllerSettingsTest {
         output.reset()
     }
 
+    @Test fun recoveryBlocksWritesAndAlwaysExitsWaitingAfterTenSeconds() = runBlocking {
+        prepareStaleCaseProbe()
+        field("mContext").set(controller, ContextWrapper(null))
+        controller.beginControlRecovery()
+        request(PodsSettings.NOISE_MODE, 3)
+        field("mContext").set(controller, null)
+        assertEquals(0, output.size())
+        assertEquals("interrupted", field("lastSettingStatus").get(controller))
+        withTimeout(12000) {
+            while (field("recoveryState").get(controller) == "recovering") delay(20)
+        }
+        assertEquals("failed", field("recoveryState").get(controller))
+        controller.beginControlRecovery()
+        assertEquals("failed", field("recoveryState").get(controller))
+        controller.disconnectedPod(ContextWrapper(null), device)
+        assertEquals("", field("recoveryState").get(controller))
+    }
+
+    @Test fun resettingControlPublishesAnInterruptedPendingSetting() {
+        prepareStaleCaseProbe()
+        field("mContext").set(controller, ContextWrapper(null))
+        request(PodsSettings.NOISE_MODE, 3)
+        assertFalse(pending().isEmpty())
+        type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+        assertTrue(pending().isEmpty())
+        assertEquals("interrupted", field("lastSettingStatus").get(controller))
+    }
+
     @Test fun silentFrameTriggersRecoveryWithoutModeChange() = runBlocking {
         prepareStaleCaseProbe()
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
@@ -1552,6 +1580,51 @@ class L2CAPControllerSettingsTest {
     private fun conversationStatus(status: Int) = manager.receivePacket(
         byteArrayOf(4, 0, 4, 0, 0x4b, 0, 2, 0, 0, status.toByte()))
 
+    @Test fun conversationPauseSurvivesControlResetAndWaitsForFreshWearBeforeResuming() {
+        val player = conversationPlayer()
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        conversationStatus(1)
+        val retained = field("conversationMedia").get(controller)
+        type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+        assertSame(retained, field("conversationMedia").get(controller))
+        val replacement = AACPManager(socket).apply {
+            setPacketCallback(field("packetCallback").get(controller) as AACPManager.PacketCallback)
+        }
+        field("aacpManager").set(controller, replacement)
+        // The end report can precede both fresh wear and the awareness setting.
+        replacement.receivePacket(byteArrayOf(4, 0, 4, 0, 0x4b, 0, 2, 0, 0, 6))
+        verify(player.controls, never()).play()
+        controller.currentPodsInfo = AACPManager.Companion.AirPodsInformation(
+            "Demo", "A3049", "", "", "", "", "", "", "", "", "")
+        replacement.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 80, 2, 0, 2, 1, 80, 2, 0))
+        replacement.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
+        replacement.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x0d, 4, 0, 0, 0))
+        replacement.receivePacket(byteArrayOf(4, 0, 4, 0, 9, 0, 0x28, 1, 0, 0, 0))
+        type.getDeclaredMethod("finishConversationRecovery").apply { isAccessible = true }.invoke(controller)
+        verify(player.controls).play()
+        assertNull(field("conversationMedia").get(controller))
+    }
+
+    @Test fun earRemovalOrCallDuringControlRecoveryRevokesConversationResume() {
+        for (call in listOf(false, true)) {
+            val player = conversationPlayer()
+            field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+            conversationStatus(1)
+            type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+            if (call) `when`(player.audio.mode).thenReturn(AudioManager.MODE_IN_COMMUNICATION)
+            type.getDeclaredMethod("retainConversationForControlRecovery").apply { isAccessible = true }.invoke(controller)
+            field("aacpManager").set(controller, manager)
+            controller.currentPodsInfo = AACPManager.Companion.AirPodsInformation(
+                "Demo", "A3049", "", "", "", "", "", "", "", "", "")
+            manager.receivePacket(byteArrayOf(4, 0, 4, 0, 4, 0, 2, 4, 1, 80, 2, 0, 2, 1, 80, 2, 0))
+            manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 1, 0))
+            receive(0x0d, 4)
+            conversationStatus(6)
+            type.getDeclaredMethod("finishConversationRecovery").apply { isAccessible = true }.invoke(controller)
+            verify(player.controls, never()).play()
+        }
+    }
+
     @Test fun conversationPauseTakesPriorityOverDuckingAndDoesNotSendListeningModeCommands() = synchronized(controller) {
         val player = conversationPlayer()
         conversationStatus(1)
@@ -1736,12 +1809,15 @@ class L2CAPControllerSettingsTest {
         }
     }
 
-    @Test fun resetAndDisconnectReleaseThePausedPlayerWithoutPlayingIt() = synchronized(controller) {
+    @Test fun resetWithoutAudioAndDisconnectReleaseThePausedPlayerWithoutPlayingIt() = synchronized(controller) {
         for (disconnect in listOf(false, true)) {
             val player = conversationPlayer()
             conversationStatus(1)
             if (disconnect) controller.disconnectedPod(player.context, device)
-            else type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+            else {
+                field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_DISCONNECTED)
+                type.getDeclaredMethod("resetControlState").apply { isAccessible = true }.invoke(controller)
+            }
             conversationStatus(6)
             verify(player.controls, never()).play()
             verify(player.player).unregisterCallback(any())
@@ -1952,6 +2028,7 @@ class L2CAPControllerSettingsTest {
     }
 
     @Test fun manualAndPageRefreshDoNotResetAReadySessionForMissingAncillarySettings() {
+        field("connectionState").set(controller, "connected")
         coreReports()
         receive(0x0d, 4)
         manager.receivePacket(byteArrayOf(4, 0, 4, 0, 0x2b, 0))

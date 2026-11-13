@@ -18,7 +18,7 @@ object DiagnosticEvents {
             "sync" -> detail in setOf("HANDSHAKE", "FEATURES", "STATUS", "request", "case_probe", "frame_probe")
             "role" -> detail in setOf("left", "right")
             "wear" -> detail.matches(Regex("[0-3],[0-3]"))
-            "setting" -> detail in setOf("sent", "reported", "confirmed", "write_failed", "timeout", "invalid") &&
+            "setting" -> detail in setOf("sent", "reported", "confirmed", "write_failed", "timeout", "invalid", "interrupted") &&
                 (setting in PodsSettings.identifiers || setting == PodsSettings.RENAME || setting == PodsSettings.CUSTOM_EQ)
             "failure" -> detail in DiagnosticsHistory.failureCodes
             else -> false

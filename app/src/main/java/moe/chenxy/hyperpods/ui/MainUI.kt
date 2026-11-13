@@ -156,6 +156,7 @@ fun MainUI() {
                             val success = p1.getBooleanExtra("success", false)
                             if (!success || status == "confirmed" && key != HyperPodsPrefsKey.ALLOW_OFF_OPTION) {
                                 val message = when {
+                                    status == "interrupted" -> R.string.control_recovery_interrupted
                                     status == "write_failed" -> R.string.setting_write_failed
                                     status == "invalid" -> R.string.setting_invalid
                                     !success -> R.string.setting_failed
