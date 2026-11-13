@@ -551,6 +551,39 @@ class L2CAPControllerWearTest {
         }
     }
 
+    @Test fun readerFrameAndTrailingStatusAutomaticallyRecoverWithoutAUserCommand() = runBlocking {
+        val context = field("mContext").get(controller) as ContextWrapper
+        field("mContext").set(controller, null)
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        val socket = closedStreamSocket()
+        val closed = CountDownLatch(1)
+        doAnswer { closed.countDown(); null }.`when`(socket).close()
+        val reports = ArrayDeque(listOf(
+            byteArrayOf(2, 0, 4, 0, 0, 0),
+            earReport(EarDetectionStatus.IN_EAR, EarDetectionStatus.IN_EAR),
+            batteryReport(BatteryComponent.LEFT, BatteryComponent.RIGHT),
+        ))
+        `when`(socket.inputStream).thenReturn(object : InputStream() {
+            override fun read(): Int = error("Use SDU reads")
+            override fun read(buffer: ByteArray): Int {
+                val packet = reports.removeFirstOrNull()
+                if (packet != null) {
+                    packet.copyInto(buffer)
+                    return packet.size
+                }
+                if (!closed.await(8, TimeUnit.SECONDS)) throw IOException("Frame probe did not close the stalled socket")
+                return -1
+            }
+        })
+        with(controller) {
+            runControlAttempt(context, device, field("sessionId").getLong(controller)) { socket }
+        }
+        assertEquals("frame_probe_no_reply", field("lastStatusFailure").get(controller))
+        assertEquals(BluetoothProfile.STATE_CONNECTED, field("audioConnectionState").getInt(controller))
+        assertEquals(audioGeneration, field("audioSessionId").getLong(controller))
+    }
+
     @Test fun physicalDisconnectDuringRetryDelayStopsRecovery() = runBlocking {
         val context = field("mContext").get(controller) as ContextWrapper
         val generation = field("sessionId").getLong(controller)

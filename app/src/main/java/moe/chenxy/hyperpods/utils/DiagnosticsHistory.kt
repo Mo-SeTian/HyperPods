@@ -23,7 +23,7 @@ class DiagnosticsHistory : BroadcastReceiver() {
             "status_timeout", "status_session_ended", "setting_write_failed", "setting_timeout",
             "stream_closed", "socket_disconnected", "read_failed", "packet_processing_failed",
             "write_timeout", "write_queue_full", "media_route_failed", "control_no_reply", "manual_probe_no_reply",
-            "case_probe_no_reply")
+            "case_probe_no_reply", "frame_probe_no_reply")
         private val stages = setOf("NONE", "HANDSHAKE", "FEATURES", "STATUS")
 
         fun preferences(context: Context): SharedPreferences =

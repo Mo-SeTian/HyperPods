@@ -77,7 +77,7 @@ class DiagnosticsHistoryTest {
     @Test fun detailedFailuresAndAudioStatesRemainWhitelisted() {
         val codes = listOf("stream_closed", "read_failed", "socket_disconnected", "packet_processing_failed",
             "write_timeout", "write_queue_full", "media_route_failed", "control_no_reply", "manual_probe_no_reply",
-            "case_probe_no_reply")
+            "case_probe_no_reply", "frame_probe_no_reply")
         for (code in codes) {
             `when`(snapshot.getString("failure")).thenReturn(code)
             `when`(snapshot.getInt("audio", -1)).thenReturn(3)

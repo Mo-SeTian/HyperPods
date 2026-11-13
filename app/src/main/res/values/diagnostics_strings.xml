@@ -120,4 +120,6 @@
     <string name="diagnostics_write_timeout">A control write timed out. Only this control channel was closed for recovery.</string>
     <string name="diagnostics_write_queue_full">The control send queue was full. This channel was stopped for recovery.</string>
     <string name="diagnostics_media_route_failed">A media route callback raised an exception. It was contained without requesting a Bluetooth disconnect.</string>
+    <string name="diagnostics_frame_probe">Checking whether the headset control channel still responds.</string>
+    <string name="diagnostics_frame_probe_no_reply">The control channel did not answer the automatic check and was closed for recovery.</string>
 </resources>

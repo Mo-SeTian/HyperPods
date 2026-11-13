@@ -1051,6 +1051,90 @@ class L2CAPControllerSettingsTest {
         output.reset()
     }
 
+    @Test fun silentFrameTriggersRecoveryWithoutModeChange() = runBlocking {
+        prepareStaleCaseProbe()
+        manager.receivePacket(byteArrayOf(4, 0, 4, 0, 6, 0, 0, 0))
+        assertTrue(controller.shouldProbeAfterFrame(byteArrayOf(2, 0, 4, 0, 0, 0)))
+        assertFalse(controller.shouldProbeAfterFrame(byteArrayOf(4, 0, 4, 0, 0, 0)))
+        val probe = launch {
+            with(controller) { probeAfterFrame(manager, field("sessionId").getLong(controller),
+                field("audioSessionId").getLong(controller)) }
+        }
+        yield()
+        receive(0x0d, 3) // A final status burst follows the frame, before the probe is sent.
+        probe.join()
+        verify(socket).close()
+        assertEquals("frame_probe_no_reply", field("lastStatusFailure").get(controller))
+        assertEquals(BluetoothProfile.STATE_CONNECTED, field("audioConnectionState").getInt(controller))
+    }
+
+    @Test fun responseToFrameProbeKeepsControlChannel() = runBlocking {
+        prepareStaleCaseProbe()
+        val probe = launch {
+            with(controller) { probeAfterFrame(manager, field("sessionId").getLong(controller),
+                field("audioSessionId").getLong(controller)) }
+        }
+        withTimeout(3000) { while (output.size() == 0) delay(10) }
+        receive(0x0d, 4)
+        probe.join()
+        verify(socket, never()).close()
+    }
+
+    @Test fun successfulFrameProbeIsNotRepeatedOnAReplacementInTheSameAudioSession() = runBlocking {
+        prepareStaleCaseProbe()
+        val generation = field("sessionId").getLong(controller)
+        val audioGeneration = field("audioSessionId").getLong(controller)
+        val probe = launch {
+            with(controller) { probeAfterFrame(manager, generation, audioGeneration) }
+        }
+        withTimeout(3000) { while (output.size() == 0) delay(10) }
+        receive(0x0d, 4)
+        probe.join()
+
+        val replacementSocket = mock(BluetoothSocket::class.java)
+        val replacementOutput = ByteArrayOutputStream()
+        `when`(replacementSocket.isConnected).thenReturn(true)
+        `when`(replacementSocket.outputStream).thenReturn(replacementOutput)
+        val replacement = AACPManager(replacementSocket)
+        field("socket").set(controller, replacementSocket)
+        field("aacpManager").set(controller, replacement)
+        with(controller) { probeAfterFrame(replacement, generation, audioGeneration) }
+        assertEquals(0, replacementOutput.size())
+        verify(socket, never()).close()
+        verify(replacementSocket, never()).close()
+    }
+
+    @Test fun frameProbeFromDisconnectedAudioCannotCloseTheReplacementChannel() = runBlocking {
+        prepareStaleCaseProbe()
+        val probe = launch {
+            with(controller) { probeAfterFrame(manager, field("sessionId").getLong(controller),
+                field("audioSessionId").getLong(controller)) }
+        }
+        withTimeout(3000) { while (output.size() == 0) delay(10) }
+        controller.disconnectedPod(ContextWrapper(null), device)
+        val replacementSocket = mock(BluetoothSocket::class.java)
+        field("socket").set(controller, replacementSocket)
+        field("aacpManager").set(controller, AACPManager(replacementSocket))
+        field("connectionState").set(controller, "connected")
+        field("audioConnectionState").setInt(controller, BluetoothProfile.STATE_CONNECTED)
+        probe.join()
+        verify(replacementSocket, never()).close()
+        assertEquals("connected", field("connectionState").get(controller))
+    }
+
+    @Test fun cancelledFrameProbeDoesNotSendOrCloseTheChannel() = runBlocking {
+        prepareStaleCaseProbe()
+        val probe = launch {
+            with(controller) { probeAfterFrame(manager, field("sessionId").getLong(controller),
+                field("audioSessionId").getLong(controller)) }
+        }
+        yield()
+        probe.cancel()
+        probe.join()
+        assertEquals(0, output.size())
+        verify(socket, never()).close()
+    }
+
     @Test fun staleCaseProbeClosesOnlySilentControlSocketAndDoesNotRepeatOnItsReplacement() = runBlocking {
         prepareStaleCaseProbe()
         val generation = field("sessionId").getLong(controller)

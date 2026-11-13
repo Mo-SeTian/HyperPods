@@ -120,4 +120,6 @@
     <string name="diagnostics_write_timeout">写入耳机控制数据超时，已关闭该控制通道。</string>
     <string name="diagnostics_write_queue_full">耳机控制发送队列已满，已停止该控制通道。</string>
     <string name="diagnostics_media_route_failed">媒体路由回调发生异常；已拦截此异常，未主动断开蓝牙。</string>
+    <string name="diagnostics_frame_probe">正在自动检查耳机控制通道是否仍有回包。</string>
+    <string name="diagnostics_frame_probe_no_reply">控制通道未响应自动探测，已关闭该通道以便恢复。</string>
 </resources>
