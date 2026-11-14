@@ -1,0 +1,22 @@
+<resources>
+  <string name="fidelity_function_settings">功能设置</string>
+  <string name="fidelity_head_summary">点头、摇头与姿态测试</string>
+  <string name="fidelity_wear_calls">佩戴与通话</string>
+  <string name="fidelity_single_anc">单耳降噪</string>
+  <string name="fidelity_single_anc_summary">佩戴一只耳机时保留降噪</string>
+  <string name="fidelity_sleep">入睡后暂停</string>
+  <string name="fidelity_sleep_summary">由耳机检测入睡状态</string>
+  <string name="fidelity_speaker_summary">摘下双耳后切换播放设备</string>
+  <string name="fidelity_module_active">模块已激活</string>
+  <string name="fidelity_module_check">检查模块状态</string>
+  <string name="fidelity_diagnostics_summary">连接、状态与日志</string>
+  <string name="fidelity_launcher">桌面图标</string>
+  <string name="fidelity_launcher_summary">从桌面打开控制界面</string>
+  <string name="fidelity_project_support">项目与支持</string>
+  <string name="fidelity_afdian">爱发电</string>
+  <string name="fidelity_build">构建 %1$d · %2$s</string>
+  <string name="fidelity_detection">自动入耳检测</string>
+  <string name="fidelity_more">更多设置</string>
+  <string name="fidelity_speaker">自动切换扬声器</string>
+  <string name="fidelity_device_options">设备选项</string>
+</resources>

@@ -10,7 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
+
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,13 +31,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.text
-import androidx.compose.ui.text.AnnotatedString
+
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
+
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
@@ -51,18 +47,13 @@ import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.Card
+
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Switch
-import top.yukonga.miuix.kmp.basic.SwitchDefaults
+
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationItem
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.extra.SuperArrow
+
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.icons.basic.ArrowRight
+
 import top.yukonga.miuix.kmp.icon.icons.useful.Back
 import top.yukonga.miuix.kmp.icon.icons.useful.Info
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -77,7 +68,7 @@ fun DashboardDivider(modifier: Modifier = Modifier) {
 
 @Composable
 fun DashboardGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Card(modifier = modifier.fillMaxWidth(), cornerRadius = 24.dp, content = content)
+    Column(modifier = modifier.fillMaxWidth(), content = content)
 }
 
 @Composable
@@ -164,15 +155,15 @@ private fun IconBattery(available: Boolean, charging: Boolean) {
 
 @Composable
 fun DashboardTopBar(title: String = "HyperPods", onBack: () -> Unit) {
-    // Keep the compact title beside Back, as in the selected design.
-    SmallTopAppBar(title = "", navigationIcon = {
-        Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                Icon(MiuixIcons.Useful.Back, stringResource(R.string.dashboard_back), modifier = Modifier.size(22.dp))
-            }
-            Text(title, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 12.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+            Icon(MiuixIcons.Useful.Back, stringResource(R.string.dashboard_back), modifier = Modifier.size(22.dp),
+                tint = MiuixTheme.colorScheme.onSurface)
         }
-    })
+        Text(title, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.weight(1f))
+    }
 }
 
 @Composable
@@ -192,18 +183,23 @@ fun DashboardNavigation(pagerState: PagerState) {
 @Composable
 fun DashboardNavigation(selected: Int, onSelect: (Int) -> Unit) {
     val items = listOf(
-        NavigationItem(stringResource(R.string.dashboard_headphones), ImageVector.vectorResource(R.drawable.dashboard_headphones)),
-        NavigationItem(stringResource(R.string.dashboard_about), MiuixIcons.Useful.Info))
-    Box {
-        NavigationBar(items, selected, onSelect, color = MiuixTheme.colorScheme.background,
-            modifier = Modifier.clearAndSetSemantics {})
-        // Miuix 0.6.1 renders tabs with pointerInput only. Supply one accessible,
-        // selectable hit target per tab over the library's 64 dp content area.
-        Row(Modifier.fillMaxWidth().height(64.dp).selectableGroup()) {
-            items.forEachIndexed { index, item ->
-                Box(Modifier.weight(1f).fillMaxHeight()
-                    .selectable(selected == index, role = Role.Tab, onClick = { onSelect(index) })
-                    .semantics { text = AnnotatedString(item.label) })
+        stringResource(R.string.dashboard_headphones) to ImageVector.vectorResource(R.drawable.dashboard_headphones),
+        stringResource(R.string.dashboard_about) to MiuixIcons.Useful.Info)
+    Column(Modifier.fillMaxWidth().background(Fidelity.surface())) {
+        FidelityDivider()
+        Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+            .selectableGroup()) {
+            items.forEachIndexed { index, (label, icon) ->
+                val color by animateColorAsState(if (selected == index) Fidelity.accent()
+                    else Fidelity.muted(), tween(160), label = "TabColor")
+                // Let the label determine height at large system font sizes.
+                Column(Modifier.weight(1f).selectable(selected == index, role = Role.Tab, onClick = { onSelect(index) })
+                    .heightIn(min = 60.dp).padding(vertical = 7.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
+                    Icon(icon, null, Modifier.size(22.dp), tint = color)
+                    FidelityText(label, size = 13, color = color,
+                        weight = if (selected == index) FontWeight.SemiBold else FontWeight.Normal)
+                }
             }
         }
     }
@@ -211,44 +207,12 @@ fun DashboardNavigation(selected: Int, onSelect: (Int) -> Unit) {
 
 @Composable
 fun DashboardToggle(title: String, summary: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
-    BasicComponent(title = title, summary = summary, enabled = enabled,
-        insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        modifier = Modifier.toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
-            .semantics { contentDescription = title },
-        rightActions = {
-            Switch(checked = checked, onCheckedChange = null, enabled = enabled,
-                modifier = Modifier.clearAndSetSemantics {},
-                colors = SwitchDefaults.switchColors(
-                    checkedTrackColor = MiuixTheme.colorScheme.primaryVariant,
-                    checkedThumbColor = Color.White))
-        })
+    MinimalToggle(title, summary, checked, enabled, onChange)
 }
 
 @Composable
 fun DashboardLink(title: String, summary: String? = null, rightText: String? = null, onClick: () -> Unit) {
-    if (rightText == null) {
-        SuperArrow(title = title, summary = summary, onClick = onClick)
-        return
-    }
-    BasicComponent(title = title, summary = summary, onClick = onClick, rightActions = {
-        val color = MiuixTheme.colorScheme.onSurfaceVariantActions
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = rightText,
-                modifier = Modifier.weight(1f, fill = false).widthIn(max = 130.dp),
-                color = color,
-                fontSize = MiuixTheme.textStyles.body2.fontSize,
-                textAlign = TextAlign.End,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Icon(MiuixIcons.Basic.ArrowRight, contentDescription = null,
-                modifier = Modifier.size(10.dp, 16.dp), tint = color)
-        }
-    })
+    MinimalLink(title, summary, rightText, onClick = onClick)
 }
 
 @Composable

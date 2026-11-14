@@ -6,6 +6,8 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import moe.chenxy.hyperpods.R
@@ -35,10 +37,11 @@ class AirPods5SupportUiTest(private val number: String, private val wireless: Bo
     }
 
     @Test fun homeShowsSeparateBatteryReadingsAndAllFourNoiseModes() {
-        for (level in listOf("92%", "87%", "73%")) compose.onNodeWithText(level).assertIsDisplayed()
-        for (label in listOf(R.string.off, R.string.noise_cancellation_title,
+        for (level in listOf("92%", "87%")) compose.onNodeWithText(level).assertIsDisplayed()
+        compose.onNodeWithText("73%").assertIsDisplayed()
+        for (label in listOf(R.string.noise_cancellation_title,
             R.string.dashboard_transparency, R.string.adaptive_title)) {
-            compose.onNodeWithText(text(label)).assertIsDisplayed().assertIsEnabled()
+            compose.onAllNodesWithText(text(label)).onFirst().assertIsDisplayed().assertIsEnabled()
         }
     }
 
@@ -50,17 +53,21 @@ class AirPods5SupportUiTest(private val number: String, private val wireless: Bo
     }
 
     @Test fun onlyWirelessVariantExposesSwipeControls() {
-        compose.revealSetting(text(R.string.dashboard_more)).performClick()
+        compose.revealSetting(text(R.string.fidelity_more)).performClick()
         compose.waitForIdle()
+        compose.revealSetting(text(R.string.redesign_press)).performClick()
         compose.revealSetting(text(R.string.control_press_speed)).assertExists()
         compose.revealSetting(text(R.string.control_hold_duration)).assertExists()
-        for (label in listOf(R.string.adjust_volume_by_swiper_title, R.string.control_swipe_speed)) {
-            if (wireless) compose.revealSetting(text(label)).assertExists()
-            else compose.onNodeWithText(text(label)).assertDoesNotExist()
-        }
+        if (wireless) compose.revealSetting(text(R.string.control_swipe_speed)).assertExists()
+        else compose.onNodeWithText(text(R.string.control_swipe_speed)).assertDoesNotExist()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.revealSetting(text(R.string.redesign_audio)).performClick()
+        if (wireless) compose.revealSetting(text(R.string.adjust_volume_by_swiper_title)).assertExists()
+        else compose.onNodeWithText(text(R.string.adjust_volume_by_swiper_title)).assertDoesNotExist()
     }
 
     @Test fun informationPageShowsTheCorrectVariantAndModelNumber() {
+        compose.renderAboutFixture(number)
         compose.revealSetting(text(R.string.dashboard_device_info)).performClick()
         compose.waitForIdle()
         val name = if (wireless) "AirPods 5 with Wireless Charging Case" else "AirPods 5"

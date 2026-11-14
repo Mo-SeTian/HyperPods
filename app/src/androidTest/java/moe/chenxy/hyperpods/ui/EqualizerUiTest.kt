@@ -2,10 +2,11 @@ package moe.chenxy.hyperpods.ui
 
 import android.graphics.Bitmap
 import android.os.Bundle
+import androidx.lifecycle.Lifecycle
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.MotionDurationScale
-import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -72,7 +73,6 @@ class EqualizerUiTest(private val motionScale: Float) {
                 }
             }
         }
-        compose.revealSetting(text(R.string.dashboard_more)).performClick()
         compose.revealSetting(text(R.string.eq_title)).performClick()
         compose.waitForIdle()
     }
@@ -95,7 +95,7 @@ class EqualizerUiTest(private val motionScale: Float) {
     private fun capture(name: String) {
         val dir = File(compose.activity.getExternalFilesDir(null), "eq-ui").apply { mkdirs() }
         File(dir, "$name.png").outputStream().use {
-            compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }
 
@@ -130,7 +130,7 @@ class EqualizerUiTest(private val motionScale: Float) {
         state.value = state.value.copy(value = CustomEq(2, 65, 45, 60))
         render()
         assertTrue(writes.isEmpty())
-        compose.onNodeWithTag("eq_band_0").performTouchInput { swipe(center, centerRight, 300) }
+        compose.onNodeWithTag("eq_band_0").performTouchInput { swipe(center, topCenter, 300) }
         compose.waitForIdle()
         assertTrue(writes.isNotEmpty())
         assertEquals(value(0).toInt(), writes.last().first.low)
@@ -144,7 +144,7 @@ class EqualizerUiTest(private val motionScale: Float) {
         fail = true
         render()
         repeat(2) {
-            compose.onNodeWithTag("eq_band_0").performTouchInput { swipe(center, centerRight, 180) }
+            compose.onNodeWithTag("eq_band_0").performTouchInput { swipe(center, topCenter, 180) }
             compose.waitForIdle()
             assertEquals(65f, value(0))
         }
@@ -224,7 +224,7 @@ class EqualizerUiTest(private val motionScale: Float) {
         compose.mainClock.autoAdvance = false
         compose.onNodeWithTag("eq_band_0").performTouchInput {
             down(center)
-            moveTo(centerRight, delayMillis = 16)
+            moveTo(topCenter, delayMillis = 16)
         }
         compose.runOnUiThread {
             active.value = false
@@ -252,7 +252,7 @@ class EqualizerUiTest(private val motionScale: Float) {
         render()
         compose.onNodeWithTag("eq_band_0").performTouchInput {
             down(center)
-            moveTo(centerRight, delayMillis = 16)
+            moveTo(topCenter, delayMillis = 16)
             cancel()
         }
         compose.waitForIdle()
@@ -269,7 +269,7 @@ class EqualizerUiTest(private val motionScale: Float) {
         compose.mainClock.autoAdvance = false
         compose.onNodeWithTag("eq_band_0").performTouchInput {
             down(center)
-            moveTo(centerRight, delayMillis = 16)
+            moveTo(topCenter, delayMillis = 16)
         }
         compose.runOnUiThread { state.value = state.value.copy(value = CustomEq(1), revision = state.value.revision + 1) }
         compose.mainClock.advanceTimeBy(500)
@@ -278,5 +278,23 @@ class EqualizerUiTest(private val motionScale: Float) {
         compose.waitForIdle()
         compose.onNodeWithTag("eq_band_0").assertDoesNotExist()
         assertTrue(writes.isEmpty())
+    }
+
+    @Test fun backgroundCancelsAQueuedBandWriteWithoutReplayingOnResume() {
+        state.value = state.value.copy(value = CustomEq(2))
+        render()
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag("eq_band_0").performTouchInput {
+            down(center)
+            moveTo(topCenter, delayMillis = 16)
+        }
+        compose.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.mainClock.advanceTimeBy(500)
+        compose.onRoot().performTouchInput { up() }
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertTrue("Do not flush an obsolete band value after resume", writes.isEmpty())
+        assertEquals(50f, value(0))
     }
 }

@@ -1,0 +1,21 @@
+<resources>
+    <string name="minimal_personalized_summary">Adjust volume to your environment</string>
+    <string name="minimal_conversation_summary">Lower media volume when you speak</string>
+    <string name="minimal_detection_summary">Pause when removed, resume when worn</string>
+    <string name="minimal_wear_controls">Wearing and controls</string>
+    <string name="minimal_automation">Automation and reminders</string>
+    <string name="minimal_eq_lead">Find the sound you love</string>
+    <string name="minimal_eq_description">Keep the natural sound, or adjust it to your taste.</string>
+    <string name="minimal_eq_caption">Fuller lows · Clearer mids · Brighter highs</string>
+    <string name="minimal_pause_summary">Resume automatically when the conversation ends</string>
+    <string name="minimal_phone_summary">Restore the original volume when the conversation ends</string>
+    <string name="minimal_phone_paused">Volume adjustment is unnecessary while media is paused</string>
+    <string name="minimal_swipe_summary">Swipe the stem to adjust volume</string>
+    <string name="minimal_head_pose">Relative pose</string>
+    <string name="minimal_head_gestures">Gesture recognition</string>
+    <string name="minimal_eq_summary">Adjust bass, mids and treble</string>
+    <string name="minimal_more_summary">Press, audio and wearing settings</string>
+    <string name="minimal_retry_summary">Request headset status and rebuild the control channel if needed</string>
+    <string name="minimal_syncing">Syncing…</string>
+    <string name="minimal_diagnostic_ready_summary">Audio and control channels are connected</string>
+</resources>

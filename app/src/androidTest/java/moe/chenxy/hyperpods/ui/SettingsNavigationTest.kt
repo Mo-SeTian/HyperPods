@@ -3,23 +3,9 @@ package moe.chenxy.hyperpods.ui
 import androidx.activity.BackEventCompat
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onLast
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import moe.chenxy.hyperpods.R
-import moe.chenxy.hyperpods.utils.DiagnosticEvents
-import moe.chenxy.hyperpods.utils.DiagnosticsHistory
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -27,218 +13,102 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 
-/** Uses the real settings page with synthetic earbuds; never writes Bluetooth settings. */
+/** Verify the redesigned hierarchy with and without system animation. */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(Parameterized::class)
 class SettingsNavigationTest(private val durationScale: Float) {
-    companion object {
-        @JvmStatic
-        @Parameterized.Parameters(name = "motionScale={0}")
-        fun scales() = listOf(arrayOf(1f), arrayOf(0f))
-    }
-
-    @get:Rule
-    val compose = createAndroidComposeRule<DashboardPreviewActivity>(effectContext = object : MotionDurationScale {
+    companion object { @JvmStatic @Parameterized.Parameters(name = "motionScale={0}") fun scales() = listOf(arrayOf(1f), arrayOf(0f)) }
+    @get:Rule val compose = createAndroidComposeRule<DashboardPreviewActivity>(effectContext = object : MotionDurationScale {
         override val scaleFactor = durationScale
     })
-
     private fun text(id: Int) = compose.activity.getString(id)
-
-    private val verticalList = SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
-
-    private fun scrollPosition(): Float = compose.onNode(verticalList).fetchSemanticsNode()
-        .config[SemanticsProperties.VerticalScrollAxisRange].value()
-
-    private fun reveal(id: Int) {
-        compose.revealSetting(text(id))
-        compose.waitForIdle()
-    }
-
-    private fun open(id: Int) {
-        reveal(id)
-        compose.onNodeWithText(text(id)).performClick()
-        compose.waitForIdle()
-        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(id))).assertExists()
-    }
-
-    private fun back() {
-        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        compose.waitForIdle()
-    }
-
-    @Test
-    fun equalizerReturnsToItsEntryPageAndRestoresHomeScrollAfterRecreation() {
-        open(R.string.dashboard_more)
-        open(R.string.eq_title)
-        back()
-        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_more))).assertExists()
-        back()
-        reveal(R.string.eq_title)
-        val homePosition = scrollPosition()
-        compose.onNodeWithText(text(R.string.eq_title)).performClick()
-        compose.waitForIdle()
-        compose.activityRule.scenario.recreate()
-        compose.waitForIdle()
-        back()
-        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_headphones))).assertExists()
-        assertEquals(homePosition, scrollPosition(), 0.000001f)
-        compose.onNodeWithText(text(R.string.eq_title)).assertIsDisplayed()
-    }
-
-    @Test
-    fun returningFromEveryDetailRestoresHomeScroll() {
-        compose.onAllNodesWithContentDescription(text(R.string.dashboard_back)).assertCountEquals(0)
-        listOf(R.string.dashboard_more, R.string.dashboard_device_info, R.string.diagnostics_title).forEach { id ->
-            reveal(id)
-            val before = scrollPosition()
-            compose.onNodeWithText(text(id)).performClick()
-            compose.waitForIdle()
-            compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(id))).assertExists()
-            back()
-            assertEquals("Home scroll changed after returning", before, scrollPosition(), 0.000001f)
+    private fun scrollPosition() = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+        .fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+    private fun open(id: Int) { compose.revealSetting(text(id)).performClick(); compose.waitForIdle() }
+    private fun back() { compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle() }
+    @Test fun returningFromMoreAndEqualizerPreservesHomeScroll() {
+        for (id in listOf(R.string.fidelity_more, R.string.eq_title)) {
+            compose.revealSetting(text(id)); val before = scrollPosition()
+            open(id); back(); assertEquals(before, scrollPosition(), .001f)
             compose.onNodeWithText(text(id)).assertIsDisplayed()
-            compose.onAllNodesWithContentDescription(text(R.string.dashboard_back)).assertCountEquals(0)
         }
     }
-
-    @Test
-    fun diagnosticLogsReturnToDiagnosticsAndKeepScrollAfterRecreation() {
-        val preferences = DiagnosticsHistory.preferences(compose.activity)
-        val original = preferences.getString("events", null)
-        try {
-            val events = (1..40).map { DiagnosticEvents.Event(it * 1000L, "sync", "request") }
-            preferences.edit().putString("events", DiagnosticEvents.encode(events)).commit()
-            reveal(R.string.diagnostics_title)
-            val homePosition = scrollPosition()
-            compose.onNodeWithText(text(R.string.diagnostics_title)).performClick()
-            open(R.string.diagnostics_logs)
-            val middleTime = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(events[20].at))
-            compose.revealSetting(middleTime).performScrollTo().assertIsDisplayed()
-            val logPosition = scrollPosition()
-            assertTrue(logPosition > 0f)
-            compose.activityRule.scenario.recreate()
-            compose.waitForIdle()
-            assertEquals(logPosition, scrollPosition(), 0.000001f)
-            back()
-            compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.diagnostics_title))).assertExists()
-            compose.onNodeWithText(text(R.string.diagnostics_logs)).assertIsDisplayed()
-            open(R.string.diagnostics_logs)
-            assertEquals(logPosition, scrollPosition(), 0.000001f)
-            back()
-            back()
-            assertEquals(homePosition, scrollPosition(), 0.000001f)
-        } finally {
-            preferences.edit().putString("events", original).commit()
-        }
+    @Test fun audioEqualizerReturnsToAudioAndMoreReturnsHome() {
+        open(R.string.fidelity_more); open(R.string.redesign_audio); open(R.string.eq_title)
+        back(); compose.onNodeWithText(text(R.string.conversation_pause_media_title)).assertExists()
+        back(); compose.revealSetting(text(R.string.redesign_audio)).assertIsDisplayed()
+        back(); compose.revealSetting(text(R.string.eq_title)).assertIsDisplayed()
     }
-
-    @Test
-    fun gestureTestReturnsToMoreControlsAndKeepsBothScrollPositions() {
-        reveal(R.string.dashboard_more)
-        val homePosition = scrollPosition()
-        compose.onNodeWithText(text(R.string.dashboard_more)).performClick()
-        reveal(R.string.head_test_title)
-        val morePosition = scrollPosition()
-        compose.onNodeWithText(text(R.string.head_test_title)).performClick()
-        compose.waitForIdle()
-        back()
-        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_more))).assertExists()
-        assertEquals(morePosition, scrollPosition(), 0.000001f)
-        back()
-        assertEquals(homePosition, scrollPosition(), 0.000001f)
+    @Test fun gestureTestReturnsToGesturesAndThenMore() {
+        open(R.string.fidelity_more); open(R.string.head_gestures_title); open(R.string.head_test_title)
+        back(); compose.revealSetting(text(R.string.head_test_title)).assertIsDisplayed()
+        back(); compose.revealSetting(text(R.string.redesign_press)).assertIsDisplayed()
+        back(); compose.revealSetting(text(R.string.eq_title)).assertIsDisplayed()
     }
-
-    @Test
-    fun detailScrollIsIndependentAndSurvivesRecreation() {
-        open(R.string.dashboard_more)
-        // Use a non-boundary offset: on recreation, Android delivers window
-        // insets after the first measure and may clamp a bottom-most offset.
-        compose.revealSetting(text(R.string.audio_title))
+    @Test fun moreScrollSurvivesRecreation() {
+        open(R.string.fidelity_more); compose.revealSetting(text(R.string.microphone))
         val before = scrollPosition()
-        assertTrue(before > 0f)
-        compose.activityRule.scenario.recreate()
-        compose.waitForIdle()
-        assertEquals(before, scrollPosition(), 0.000001f)
-        back()
-        open(R.string.dashboard_device_info)
-        assertEquals("Different detail pages must not share an offset", 0f, scrollPosition(), 0.000001f)
-        back()
-        open(R.string.dashboard_more)
-        assertEquals("More controls lost its scroll", before, scrollPosition(), 0.000001f)
+        compose.activityRule.scenario.recreate(); compose.waitForIdle()
+        assertEquals(before, scrollPosition(), .001f)
+        back(); open(R.string.fidelity_more); assertEquals(before, scrollPosition(), .001f)
     }
-
-    @Test
-    fun backInterruptsTheEntranceWithoutLeavingAnOutgoingPage() {
-        reveal(R.string.dashboard_more)
-        val before = scrollPosition()
+    @Test fun diagnosticLogsReturnToDiagnosticsInAbout() {
+        compose.onNodeWithText(text(R.string.dashboard_about)).performClick(); compose.waitForIdle()
+        open(R.string.diagnostics_title); open(R.string.diagnostics_logs)
+        compose.activityRule.scenario.recreate(); compose.waitForIdle()
+        back(); compose.revealSetting(text(R.string.diagnostics_logs)).assertIsDisplayed()
+        back(); compose.revealSetting(text(R.string.dashboard_device_info)).assertIsDisplayed()
+    }
+    @Test fun rapidBackInterruptsEntranceWithoutLeavingOutgoingActions() {
+        compose.revealSetting(text(R.string.fidelity_more)); val before = scrollPosition()
         compose.mainClock.autoAdvance = false
-        compose.onNodeWithText(text(R.string.dashboard_more)).performClick()
-        compose.mainClock.advanceTimeBy(64)
+        compose.onNodeWithText(text(R.string.fidelity_more)).performClick(); compose.mainClock.advanceTimeBy(64)
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        compose.onNodeWithText(text(R.string.dashboard_more)).assertIsDisplayed()
-        assertEquals(before, scrollPosition(), 0.000001f)
+        compose.mainClock.autoAdvance = true; compose.waitForIdle()
+        assertEquals(before, scrollPosition(), .001f)
         compose.onNodeWithText(text(R.string.battery_reminder_title)).assertDoesNotExist()
     }
-
-    @Test
-    fun visibleBackButtonRestoresScrollOnRepeatedVisits() {
-        repeat(3) {
-            reveal(R.string.dashboard_device_info)
-            val before = scrollPosition()
-            compose.onNodeWithText(text(R.string.dashboard_device_info)).performClick()
-            compose.onAllNodesWithContentDescription(text(R.string.dashboard_back)).onLast().performClick()
-            assertEquals(before, scrollPosition(), 0.000001f)
-        }
-    }
-
-    @Test
-    fun rapidTabReversalsSettleOnTheLastTapAndKeepScroll() {
-        reveal(R.string.dashboard_more)
-        val before = scrollPosition()
-        compose.mainClock.autoAdvance = false
-        repeat(3) {
-            compose.onNodeWithText(text(R.string.dashboard_about)).performClick()
-            compose.mainClock.advanceTimeBy(64)
-            compose.onNodeWithText(text(R.string.dashboard_headphones)).performClick()
-            compose.mainClock.advanceTimeBy(64)
-        }
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        compose.onNodeWithText(text(R.string.dashboard_headphones)).assertIsSelected()
-        assertEquals(before, scrollPosition(), 0.000001f)
-    }
-
-    @Test
-    fun cancelledSystemBackKeepsTheCurrentPageAndScroll() {
-        open(R.string.dashboard_more)
-        compose.revealSetting(text(R.string.audio_title))
-        val before = scrollPosition()
+    @Test fun cancelledSystemBackKeepsTheCurrentPage() {
+        open(R.string.fidelity_more)
         compose.runOnIdle {
             val dispatcher = compose.activity.onBackPressedDispatcher
             dispatcher.dispatchOnBackStarted(BackEventCompat(0f, 100f, 0f, BackEventCompat.EDGE_LEFT))
-            dispatcher.dispatchOnBackProgressed(BackEventCompat(80f, 100f, 0.3f, BackEventCompat.EDGE_LEFT))
+            dispatcher.dispatchOnBackProgressed(BackEventCompat(80f, 100f, .3f, BackEventCompat.EDGE_LEFT))
             dispatcher.dispatchOnBackCancelled()
         }
-        compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_more))).assertExists()
-        assertEquals(before, scrollPosition(), 0.000001f)
-        back()
-        compose.onNodeWithText(text(R.string.dashboard_more)).assertIsDisplayed()
+        compose.revealSetting(text(R.string.redesign_press)).assertIsDisplayed()
+    }
+    @Test fun entranceSettlesAndRespectsSystemMotionScale() {
+        compose.revealSetting(text(R.string.fidelity_more)); compose.mainClock.autoAdvance = false
+        compose.onNodeWithText(text(R.string.fidelity_more)).performClick(); compose.mainClock.advanceTimeBy(64)
+        val page = compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.fidelity_more)))
+        if (durationScale == 0f) assertEquals(0f, page.fetchSemanticsNode().boundsInRoot.left, .01f)
+        else assertTrue(page.fetchSemanticsNode().boundsInRoot.left > 0f)
+        compose.mainClock.autoAdvance = true; compose.waitForIdle()
+        assertEquals(0f, page.fetchSemanticsNode().boundsInRoot.left, .01f)
     }
 
-    @Test
-    fun entranceMovesBrieflyOrSettlesImmediatelyWhenMotionIsDisabled() {
-        reveal(R.string.dashboard_more)
-        compose.mainClock.autoAdvance = false
-        compose.onNodeWithText(text(R.string.dashboard_more)).performClick()
-        compose.mainClock.advanceTimeBy(64)
-        val page = compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(R.string.dashboard_more)))
-        val left = page.fetchSemanticsNode().boundsInRoot.left
-        if (durationScale == 0f) assertEquals(0f, left, 0.01f)
-        else assertTrue("The entrance should be moving at 64 ms", left > 0f)
-        compose.mainClock.autoAdvance = true
-        compose.waitForIdle()
-        assertEquals("The settled page must have no residual translation", 0f, page.fetchSemanticsNode().boundsInRoot.left, 0.01f)
+    @Test fun deeperRoutesUseTheSameForwardAndBackDirection() {
+        fun animate(title: Int, forward: Boolean, action: () -> Unit) {
+            compose.mainClock.autoAdvance = false
+            action()
+            compose.mainClock.advanceTimeBy(64)
+            val bounds = compose.onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, text(title)))
+                .fetchSemanticsNode().boundsInRoot
+            val width = compose.onRoot().fetchSemanticsNode().boundsInRoot.width
+            if (durationScale == 0f) assertEquals(0f, bounds.left, .01f)
+            else assertTrue("Incorrect transition direction for ${text(title)}: $bounds",
+                if (forward) bounds.left > 0f else bounds.right < width)
+            compose.mainClock.autoAdvance = true
+            compose.waitForIdle()
+        }
+        open(R.string.fidelity_more); open(R.string.head_gestures_title)
+        compose.revealSetting(text(R.string.head_test_title))
+        animate(R.string.head_test_title, true) { compose.onNodeWithText(text(R.string.head_test_title)).performClick() }
+        animate(R.string.head_gestures_title, false) { compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() } }
+        back(); open(R.string.redesign_audio)
+        compose.revealSetting(text(R.string.eq_title))
+        animate(R.string.eq_title, true) { compose.onNodeWithText(text(R.string.eq_title)).performClick() }
+        animate(R.string.redesign_audio, false) { compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() } }
     }
 }

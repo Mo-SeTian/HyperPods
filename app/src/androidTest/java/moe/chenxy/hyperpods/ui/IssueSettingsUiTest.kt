@@ -49,7 +49,7 @@ class IssueSettingsUiTest {
                         earDetectionParams = EarDetectionParams(), earDetectionEnable = true, onEarDetectionChanged = {},
                         autoSwitchToSpeaker = false, onAutoSwitchToSpeakerChange = {},
                         personlizedVolume = false, onPersonlizedVolumeChange = {},
-                        conversationAwareness = false, onConversationAwarenessChange = {},
+                        conversationAwareness = true, onConversationAwarenessChange = {},
                         adjustVolumeBySwiper = settings.value[Key.ADJUST_VOLUME_BY_SWIPER] == 1,
                         onAdjustVolumeBySwiperChange = { write(Key.ADJUST_VOLUME_BY_SWIPER, if (it) 1 else 2) },
                         adaptiveAudioLevel = 0.5f, onAdaptiveAudioLevelChange = {},
@@ -72,7 +72,7 @@ class IssueSettingsUiTest {
                 }
             }
         }
-        compose.revealSetting(text(R.string.dashboard_more)).performClick()
+        compose.revealSetting(text(R.string.fidelity_more)).performClick()
     }
 
     @Test fun missingMicrophoneReportAllowsExplicitSelectionWithoutInventingAuto() {
@@ -89,12 +89,13 @@ class IssueSettingsUiTest {
 
     @Test fun conversationPauseIsLocalAndDisablesDuckingWithoutLosingItsPreviousChoice() {
         render()
+        compose.revealSetting(text(R.string.redesign_audio)).performClick()
         compose.revealSetting(text(R.string.conversation_pause_media_title)).performClick()
         compose.waitForIdle()
         assertEquals(true, conversationPause.value)
         assertEquals(true, conversationVolume.value)
         val disabled = !(hasClickAction() or hasAnyAncestor(hasClickAction()))
-        compose.revealSetting(text(R.string.conversation_phone_volume_title)).assert(disabled)
+        compose.revealSetting(text(R.string.conversation_phone_volume_title)).assertIsNotEnabled()
         compose.onNodeWithText(text(R.string.conversation_phone_volume_paused)).assertExists()
         assertEquals(emptyList<Pair<String, Int>>(), writes)
         compose.revealSetting(text(R.string.conversation_pause_media_title)).performClick()
@@ -107,6 +108,7 @@ class IssueSettingsUiTest {
 
     @Test fun missingLongPressReportAllowsSelectingTwoModesButNeverSendsAnEmptyMask() {
         render()
+        compose.revealSetting(text(R.string.redesign_press)).performClick()
         compose.revealSetting(text(R.string.set_noise_mode)).performScrollTo().performClick()
         compose.onNodeWithContentDescription(text(android.R.string.ok)).assertIsNotEnabled()
         assertEquals(emptyList<Pair<String, Int>>(), writes)
@@ -119,16 +121,16 @@ class IssueSettingsUiTest {
 
     @Test fun disconnectedUnknownControlsRemainDisabled() {
         render("disconnected")
-        // Miuix 0.6.1 disables these rows by removing their click modifier.
-        val disabled = !(hasClickAction() or hasAnyAncestor(hasClickAction()))
-        compose.revealSetting(text(R.string.set_noise_mode)).assert(disabled)
-        compose.revealSetting(text(R.string.microphone)).assert(disabled)
+        compose.revealSetting(text(R.string.microphone)).assertIsNotEnabled()
+        compose.revealSetting(text(R.string.redesign_press)).performClick()
+        compose.revealSetting(text(R.string.set_noise_mode)).assertIsNotEnabled()
         assertEquals(emptyList<Pair<String, Int>>(), writes)
     }
 
     @Test fun chimeStaysAtTheSentValueAndResetsOnARealWriteFailure() {
         settings.value = mapOf(Key.CHIME_VOLUME to 50)
         render()
+        compose.revealSetting(text(R.string.redesign_audio)).performClick()
         compose.revealSetting(text(R.string.control_chime_volume))
         val slider = compose.onNode(SemanticsMatcher("Chime volume slider") {
             it.config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.range?.endInclusive == 100f
@@ -148,6 +150,7 @@ class IssueSettingsUiTest {
     @Test fun swipeIntervalLongestReportMapsToThirdOptionAndDefaultWritesOne() {
         settings.value = mapOf(Key.SWIPE_SPEED to 3)
         render()
+        compose.revealSetting(text(R.string.redesign_press)).performClick()
         compose.revealSetting(text(R.string.control_swipe_speed)).performScrollTo()
             .assert(hasText(text(R.string.control_longest))).performClick()
         compose.onAllNodesWithText(text(R.string.control_default))
@@ -160,8 +163,10 @@ class IssueSettingsUiTest {
         settings.value = mapOf(Key.CHIME_VOLUME to 50, Key.ADJUST_VOLUME_BY_SWIPER to 1, Key.SINGLE_POD_ANC to 1)
         feedback.value = settings.value.keys.associateWith { "sent" }
         render()
-        for (title in listOf(R.string.control_chime_volume, R.string.adjust_volume_by_swiper_title,
-            R.string.noise_cancellation_single_airpod)) {
+        compose.revealSetting(text(R.string.fidelity_single_anc))
+        compose.onAllNodesWithText(text(R.string.setting_pending), substring = true).assertCountEquals(0)
+        compose.revealSetting(text(R.string.redesign_audio)).performClick()
+        for (title in listOf(R.string.control_chime_volume, R.string.adjust_volume_by_swiper_title)) {
             compose.revealSetting(text(title))
             compose.onAllNodesWithText(text(R.string.setting_sent), substring = true).assertCountEquals(0)
             compose.onAllNodesWithText(text(R.string.setting_pending), substring = true).assertCountEquals(0)
@@ -171,7 +176,7 @@ class IssueSettingsUiTest {
     @Test fun enablingSingleAncDoesNotForceTransparencyIntoAnc() {
         settings.value = mapOf(Key.SINGLE_POD_ANC to 2, PodsSettings.NOISE_MODE to 3)
         render()
-        compose.revealSetting(text(R.string.noise_cancellation_single_airpod)).performClick()
+        compose.revealSetting(text(R.string.fidelity_single_anc)).performClick()
         compose.waitForIdle()
         assertEquals(listOf(Key.SINGLE_POD_ANC to 1), writes)
         assertEquals(emptyList<NoiseControlMode>(), modes)
@@ -182,10 +187,36 @@ class IssueSettingsUiTest {
         settings.value = mapOf(Key.ADJUST_VOLUME_BY_SWIPER to 2)
         failWrite = true
         render()
+        compose.revealSetting(text(R.string.redesign_audio)).performClick()
         compose.revealSetting(text(R.string.adjust_volume_by_swiper_title)).performClick()
         compose.waitForIdle()
         assertEquals(listOf(Key.ADJUST_VOLUME_BY_SWIPER to 1), writes)
         assertEquals(2, settings.value[Key.ADJUST_VOLUME_BY_SWIPER])
         compose.onNodeWithText(text(R.string.setting_write_failed), substring = true).assertExists()
+    }
+
+    @Test fun unknownControlsKeepTheSameTextInsetAsReadyControls() {
+        settings.value = mapOf(Key.PRESS_SPEED to 0, Key.HOLD_DURATION to 0)
+        render()
+        compose.revealSetting(text(R.string.redesign_press)).performClick()
+        compose.revealSetting(text(R.string.control_swipe_speed))
+        val readyLeft = compose.onNodeWithText(text(R.string.control_press_speed), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left
+        val readingLeft = compose.onNodeWithText(text(R.string.control_swipe_speed), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left
+        assertEquals("Reading state must not change the row inset", readyLeft, readingLeft, 1f)
+    }
+
+    @Test fun chimeTitleAndTrackAlignWithTheOtherAudioSettings() {
+        settings.value = mapOf(Key.CHIME_VOLUME to 50)
+        render()
+        compose.revealSetting(text(R.string.redesign_audio)).performClick()
+        compose.revealSetting(text(R.string.control_chime_volume))
+        val row = compose.onNodeWithText(text(R.string.conversation_phone_volume_title)).fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithText(text(R.string.control_chime_volume), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val slider = compose.onNode(SemanticsMatcher("Chime slider") {
+            it.config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.range?.endInclusive == 100f
+        }).fetchSemanticsNode().boundsInRoot
+        assertEquals(row.left, title.left, 1f)
+        assertEquals(row.left, slider.left, 1f)
+        assertEquals(row.right, slider.right, 1f)
     }
 }

@@ -28,29 +28,31 @@ class GestureSleepUiTest(private val number: String, private val supported: Bool
         compose.runOnUiThread { compose.activity.intent.putExtra("model_number", number) }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
-        compose.revealSetting(text(R.string.dashboard_more)).performClick()
+        compose.revealSetting(text(R.string.fidelity_more)).performClick()
         compose.waitForIdle()
     }
 
     @Test fun onlyCapableModelsOfferTheTwoControls() {
-        for (label in listOf(R.string.head_gestures_title, R.string.sleep_detection_title)) {
-            if (supported) {
-                compose.revealSetting(hasContentDescription(text(label))).assertIsEnabled().performClick().assertIsOn()
-            } else compose.onNodeWithText(text(label)).assertDoesNotExist()
+        if (!supported) {
+            compose.onNodeWithText(text(R.string.head_gestures_title)).assertDoesNotExist()
+            compose.onNodeWithText(text(R.string.fidelity_sleep)).assertDoesNotExist()
+            return
         }
+        compose.revealSetting(hasContentDescription(text(R.string.fidelity_sleep))).assertIsEnabled().performClick().assertIsOn()
+        compose.revealSetting(text(R.string.head_gestures_title)).performClick()
+        compose.revealSetting(hasContentDescription(text(R.string.head_gestures_title))).assertIsEnabled().performClick().assertIsOn()
     }
-
     @Test fun choicesSurviveNavigatingToSecondaryPageAndBack() {
         if (!supported) return
-        for (label in listOf(R.string.head_gestures_title, R.string.sleep_detection_title)) {
-            compose.revealSetting(hasContentDescription(text(label))).performClick()
-        }
+        compose.revealSetting(hasContentDescription(text(R.string.fidelity_sleep))).performClick()
+        compose.revealSetting(text(R.string.head_gestures_title)).performClick()
+        compose.revealSetting(hasContentDescription(text(R.string.head_gestures_title))).performClick()
         compose.revealSetting(text(R.string.head_test_title)).performClick()
-        compose.waitForIdle()
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
-        for (label in listOf(R.string.head_gestures_title, R.string.sleep_detection_title)) {
-            compose.revealSetting(hasContentDescription(text(label))).assertIsOn()
-        }
+        compose.revealSetting(hasContentDescription(text(R.string.head_gestures_title))).assertIsOn()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        compose.revealSetting(hasContentDescription(text(R.string.fidelity_sleep))).assertIsOn()
     }
 }

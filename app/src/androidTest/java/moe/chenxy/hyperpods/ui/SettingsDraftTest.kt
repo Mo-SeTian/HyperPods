@@ -1,83 +1,77 @@
 package moe.chenxy.hyperpods.ui
 
+import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
 import moe.chenxy.hyperpods.utils.AACPManager
+import moe.chenxy.hyperpods.utils.CustomEqState
 import moe.chenxy.hyperpods.utils.PodsSettings
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
-import moe.chenxy.hyperpods.utils.data.PodBatteryParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
-/** Failed writes restore the headset value; successful writes settle locally until a report arrives. */
+/** Check mode/strength ordering and cancellations using the real home component. */
 class SettingsDraftTest {
     @get:Rule val compose = createAndroidComposeRule<DashboardPreviewActivity>()
-
-    @Test fun adaptiveSliderRestoresFailedWritesAndKeepsSuccessfulWritesUntilAReport() {
-        val feedback = mutableStateOf(emptyMap<String, String>())
-        val settings = mutableStateOf(mapOf(Key.ADAPTIVE_AUDIO_LEVEL to 50, PodsSettings.NOISE_MODE to 4))
-        var immediateFailure = true
-        compose.runOnUiThread {
-            compose.activity.setContent {
-                AppTheme(1) {
-                    PodDetailPage(
-                        padding = PaddingValues(),
-                        batteryParams = BatteryParams(PodBatteryParams(), PodBatteryParams(), PodBatteryParams()),
-                        earDetectionParams = EarDetectionParams(),
-                        earDetectionEnable = true, onEarDetectionChanged = {},
-                        autoSwitchToSpeaker = false, onAutoSwitchToSpeakerChange = {},
-                        personlizedVolume = false, onPersonlizedVolumeChange = {},
-                        conversationAwareness = false, onConversationAwarenessChange = {},
-                        adjustVolumeBySwiper = false, onAdjustVolumeBySwiperChange = {},
-                        adaptiveAudioLevel = 1f - settings.value.getValue(Key.ADAPTIVE_AUDIO_LEVEL) / 100f, onAdaptiveAudioLevelChange = {
-                            feedback.value = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to if (immediateFailure) "write_failed" else "sent")
-                            if (!immediateFailure) settings.value = settings.value +
-                                (Key.ADAPTIVE_AUDIO_LEVEL to (100 - it * 100).toInt())
-                        },
-                        onListeningModeChange = {}, ancMode = NoiseControlMode.ADAPTIVE, onAncModeChange = {},
-                        podsInfo = AACPManager.Companion.AirPodsInformation("Demo", "A3049", "", "", "", "", "", "", "", "", ""),
-                        onNameChange = {}, microphoneMode = 0, onMicrophoneModeChange = {},
-                        noiseCancellationSingleAirPod = false, onNoiseCancellationSingleAirPodChange = {},
-                        settings = settings.value, settingFeedback = feedback.value,
-                    )
-                }
-            }
-        }
-        compose.revealSetting(compose.activity.getString(R.string.dashboard_more)).performClick()
-        compose.revealSetting(compose.activity.getString(R.string.adaptive_audio_title))
-        val slider = compose.onNode(SemanticsMatcher("Adaptive slider") {
-            it.config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.range?.endInclusive == 1f
-        })
-        slider.performScrollTo()
-        slider.performTouchInput { swipe(center, centerRight, 300) }
+    private val mode = mutableStateOf(NoiseControlMode.NOISE_CANCELLATION)
+    private val recovery = mutableStateOf("")
+    private val feedback = mutableStateOf(emptyMap<String, String>())
+    private val level = mutableStateOf(.5f)
+    private val modes = mutableListOf<NoiseControlMode>()
+    private val levels = mutableListOf<Float>()
+    private fun slider() = compose.onNodeWithContentDescription(compose.activity.getString(R.string.redesign_slider))
+    private fun position(value: Float) { slider().performSemanticsAction(SemanticsActions.SetProgress) { it(value) }; compose.waitForIdle() }
+    private fun render() { compose.runOnUiThread { compose.activity.setContent { AppTheme(1) {
+        PodDetailPage(PaddingValues(), BatteryParams(), EarDetectionParams(), true, {}, false, {}, false, {}, false, {},
+            false, {}, level.value, { levels.add(it) }, {}, mode.value, { modes.add(it) },
+            AACPManager.Companion.AirPodsInformation("Demo", "A3049", "", "", "", "", "", "", "", "", ""),
+            {}, 0, {}, false, {}, settings = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to 50, PodsSettings.NOISE_MODE to 2),
+            settingFeedback = feedback.value, customEqState = CustomEqState(session = 1),
+            diagnostics = Bundle().apply { putString("connection", "connected"); putString("recovery", recovery.value) })
+    } } }; compose.waitForIdle() }
+    @Test fun strengthWaitsForModeConfirmationAndSurvivesNavigation() {
+        render(); assertTrue(modes.isEmpty()); assertTrue(levels.isEmpty())
+        position(.7f)
+        assertEquals(listOf(NoiseControlMode.ADAPTIVE), modes); assertTrue(levels.isEmpty())
+        compose.revealSetting(compose.activity.getString(R.string.fidelity_more)).performClick()
+        compose.runOnIdle { mode.value = NoiseControlMode.ADAPTIVE }
         compose.waitForIdle()
-        assertEquals("write_failed", feedback.value[Key.ADAPTIVE_AUDIO_LEVEL])
-        assertEquals(0.5f, slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0.01f)
-
-        compose.runOnIdle { immediateFailure = false }
-        slider.performTouchInput { swipe(center, centerRight, 300) }
+        assertEquals(1, levels.size); assertEquals(1f - (.7f - .2f) / .6f, levels.single(), .001f)
+    }
+    @Test fun recoveryCancelsADeferredStrengthWrite() {
+        render(); position(.7f)
+        compose.runOnIdle { recovery.value = "recovering" }
         compose.waitForIdle()
-        assertEquals("sent", feedback.value[Key.ADAPTIVE_AUDIO_LEVEL])
-        val localLevel = 1f - settings.value.getValue(Key.ADAPTIVE_AUDIO_LEVEL) / 100f
-        assertEquals(1f, localLevel, 0.01f)
-        assertEquals(localLevel, slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0.01f)
-        // A later, different firmware value corrects the locally published slider.
-        compose.runOnIdle {
-            settings.value = settings.value + (Key.ADAPTIVE_AUDIO_LEVEL to 65)
-            feedback.value = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to "reported")
-        }
+        compose.runOnIdle { mode.value = NoiseControlMode.ADAPTIVE; recovery.value = "" }
         compose.waitForIdle()
-        assertEquals(0.35f, slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, 0.01f)
-        compose.onNodeWithText(compose.activity.getString(R.string.adaptive_audio_title)).assertIsDisplayed()
+        assertTrue(levels.isEmpty())
+    }
+    @Test fun endpointsSelectTransparencyAndNoiseCancellationWithoutChangingStrength() {
+        render(); position(0f); position(1f)
+        assertEquals(listOf(NoiseControlMode.TRANSPARENCY, NoiseControlMode.NOISE_CANCELLATION), modes)
+        assertTrue(levels.isEmpty())
+    }
+    @Test fun failedStrengthReturnsToTheReportedPosition() {
+        mode.value = NoiseControlMode.ADAPTIVE
+        render(); position(.75f)
+        compose.runOnIdle { feedback.value = mapOf(Key.ADAPTIVE_AUDIO_LEVEL to "write_failed") }
+        compose.waitForIdle()
+        assertEquals(.5f, slider().fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, .01f)
+    }
+    @Test fun cancelledGestureDoesNotSendAnyCommands() {
+        render()
+        slider().performTouchInput { down(center); moveTo(centerLeft); cancel() }
+        compose.waitForIdle(); assertTrue(modes.isEmpty()); assertTrue(levels.isEmpty())
     }
 }

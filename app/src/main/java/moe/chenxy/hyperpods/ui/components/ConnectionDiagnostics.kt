@@ -22,7 +22,15 @@ import moe.chenxy.hyperpods.utils.DiagnosticEvents
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.PodsSettings
-import top.yukonga.miuix.kmp.basic.BasicComponent
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -164,24 +172,29 @@ fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLo
         (if (showLogs) "" else moduleReport + "\n\n" + fields.joinToString("\n") { (label, value) -> "$label: $value" }) +
         "\n\n" + (historyReport ?: context.getString(R.string.diagnostics_no_history)) + "\n\n" + timeline
     @Composable
+    fun Section(title: String) {
+        FidelityText(title, Modifier.padding(top = 24.dp, bottom = 8.dp), size = 13,
+            color = Fidelity.muted(), weight = FontWeight.Medium)
+    }
+    @Composable
+    fun Action(title: String, summary: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
+        MinimalLink(title, summary, enabled = enabled, titleColor = Fidelity.accent(), onClick = onClick)
+        FidelityDivider()
+    }
+    @Composable
     fun Actions() {
-        DashboardSection(stringResource(R.string.diagnostics_actions))
-        DashboardGroup {
+        Section(stringResource(R.string.diagnostics_actions))
+        Column {
             if (!showLogs) {
-                BasicComponent(title = stringResource(R.string.diagnostics_refresh), onClick = {
+                Action(title = stringResource(R.string.diagnostics_refresh), onClick = {
                     HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_DIAGNOSTICS_REQUEST), HyperPodsBroadcasts.BLUETOOTH)
                 })
-                BasicComponent(title = stringResource(R.string.diagnostics_retry), summary = stringResource(R.string.diagnostics_retry_summary),
-                    enabled = snapshot?.getString("connection") in listOf("connected", "failed") ||
-                        snapshot?.getString("recovery") == "failed", onClick = {
-                        HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_STATUS_RETRY), HyperPodsBroadcasts.BLUETOOTH)
-                    })
             }
-            BasicComponent(title = stringResource(R.string.diagnostics_copy), onClick = {
+            Action(title = stringResource(R.string.diagnostics_copy), onClick = {
                 context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("HyperPods", report))
                 Toast.makeText(context, R.string.diagnostics_copied, Toast.LENGTH_SHORT).show()
             })
-            BasicComponent(title = stringResource(R.string.diagnostics_share), summary = stringResource(R.string.diagnostics_share_privacy), onClick = {
+            Action(title = stringResource(R.string.diagnostics_share), summary = stringResource(R.string.diagnostics_share_privacy), onClick = {
                 context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_SUBJECT, "HyperPods diagnostics")
@@ -190,40 +203,51 @@ fun ConnectionDiagnostics(snapshot: Bundle?, showLogs: Boolean = false, onOpenLo
             })
         }
     }
-    // Current status and historical events have separate destinations and scroll positions.
-    if (showLogs) {
-        DashboardSection(stringResource(R.string.diagnostics_history))
-        DashboardGroup {
-            if (historyFields.isEmpty()) BasicComponent(title = stringResource(R.string.diagnostics_no_history))
-            else BasicComponent(title = stringResource(failureReason(history?.getString("failure"))),
-                summary = historyFields.filterIndexed { index, _ -> index != 1 }
-                    .joinToString("\n") { (label, value) -> "$label: $value" })
-        }
-        DashboardSection(stringResource(R.string.diagnostics_timeline))
-        DashboardGroup {
-            BasicComponent(title = stringResource(R.string.diagnostics_log_count, events.size))
-            if (events.isEmpty()) BasicComponent(title = stringResource(R.string.diagnostics_no_events))
-            else events.asReversed().forEach { event ->
-                DashboardDivider()
-                BasicComponent(title = eventSummary(event), summary = time(event.at))
+    // Preserve every field and action while sharing one content inset.
+    Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, bottom = 24.dp)) {
+        if (showLogs) {
+            Section(stringResource(R.string.diagnostics_history))
+            if (historyFields.isEmpty()) DiagnosticField(stringResource(R.string.diagnostics_no_history), "", stacked = true)
+            else DiagnosticField(stringResource(failureReason(history?.getString("failure"))),
+                historyFields.filterIndexed { index, _ -> index != 1 }
+                    .joinToString("\n") { (label, value) -> "$label: $value" }, stacked = true)
+            Section(stringResource(R.string.diagnostics_timeline))
+            DiagnosticField(stringResource(R.string.diagnostics_log_count, events.size),
+                if (events.isEmpty()) stringResource(R.string.diagnostics_no_events) else "", stacked = true)
+            events.asReversed().forEach { event ->
+                FidelityDivider()
+                DiagnosticField(eventSummary(event), time(event.at), stacked = true)
             }
-        }
-    } else {
-        DashboardGroup {
-            BasicComponent(title = stringResource(R.string.diagnostics_overview), summary = stringResource(explanation))
-            DashboardDivider()
-            DashboardLink(stringResource(R.string.diagnostics_logs), stringResource(R.string.diagnostics_logs_summary), onClick = onOpenLogs)
+        } else {
+            val overview = stringResource(R.string.diagnostics_overview)
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 12.dp).semantics { contentDescription = overview },
+                verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.padding(top = 8.dp).size(7.dp).background(
+                    if (snapshot?.getBoolean("ready") == true) Fidelity.blue else Fidelity.muted(), CircleShape))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FidelityText(stringResource(explanation), size = 16, weight = FontWeight.SemiBold)
+                    if (snapshot?.getBoolean("ready") == true && snapshot.getInt("audio", -1) == 2 && snapshot.getString("connection") == "connected")
+                        FidelityText(stringResource(R.string.minimal_diagnostic_ready_summary), size = 12, color = Fidelity.muted())
+                }
+            }
+            FidelityDivider()
+            MinimalLink(stringResource(R.string.diagnostics_logs), stringResource(R.string.diagnostics_logs_summary), onClick = onOpenLogs)
+            FidelityDivider()
+            listOf(R.string.diagnostics_connection_group to connectionFields,
+                R.string.diagnostics_settings_group to settingFields,
+                R.string.diagnostics_data_group to dataFields).forEach { (title, entries) ->
+                Section(stringResource(title))
+                entries.forEach { (label, value) ->
+                    DiagnosticField(label, value, stacked = value.contains('\n') || label in listOf(
+                        stringResource(R.string.diagnostics_missing_setting_names), stringResource(R.string.diagnostics_unconfirmed_settings)))
+                    FidelityDivider()
+                }
+            }
+            Section(stringResource(R.string.module_self_check))
+            ModuleSelfCheck { moduleReport = it }
         }
         Actions()
-        DashboardSection(stringResource(R.string.module_self_check))
-        DashboardGroup { ModuleSelfCheck { moduleReport = it } }
-        listOf(R.string.diagnostics_connection_group to connectionFields,
-            R.string.diagnostics_data_group to dataFields, R.string.diagnostics_settings_group to settingFields).forEach { (title, entries) ->
-            DashboardSection(stringResource(title))
-            DashboardGroup { entries.forEach { (label, value) -> BasicComponent(title = label, summary = value) } }
-        }
     }
-    if (showLogs) Actions()
 }
 
 @Composable

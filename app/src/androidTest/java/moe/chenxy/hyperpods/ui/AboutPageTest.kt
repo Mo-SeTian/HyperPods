@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.performClick
@@ -47,21 +48,23 @@ class AboutPageTest(private val theme: Int) {
 
     @Test fun originalAndForkAttributionsRemainVisible() {
         for (label in listOf(R.string.dashboard_author, R.string.dashboard_fork_author,
-            R.string.dashboard_fork_repository, R.string.dashboard_fork_donate)) {
+            R.string.redesign_sources)) {
             compose.revealSetting(compose.activity.getString(label)).assertIsDisplayed()
         }
         compose.revealSetting("Art_Chen").assertIsDisplayed()
         compose.revealSetting("Mo-SeTian").assertIsDisplayed()
     }
 
-    @Test fun aboutPageHasNoDuplicateDiagnosticsEntry() {
-        compose.revealSetting(compose.activity.getString(R.string.dashboard_fork_donate)).assertIsDisplayed()
-        compose.onAllNodesWithText(compose.activity.getString(R.string.diagnostics_title)).assertCountEquals(0)
+    @Test fun aboutPageHasASingleDiagnosticsEntry() {
+        compose.revealSetting(compose.activity.getString(R.string.diagnostics_title)).assertIsDisplayed()
+        compose.onAllNodesWithText(compose.activity.getString(R.string.diagnostics_title)).assertCountEquals(1)
     }
 
     @Test fun eachRepositoryLinkOpensItsOwnRepository() {
         val repositories = listOf("https://github.com/Art-Chen/HyperPods", "https://github.com/Mo-SeTian/HyperPods")
-        repositories.forEach { compose.revealSetting(it).assertIsDisplayed().performClick() }
+        for (name in listOf("Art_Chen", "Mo-SeTian")) {
+            compose.revealSetting(androidx.compose.ui.test.hasContentDescription("$name GitHub")).assertIsDisplayed().performClick()
+        }
         compose.runOnIdle {
             assertEquals(repositories, launched.map { it.dataString })
             assertEquals(listOf(Intent.ACTION_VIEW, Intent.ACTION_VIEW), launched.map { it.action })
@@ -69,8 +72,8 @@ class AboutPageTest(private val theme: Int) {
     }
 
     @Test fun eachDonationLinkOpensItsOwnCreator() {
-        for (label in listOf(R.string.donate, R.string.dashboard_fork_donate)) {
-            compose.revealSetting(compose.activity.getString(label)).assertIsDisplayed().performClick()
+        for (name in listOf("Art_Chen", "Mo-SeTian")) {
+            compose.revealSetting(androidx.compose.ui.test.hasContentDescription("$name ${compose.activity.getString(R.string.fidelity_afdian)}")).assertIsDisplayed().performClick()
         }
         compose.runOnIdle {
             assertEquals(listOf("https://afdian.com/a/art_chen?tab=home", "https://afdian.com/a/mosetian"),

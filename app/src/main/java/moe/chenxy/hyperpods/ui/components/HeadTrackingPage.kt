@@ -10,6 +10,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
@@ -26,7 +34,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -36,9 +43,6 @@ import moe.chenxy.hyperpods.utils.HeadPose
 import moe.chenxy.hyperpods.utils.HeadTrackingPreview.Snapshot
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
-import top.yukonga.miuix.kmp.basic.Button
-import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.UUID
 import kotlin.math.roundToInt
@@ -158,87 +162,87 @@ fun HeadTrackingContent(snapshot: Snapshot, history: List<HeadPose.Sample>, stal
     val active = running(snapshot.state)
     val live = active && !stale
     val sample = snapshot.sample.takeIf { live && it?.calibrated == true }
-    val primary = MiuixTheme.colorScheme.primary
-    val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(stringResource(R.string.head_test_safety), fontSize = 13.sp, color = secondary)
-        Card {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(if (stale && active) R.string.head_test_stale else headTestStatus(snapshot.state)),
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                Text(stringResource(R.string.head_test_packets, snapshot.packets), fontSize = 13.sp, color = secondary)
-                Button(onClick = if (active) onStop else onStart,
-                    enabled = enabled && snapshot.state != "stopping", modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(if (active) R.string.head_test_stop else R.string.head_test_start),
-                        color = if (enabled && snapshot.state != "stopping") primary else secondary.copy(alpha = .4f))
-                }
-                val poseDescription = stringResource(R.string.head_test_pose)
-                Canvas(Modifier.fillMaxWidth().height(140.dp).semantics { contentDescription = poseDescription }
-                    .graphicsLayer {
-                        // Follow real data directly: no decorative lag/spring over sensor samples.
-                        rotationX = -(sample?.pitch ?: 0f).coerceIn(-40f, 40f)
-                        rotationY = (sample?.yaw ?: 0f).coerceIn(-60f, 60f)
-                        cameraDistance = 12 * density
-                    }) {
-                    val r = size.height * .35f
-                    val c = center
-                    val color = if (sample != null) primary else secondary.copy(alpha = .4f)
-                    drawCircle(color, r, c, style = Stroke(3.dp.toPx()))
-                    drawCircle(color, 3.dp.toPx(), c + Offset(-r * .3f, -r * .2f))
-                    drawCircle(color, 3.dp.toPx(), c + Offset(r * .3f, -r * .2f))
-                    drawLine(color, c, c + Offset(0f, r * .2f), 3.dp.toPx(), StrokeCap.Round)
-                    drawLine(color, c + Offset(-r * .22f, r * .45f), c + Offset(r * .22f, r * .45f), 3.dp.toPx(), StrokeCap.Round)
-                    drawLine(color, c + Offset(-r * 1.15f, -r * .25f), c + Offset(-r * 1.15f, r * .25f), 5.dp.toPx(), StrokeCap.Round)
-                    drawLine(color, c + Offset(r * 1.15f, -r * .25f), c + Offset(r * 1.15f, r * .25f), 5.dp.toPx(), StrokeCap.Round)
-                }
-                Text(if (sample == null) stringResource(R.string.head_test_pose_waiting) else
-                    stringResource(R.string.head_test_angles, sample.pitch.roundToInt(), sample.yaw.roundToInt()), fontSize = 14.sp)
-                Text(stringResource(R.string.head_test_estimated), fontSize = 12.sp, color = secondary)
-                Button(onClick = onCenter, enabled = enabled && sample != null, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.head_test_center),
-                        color = if (enabled && sample != null) primary else secondary.copy(alpha = .4f))
-                }
+    val primary = Fidelity.accent()
+    val secondary = Fidelity.muted()
+    val canControl = enabled && snapshot.state != "stopping"
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        FidelityText(stringResource(if (stale && active) R.string.head_test_stale else headTestStatus(snapshot.state)),
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }, size = 16, weight = FontWeight.SemiBold)
+        FidelityText(stringResource(R.string.head_test_packets, snapshot.packets), size = 12, color = secondary)
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+            .background(if (canControl) MiuixTheme.colorScheme.primaryVariant else Fidelity.panel())
+            .clickable(canControl, role = Role.Button, onClick = if (active) onStop else onStart)
+            .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            FidelityText(stringResource(if (active) R.string.head_test_stop else R.string.head_test_start), size = 16,
+                weight = FontWeight.SemiBold, color = if (canControl) Color.White else secondary.copy(alpha = .4f))
+        }
+        FidelityText(stringResource(R.string.head_test_safety), size = 12, color = secondary)
+        FidelityDivider()
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            FidelityText(stringResource(R.string.minimal_head_pose), Modifier.weight(1f), size = 16, weight = FontWeight.SemiBold)
+            Box(Modifier.heightIn(min = 48.dp).clickable(enabled && sample != null, role = Role.Button, onClick = onCenter)
+                .padding(horizontal = 8.dp, vertical = 12.dp)) {
+                FidelityText(stringResource(R.string.head_test_center), size = 14,
+                    color = if (enabled && sample != null) primary else secondary.copy(alpha = .4f))
             }
         }
-        Card {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.head_test_motion))
-                Text(stringResource(R.string.head_test_legend), fontSize = 12.sp, color = secondary)
-                val chartDescription = stringResource(R.string.head_test_graph)
-                Canvas(Modifier.fillMaxWidth().height(120.dp).semantics { contentDescription = chartDescription }) {
-                    drawLine(secondary.copy(alpha = .3f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 1.dp.toPx())
-                    if (live && history.size >= 2) {
-                        // Fixed, labelled raw range: changes in scale cannot look like head motion.
-                        for (vertical in listOf(false, true)) {
-                            val path = Path()
-                            history.forEachIndexed { index, point ->
-                                val value = if (vertical) point.vertical else point.horizontal
-                                val x = size.width * index / 99f
-                                val y = size.height * (.5f - value / 12000f)
-                                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                            }
-                            drawPath(path, if (vertical) secondary else primary,
-                                style = Stroke(if (vertical) 1.5.dp.toPx() else 2.5.dp.toPx()))
-                        }
+        val poseDescription = stringResource(R.string.head_test_pose)
+        Canvas(Modifier.fillMaxWidth().height(112.dp).semantics { contentDescription = poseDescription }
+            .graphicsLayer {
+                // Follow real data directly: no decorative lag/spring over sensor samples.
+                rotationX = -(sample?.pitch ?: 0f).coerceIn(-40f, 40f)
+                rotationY = (sample?.yaw ?: 0f).coerceIn(-60f, 60f)
+                cameraDistance = 12 * density
+            }) {
+            val r = size.height * .35f
+            val c = center
+            val color = if (sample != null) primary else secondary.copy(alpha = .4f)
+            drawCircle(color, r, c, style = Stroke(3.dp.toPx()))
+            drawCircle(color, 3.dp.toPx(), c + Offset(-r * .3f, -r * .2f))
+            drawCircle(color, 3.dp.toPx(), c + Offset(r * .3f, -r * .2f))
+            drawLine(color, c, c + Offset(0f, r * .2f), 3.dp.toPx(), StrokeCap.Round)
+            drawLine(color, c + Offset(-r * .22f, r * .45f), c + Offset(r * .22f, r * .45f), 3.dp.toPx(), StrokeCap.Round)
+            drawLine(color, c + Offset(-r * 1.15f, -r * .25f), c + Offset(-r * 1.15f, r * .25f), 5.dp.toPx(), StrokeCap.Round)
+            drawLine(color, c + Offset(r * 1.15f, -r * .25f), c + Offset(r * 1.15f, r * .25f), 5.dp.toPx(), StrokeCap.Round)
+        }
+        FidelityText(if (sample == null) stringResource(R.string.head_test_pose_waiting) else
+            stringResource(R.string.head_test_angles, sample.pitch.roundToInt(), sample.yaw.roundToInt()), size = 14)
+        FidelityText(stringResource(R.string.head_test_estimated), size = 12, color = secondary)
+        FidelityDivider()
+        FidelityText(stringResource(R.string.head_test_motion), size = 16, weight = FontWeight.SemiBold)
+        FidelityText(stringResource(R.string.head_test_legend), size = 12, color = secondary)
+        val chartDescription = stringResource(R.string.head_test_graph)
+        Canvas(Modifier.fillMaxWidth().height(104.dp).semantics { contentDescription = chartDescription }) {
+            drawLine(secondary.copy(alpha = .3f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 1.dp.toPx())
+            if (live && history.size >= 2) {
+                // Fixed, labelled raw range: changes in scale cannot look like head motion.
+                for (vertical in listOf(false, true)) {
+                    val path = Path()
+                    history.forEachIndexed { index, point ->
+                        val value = if (vertical) point.vertical else point.horizontal
+                        val x = size.width * index / 99f
+                        val y = size.height * (.5f - value / 12000f)
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
                     }
+                    drawPath(path, if (vertical) secondary else primary,
+                        style = Stroke(if (vertical) 1.5.dp.toPx() else 2.5.dp.toPx()))
                 }
             }
         }
-        Card {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.head_test_instruction))
-                AnimatedContent(snapshot.gesture, transitionSpec = {
-                    fadeIn(tween(160)) togetherWith fadeOut(tween(100))
-                }, label = "HeadGestureResult") { gesture ->
-                    Text(stringResource(when (gesture) {
-                        "NOD" -> R.string.head_test_nod
-                        "SHAKE" -> R.string.head_test_shake
-                        else -> R.string.head_test_no_gesture
-                    }), color = primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                }
-                Text(stringResource(R.string.head_test_counts, snapshot.nods, snapshot.shakes), fontSize = 13.sp)
-            }
+        FidelityDivider()
+        FidelityText(stringResource(R.string.minimal_head_gestures), size = 16, weight = FontWeight.SemiBold)
+        FidelityText(stringResource(R.string.head_test_instruction), size = 12, color = secondary)
+        AnimatedContent(snapshot.gesture, transitionSpec = {
+            fadeIn(tween(160)) togetherWith fadeOut(tween(100))
+        }, label = "HeadGestureResult") { gesture ->
+            FidelityText(stringResource(when (gesture) {
+                "NOD" -> R.string.head_test_nod
+                "SHAKE" -> R.string.head_test_shake
+                else -> R.string.head_test_no_gesture
+            }), size = 16, color = primary, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
+        FidelityText(stringResource(R.string.head_test_counts, snapshot.nods, snapshot.shakes), size = 13, color = secondary)
     }
 }
 

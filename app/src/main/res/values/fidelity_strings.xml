@@ -1,0 +1,22 @@
+<resources>
+  <string name="fidelity_function_settings">Features</string>
+  <string name="fidelity_head_summary">Nod, shake and posture tests</string>
+  <string name="fidelity_wear_calls">Wearing and calls</string>
+  <string name="fidelity_single_anc">Single-ear noise cancellation</string>
+  <string name="fidelity_single_anc_summary">Keep noise cancellation when wearing one earbud</string>
+  <string name="fidelity_sleep">Pause when asleep</string>
+  <string name="fidelity_sleep_summary">Sleep detection is handled by the earbuds</string>
+  <string name="fidelity_speaker_summary">Switch playback device after removing both earbuds</string>
+  <string name="fidelity_module_active">Module active</string>
+  <string name="fidelity_module_check">Check module status</string>
+  <string name="fidelity_diagnostics_summary">Connection, status and logs</string>
+  <string name="fidelity_launcher">Home screen icon</string>
+  <string name="fidelity_launcher_summary">Open controls from your home screen</string>
+  <string name="fidelity_project_support">Project and support</string>
+  <string name="fidelity_afdian">Afdian</string>
+  <string name="fidelity_build">Build %1$d · %2$s</string>
+  <string name="fidelity_detection">Ear detection</string>
+  <string name="fidelity_more">More settings</string>
+  <string name="fidelity_speaker">Switch to speaker</string>
+  <string name="fidelity_device_options">Device options</string>
+</resources>

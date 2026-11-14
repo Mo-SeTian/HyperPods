@@ -1,0 +1,16 @@
+<resources>
+    <string name="redesign_device_menu">设备菜单</string>
+    <string name="redesign_bluetooth">蓝牙设置</string>
+    <string name="redesign_retained">等待最新佩戴状态</string>
+    <string name="redesign_listening">聆听模式</string>
+    <string name="redesign_current_off">当前聆听模式已关闭，滑动可启用通透或降噪。</string>
+    <string name="redesign_press">按压与触控</string>
+    <string name="redesign_press_summary">左右耳操作 · 响应速度</string>
+    <string name="redesign_audio">声音与对话</string>
+    <string name="redesign_audio_summary">提示音 · 对话时的播放</string>
+    <string name="redesign_battery_summary">耳机与耳机仓提醒阈值</string>
+    <string name="redesign_sources">协议参考 LibrePods</string>
+    <string name="redesign_module_unknown">点击检查模块状态</string>
+    <string name="redesign_slider">聆听模式滑块</string>
+    <string name="redesign_adaptive_range">自适应调节范围</string>
+</resources>

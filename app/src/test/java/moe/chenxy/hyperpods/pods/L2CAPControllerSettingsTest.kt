@@ -1433,6 +1433,20 @@ class L2CAPControllerSettingsTest {
         }
     }
 
+    @Test fun explicitAdaptiveStrengthCanBeWrittenBeforeTheFirstStrengthReport() {
+        val id = PodsSettings.identifiers.getValue(Key.ADAPTIVE_AUDIO_LEVEL)
+        assertNull(manager.getControlCommandStatus(id))
+        request(Key.ADAPTIVE_AUDIO_LEVEL, 76)
+        assertArrayEquals(byteArrayOf(4, 0, 4, 0, 9, 0, id.value, 76, 0, 0, 0), output.toByteArray())
+        assertEquals(76.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertTrue(manager.isAwaitingReport(id))
+        assertEquals("sent", field("lastSettingStatus").get(controller))
+        assertTrue(pending().isEmpty())
+        receive(id.value, 62)
+        assertEquals(62.toByte(), manager.getControlCommandStatus(id)!!.value[0])
+        assertFalse(manager.isAwaitingReport(id))
+    }
+
     @Test fun listeningToggleWriteFailuresPreserveThePreviousState() {
         `when`(socket.isConnected).thenReturn(false)
         for (key in listOf(Key.PERSONLIZED_VOLUME, Key.CONVERSATION_AWARENESS)) {

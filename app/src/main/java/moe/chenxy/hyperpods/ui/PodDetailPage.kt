@@ -2,33 +2,24 @@ package moe.chenxy.hyperpods.ui
 
 import android.os.Bundle
 import android.content.Intent
+import androidx.compose.foundation.layout.*
+import moe.chenxy.hyperpods.ui.components.*
+import top.yukonga.miuix.kmp.icon.icons.useful.*
 import androidx.compose.ui.platform.LocalContext
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.progressSemantics
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Arrangement
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
+
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.size
@@ -36,6 +27,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -51,29 +45,22 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.mocharealm.gaze.capsule.ContinuousRoundedRectangle
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
-import moe.chenxy.hyperpods.ui.components.DashboardBattery
-import moe.chenxy.hyperpods.ui.components.dashboardConnectionStatus
-import moe.chenxy.hyperpods.ui.components.DashboardDivider
+import moe.chenxy.hyperpods.utils.ListeningPosition
+import androidx.compose.runtime.key
+
 import moe.chenxy.hyperpods.ui.components.DashboardLink
-import moe.chenxy.hyperpods.ui.components.DashboardNoise
-import moe.chenxy.hyperpods.ui.components.DashboardSection
 import moe.chenxy.hyperpods.ui.components.DashboardToggle
-import moe.chenxy.hyperpods.ui.components.DashboardTopBar
 import moe.chenxy.hyperpods.ui.components.DashboardGroup as Card
-import moe.chenxy.hyperpods.ui.components.PodsInfoPage
 import moe.chenxy.hyperpods.ui.components.PressAndHoldSettingPage
-import moe.chenxy.hyperpods.ui.components.RenamePod
-import moe.chenxy.hyperpods.ui.components.ConnectionDiagnostics
 import moe.chenxy.hyperpods.ui.components.headGestureStatus
 import moe.chenxy.hyperpods.ui.components.HeadTrackingPage
 import moe.chenxy.hyperpods.ui.components.EqualizerPage
@@ -89,14 +76,8 @@ import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey as Key
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import top.yukonga.miuix.kmp.basic.Slider
-import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.extra.SuperDropdown
-import top.yukonga.miuix.kmp.extra.SuperSwitch
-import top.yukonga.miuix.kmp.extra.SuperDialog
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import moe.chenxy.hyperpods.ui.components.MinimalDropdown
+import moe.chenxy.hyperpods.ui.components.MinimalToggle
 
 @Composable
 fun PodDetailPage(
@@ -146,9 +127,14 @@ fun PodDetailPage(
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
     val context = LocalContext.current
+    var adaptiveRequest by remember(customEqState.session) { mutableStateOf<Float?>(null) }
+    val foreground = rememberUiForeground { adaptiveRequest = null }
+    val connection = diagnostics?.getString("connection")
     val controlsBlocked = diagnostics?.getString("recovery").orEmpty().isNotEmpty()
-    fun ready(key: String) = !controlsBlocked && PodsSettings.supports(key, model) && key !in pendingSettings &&
-        (key in settings || (key == Key.MICROPHONE_MODE || key == Key.LISTENING_MODE_BYTE) &&
+    // Explicit native strength writes do not require an earlier firmware echo.
+    // The controller still checks the model, range, socket and recovery state.
+    fun ready(key: String) = foreground && isActive && connection != "disconnected" && connection != "failed" && !controlsBlocked && PodsSettings.supports(key, model) && key !in pendingSettings &&
+        (key in settings || (key == Key.MICROPHONE_MODE || key == Key.LISTENING_MODE_BYTE || key == Key.ADAPTIVE_AUDIO_LEVEL) &&
             diagnostics?.getString("connection") == "connected")
     @Composable
     fun statusText(key: String): String? {
@@ -171,44 +157,87 @@ fun PodDetailPage(
     }
     val allowedModes = PodsSettings.allowedNoiseModes(model, settings)
     val eqAvailable = CustomEq.available(model, podsInfo?.version3.orEmpty(), customEqState.value != null)
-    val showOffInfo = remember(isActive, diagnostics?.getString("connection")) { mutableStateOf(false) }
-    var adaptiveDraft by remember(settings[Key.ADAPTIVE_AUDIO_LEVEL], Key.ADAPTIVE_AUDIO_LEVEL in pendingSettings,
-        settingFeedback[Key.ADAPTIVE_AUDIO_LEVEL]) { mutableFloatStateOf(adaptiveAudioLevel) }
     var chimeDraft by remember(settings[Key.CHIME_VOLUME], settingFeedback[Key.CHIME_VOLUME]) {
         mutableFloatStateOf((settings[Key.CHIME_VOLUME] ?: 0).toFloat())
     }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
     var equalizerParent by rememberSaveable { mutableIntStateOf(0) }
-    fun back() { detailPage = when (detailPage) { 4 -> 1; 5 -> equalizerParent; 6 -> 3; else -> 0 } }
+    fun back() { detailPage = when (detailPage) { 4 -> 9; 7, 8, 9, 10 -> 1; 5 -> equalizerParent; else -> 0 } }
     BackHandler(enabled = isActive && detailPage != 0) { back() }
     // Keep every page's saveable state outside the animated content. Switching the
     // content key must not discard the previous page's scroll position.
     val listStates = listOf(rememberLazyListState(), rememberLazyListState(),
         rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState(),
-        rememberLazyListState())
+        rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState())
+    // Keep the two-step Adaptive change above page navigation. Never queue a write
+    // across a new control session or while the connection is being recovered.
+    val sendLevel by rememberUpdatedState(onAdaptiveAudioLevelChange)
+    val adaptiveLevelReady = ready(Key.ADAPTIVE_AUDIO_LEVEL)
+    // "sent" + pending is emitted only after the Bluetooth writer accepts the
+    // mode command. Like LibrePods, do not require a separate firmware echo to
+    // write AUTO_ANC_STRENGTH; the displayed mode remains report-driven.
+    val adaptiveModeWritten = PodsSettings.NOISE_MODE in pendingSettings && settingFeedback[PodsSettings.NOISE_MODE] == "sent"
+    LaunchedEffect(ancMode, adaptiveRequest, controlsBlocked, adaptiveLevelReady, adaptiveModeWritten, foreground, isActive, connection) {
+        if (controlsBlocked || !foreground || !isActive || connection == "disconnected" || connection == "failed") adaptiveRequest = null
+        else if ((ancMode == NoiseControlMode.ADAPTIVE || adaptiveModeWritten) && adaptiveRequest != null && adaptiveLevelReady) {
+            sendLevel(adaptiveRequest!!)
+            adaptiveRequest = null
+        }
+    }
+    LaunchedEffect(settingFeedback[PodsSettings.NOISE_MODE]) {
+        if (settingFeedback[PodsSettings.NOISE_MODE] in listOf("timeout", "write_failed", "interrupted", "invalid")) adaptiveRequest = null
+    }
+    LaunchedEffect(adaptiveRequest) { if (adaptiveRequest != null) { delay(6500); adaptiveRequest = null } }
+    fun applyListeningPosition(position: Float) {
+        if (!ready(PodsSettings.NOISE_MODE)) return
+        val adaptive = PodsSettings.supports(Key.ADAPTIVE_AUDIO_LEVEL, model)
+        adaptiveRequest = null
+        when (val target = ListeningPosition.modeAt(position, adaptive)) {
+            NoiseControlMode.ADAPTIVE -> {
+                val level = ListeningPosition.adaptiveLevel(position)
+                if (ancMode == NoiseControlMode.ADAPTIVE) {
+                    if (adaptiveLevelReady) onAdaptiveAudioLevelChange(level)
+                } else {
+                    if (adaptiveLevelReady) adaptiveRequest = level
+                    onAncModeChange(NoiseControlMode.ADAPTIVE)
+                }
+            }
+            else -> onAncModeChange(target)
+        }
+    }
     val travel = with(LocalDensity.current) { 28.dp.roundToPx() }
     AnimatedContent(
         targetState = detailPage,
         modifier = Modifier.fillMaxSize().clipToBounds(),
         transitionSpec = {
-            val direction = if (targetState < initialState) -1 else 1
-            ((fadeIn(tween(220)) + slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { direction * travel })
-                togetherWith (fadeOut(tween(120)) + slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { -direction * travel / 2 }))
-                .using(null)
+            fun depth(page: Int) = when (page) {
+                0 -> 0
+                1 -> 1
+                4 -> 3 // More → Head gestures → Pose test
+                5 -> if (equalizerParent == 8) 3 else 1
+                7, 8, 9, 10 -> 2
+                else -> 1
+            }
+            settingsPageTransition(depth(targetState) > depth(initialState), travel).using(null)
         },
         label = "SettingsPage",
         contentAlignment = Alignment.TopCenter,
     ) { page ->
         val pageTitle = stringResource(when (page) {
-            1 -> R.string.dashboard_more
+            1 -> R.string.fidelity_more
             2 -> R.string.dashboard_device_info
             3 -> R.string.diagnostics_title
             4 -> R.string.head_test_title
             5 -> R.string.eq_title
             6 -> R.string.diagnostics_logs
+            7 -> R.string.redesign_press
+            8 -> R.string.redesign_audio
+            9 -> R.string.head_gestures_title
+            10 -> R.string.battery_reminder_title
             else -> R.string.dashboard_headphones
         })
-        val interaction = if (page == detailPage) Modifier.semantics { paneTitle = pageTitle }
+        val interaction = if (!isActive) Modifier.clearAndSetSemantics {}
+            else if (page == detailPage) Modifier.semantics { paneTitle = pageTitle }
             else Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
                 // The outgoing page remains visible briefly, but must not trigger
                 // stale setting writes or duplicate accessibility actions.
@@ -216,10 +245,11 @@ fun PodDetailPage(
                     while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
                 }
             }
+        Box(Modifier.fillMaxSize().background(Fidelity.surface()), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.widthIn(max = 680.dp).fillMaxSize().padding(padding)
             .consumeWindowInsets(padding).clipToBounds().then(interaction),
             horizontalAlignment = Alignment.CenterHorizontally) {
-            if (page != 0) DashboardTopBar { back() }
+            if (page != 0) FidelityTopBar(pageTitle) { back() }
             if (controlsBlocked) top.yukonga.miuix.kmp.basic.BasicComponent(
                 title = stringResource(if (diagnostics?.getString("recovery") == "recovering")
                     R.string.control_recovering else R.string.control_recovery_failed),
@@ -234,102 +264,71 @@ fun PodDetailPage(
                 // Keep the scroll/focus viewport between the fixed bars. Item-only
                 // padding lets bring-into-view place a clickable row under a bar.
                 modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds()
+                    .background(if (page == 0) Fidelity.surface() else androidx.compose.ui.graphics.Color.Transparent)
                     .focusProperties { canFocus = page == detailPage && isActive },
                 contentPadding = PaddingValues(bottom = 24.dp),
             ) {
                 if (page == 0) {
                     item(key = "home_header") {
-                        Column {
-                            homeNotice?.invoke()
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                                Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text(podsInfo?.name?.takeIf { it.isNotBlank() }
-                                        ?: deviceName.takeIf { it.isNotBlank() } ?: "AirPods",
-                                        fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                    RenamePod(Modifier.size(48.dp), onNameChange,
-                                        podsInfo?.name ?: deviceName, compact = true, pending = controlsBlocked || PodsSettings.RENAME in pendingSettings)
-                                }
-                                Row(Modifier.padding(start = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Box(Modifier.size(6.dp).background(MiuixTheme.colorScheme.primary, CircleShape))
-                                    Text(stringResource(if (pendingSettings.isNotEmpty()) R.string.setting_pending else dashboardConnectionStatus(diagnostics)), fontSize = 13.sp, lineHeight = 18.sp,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                }
-                                DashboardBattery(batteryParams, earDetectionParams, model, diagnostics)
-                                if (model == null) Text(stringResource(R.string.settings_reading), fontSize = 13.sp)
-                            }
+                        homeNotice?.invoke()
+                        DeviceHero(podsInfo?.name ?: deviceName.ifBlank { "AirPods" }, model, batteryParams,
+                            earDetectionParams, diagnostics, controlsBlocked || PodsSettings.RENAME in pendingSettings, onNameChange)
+                    }
+                    if (PodsSettings.supports(PodsSettings.NOISE_MODE, model)) item(key = "home_noise") {
+                        key(customEqState.session) {
+                        ListeningSlider(ancMode, adaptiveAudioLevel, PodsSettings.supports(Key.ADAPTIVE_AUDIO_LEVEL, model),
+                            isActive && page == detailPage && ready(PodsSettings.NOISE_MODE) && adaptiveRequest == null && Key.ADAPTIVE_AUDIO_LEVEL !in pendingSettings,
+                            settingFeedback[PodsSettings.NOISE_MODE],
+                            // Capture current reports for every composition. A local
+                            // function reference can retain the previous mode here.
+                            { applyListeningPosition(it) },
+                            available = foreground && isActive && page == detailPage && !controlsBlocked && connection != "disconnected" && connection != "failed",
+                            strengthFeedback = settingFeedback[Key.ADAPTIVE_AUDIO_LEVEL])
                         }
                     }
-                    if (PodsSettings.supports(PodsSettings.NOISE_MODE, model)) {
-                        item(key = "home_noise") {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                                DashboardSection(stringResource(R.string.dashboard_noise))
-                                DashboardNoise(ancMode, { mode ->
-                                    if (mode == NoiseControlMode.OFF && 1 !in allowedModes) showOffInfo.value = true
-                                    else onAncModeChange(mode)
-                                },
-                                    if (ready(PodsSettings.NOISE_MODE) && Key.ALLOW_OFF_OPTION !in pendingSettings) allowedModes + 1 else emptySet())
-                                if (ancMode == null) Text(stringResource(R.string.settings_reading), fontSize = 13.sp)
+                    item(key = "home_quick") {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                            if (PodsSettings.supports(Key.PERSONLIZED_VOLUME, model)) {
+                                MinimalToggle(stringResource(R.string.personlized_volume_title),
+                                    feedback(Key.PERSONLIZED_VOLUME, R.string.minimal_personalized_summary),
+                                    personlizedVolume, ready(Key.PERSONLIZED_VOLUME), onPersonlizedVolumeChange)
+                                FidelityDivider()
                             }
+                            if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
+                                MinimalToggle(stringResource(R.string.dashboard_conversation_title),
+                                    feedback(Key.CONVERSATION_AWARENESS, R.string.minimal_conversation_summary),
+                                    conversationAwareness, ready(Key.CONVERSATION_AWARENESS), onConversationAwarenessChange)
+                                FidelityDivider()
+                            }
+                            MinimalToggle(stringResource(R.string.fidelity_detection), stringResource(R.string.minimal_detection_summary),
+                                earDetectionEnable, onCheckedChange = onEarDetectionChanged)
                         }
                     }
-                    item(key = "home_listening") {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                            DashboardSection(stringResource(R.string.dashboard_listening))
-                            Card {
-                                if (PodsSettings.supports(Key.PERSONLIZED_VOLUME, model)) {
-                                    DashboardToggle(stringResource(R.string.personlized_volume_title),
-                                        feedback(Key.PERSONLIZED_VOLUME, R.string.personlized_volume_summary),
-                                        personlizedVolume, onPersonlizedVolumeChange, enabled = ready(Key.PERSONLIZED_VOLUME))
-                                    DashboardDivider(Modifier.padding(horizontal = 16.dp))
-                                }
-                                if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
-                                    DashboardToggle(stringResource(R.string.dashboard_conversation_title),
-                                        feedback(Key.CONVERSATION_AWARENESS, R.string.dashboard_conversation_summary),
-                                        conversationAwareness, onConversationAwarenessChange, enabled = ready(Key.CONVERSATION_AWARENESS))
-                                    DashboardDivider(Modifier.padding(horizontal = 16.dp))
-                                }
-                                DashboardToggle(stringResource(R.string.dashboard_detection_title),
-                                    stringResource(R.string.dashboard_detection_summary), earDetectionEnable, onEarDetectionChanged)
-                            }
+                    if (CustomEq.supportsModel(model) || customEqState.value != null) item(key = "home_eq") {
+                        Column(Modifier.padding(horizontal = 24.dp)) {
+                            FidelityDivider()
+                            MinimalLink(stringResource(R.string.eq_title), stringResource(R.string.minimal_eq_summary), value = stringResource(when {
+                                !eqAvailable && !podsInfo?.version3.isNullOrBlank() -> R.string.eq_update_required
+                                customEqState.value?.state == CustomEq.RECOMMENDED -> R.string.eq_recommended
+                                customEqState.value?.state == CustomEq.CUSTOM -> R.string.eq_custom
+                                else -> R.string.settings_reading
+                            })) { equalizerParent = 0; detailPage = 5 }
+                            FidelityDivider()
                         }
                     }
-                    item(key = "home_controls") {
-                        Card(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
-                            if (CustomEq.supportsModel(model) || customEqState.value != null) {
-                                DashboardLink(stringResource(R.string.eq_title), rightText = stringResource(when {
-                                    !eqAvailable && !podsInfo?.version3.isNullOrBlank() -> R.string.eq_update_required
-                                    customEqState.value?.state == CustomEq.RECOMMENDED -> R.string.eq_recommended
-                                    customEqState.value?.state == CustomEq.CUSTOM -> R.string.eq_custom
-                                    else -> R.string.settings_reading
-                                })) { equalizerParent = 0; detailPage = 5 }
-                                DashboardDivider(Modifier.padding(horizontal = 16.dp))
-                            }
-                            DashboardLink(stringResource(R.string.dashboard_more)) { detailPage = 1 }
-                        }
-                    }
-                    item(key = "home_support") {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                            DashboardSection(stringResource(R.string.dashboard_support))
-                            Card {
-                                DashboardLink(stringResource(R.string.dashboard_device_info),
-                                    if (podsInfo == null) stringResource(R.string.dashboard_info_pending) else null) { detailPage = 2 }
-                                DashboardDivider(Modifier.padding(horizontal = 16.dp))
-                                DashboardLink(stringResource(R.string.diagnostics_title), null) { detailPage = 3 }
-                            }
+                    item(key = "home_more") {
+                        Column(Modifier.padding(horizontal = 24.dp)) {
+                            if (!CustomEq.supportsModel(model) && customEqState.value == null) FidelityDivider()
+                            MinimalLink(stringResource(R.string.fidelity_more), stringResource(R.string.minimal_more_summary)) { detailPage = 1 }
                         }
                     }
                     return@LazyColumn
                 }
-                item(key = "page_title") {
-                    Text(pageTitle, fontSize = 26.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
-                }
                 if (page == 5) {
                     item(key = "equalizer") {
-                        EqualizerPage(customEqState, podsInfo?.name ?: deviceName,
-                            firmware = podsInfo?.version3.orEmpty(), available = eqAvailable,
-                            active = !controlsBlocked && isActive && page == detailPage && customEqState.session > 0 && diagnostics?.getString("connection") == "connected",
+                        EqualizerPage(customEqState,
+                            firmware = podsInfo?.version3.orEmpty(), available = eqAvailable, model = model,
+                            active = foreground && !controlsBlocked && isActive && page == detailPage && customEqState.session > 0 && diagnostics?.getString("connection") == "connected",
                             feedback = settingFeedback[PodsSettings.CUSTOM_EQ], onChange = onCustomEqChange)
                     }
                     return@LazyColumn
@@ -340,78 +339,126 @@ fun PodDetailPage(
                     }
                     return@LazyColumn
                 }
-                if (page == 3 || page == 6) {
-                    item(key = "diagnostics") {
-                        Column(Modifier.padding(horizontal = 16.dp)) {
-                            ConnectionDiagnostics(diagnostics, showLogs = page == 6, onOpenLogs = { detailPage = 6 })
-                        }
-                    }
-                    return@LazyColumn
-                }
-                if (page == 2) {
-                    item(key = "device_info") {
-                        podsInfo?.let { PodsInfoPage(Modifier, Modifier.padding(horizontal = 16.dp), it) }
-                            ?: Text(stringResource(R.string.dashboard_info_pending), modifier = Modifier.padding(24.dp))
-                    }
-                    return@LazyColumn
-                }
-                val cardModifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+                val cardModifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
                 val titleModifier = Modifier.padding(top = 12.dp)
 
-                if (model?.capabilities?.contains(Capability.HEAD_GESTURES) == true || PodsSettings.supports(Key.SLEEP_DETECTION, model)) {
+                if (page == 1 && PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) item(key = "more_conversation") {
+                    MinimalSection(stringResource(R.string.dashboard_conversation_title)) {
+                        MinimalToggle(stringResource(R.string.conversation_pause_media_title), stringResource(R.string.minimal_pause_summary),
+                            conversationPauseMedia, conversationAwareness, onConversationPauseMediaChange)
+                        FidelityDivider()
+                        MinimalToggle(stringResource(R.string.conversation_phone_volume_title),
+                            stringResource(if (conversationPauseMedia) R.string.minimal_phone_paused else R.string.minimal_phone_summary),
+                            conversationPhoneVolume, conversationAwareness && !conversationPauseMedia, onConversationPhoneVolumeChange)
+                    }
+                }
+                if (page == 1) item(key = "more_primary_settings") {
+                    MinimalSection(stringResource(R.string.minimal_wear_controls)) {
+                        if (PodsSettings.supports(Key.SINGLE_POD_ANC, model)) {
+                            MinimalToggle(stringResource(R.string.fidelity_single_anc), feedback(Key.SINGLE_POD_ANC, R.string.fidelity_single_anc_summary),
+                                noiseCancellationSingleAirPod, ready(Key.SINGLE_POD_ANC), onNoiseCancellationSingleAirPodChange)
+                            FidelityDivider()
+                        }
+                        if (PodsSettings.supports(Key.ADJUST_VOLUME_BY_SWIPER, model)) {
+                            MinimalToggle(stringResource(R.string.adjust_volume_by_swiper_title), feedback(Key.ADJUST_VOLUME_BY_SWIPER, R.string.minimal_swipe_summary),
+                                adjustVolumeBySwiper, ready(Key.ADJUST_VOLUME_BY_SWIPER), onAdjustVolumeBySwiperChange)
+                            FidelityDivider()
+                        }
+                        listOf(Key.PRESS_SPEED to R.string.control_press_speed, Key.HOLD_DURATION to R.string.control_hold_duration).forEach { (key, title) ->
+                            if (PodsSettings.supports(key, model)) {
+                                MinimalDropdown(stringResource(title), listOf(stringResource(R.string.control_default),
+                                    stringResource(if (key == Key.PRESS_SPEED) R.string.control_slower else R.string.control_longer),
+                                    stringResource(if (key == Key.PRESS_SPEED) R.string.control_slowest else R.string.control_longest)),
+                                    settings[key] ?: -1, ready(key), summary = statusText(key),
+                                    onSelectedIndexChange = { onSettingChange(key, it) })
+                                FidelityDivider()
+                            }
+                        }
+                        FidelityMicrophoneRow(stringResource(R.string.microphone), listOf(stringResource(R.string.microphone_auto),
+                            stringResource(R.string.microphone_left), stringResource(R.string.microphone_right)),
+                            if (Key.MICROPHONE_MODE in settings) microphoneMode else -1, ready(Key.MICROPHONE_MODE), onMicrophoneModeChange)
+                        if (earDetectionEnable) {
+                            FidelityDivider()
+                            MinimalToggle(stringResource(R.string.fidelity_speaker), stringResource(R.string.fidelity_speaker_summary),
+                                autoSwitchToSpeaker, onCheckedChange = onAutoSwitchToSpeakerChange)
+                        }
+                    }
+                }
+                if (page == 1) item(key = "more_automation") {
+                    MinimalSection(stringResource(R.string.minimal_automation)) {
+                        if (PodsSettings.supports(Key.SLEEP_DETECTION, model)) {
+                            MinimalToggle(stringResource(R.string.fidelity_sleep), feedback(Key.SLEEP_DETECTION, R.string.fidelity_sleep_summary),
+                                settings[Key.SLEEP_DETECTION] == 1,
+                                !controlsBlocked && Key.SLEEP_DETECTION !in pendingSettings &&
+                                    (Key.SLEEP_DETECTION in settings || diagnostics?.getString("connection") == "connected"),
+                                { onSettingChange(Key.SLEEP_DETECTION, if (it) 1 else 2) })
+                            FidelityDivider()
+                        }
+                        MinimalLink(stringResource(R.string.battery_reminder_title), stringResource(R.string.redesign_battery_summary)) { detailPage = 10 }
+                    }
+                }
+                if (page == 1) item(key = "more_shortcuts") {
+                    MinimalSection(stringResource(R.string.fidelity_function_settings)) {
+                        if (listOf(Key.LISTENING_MODE_BYTE, Key.PRESS_SPEED, Key.HOLD_DURATION, Key.SWIPE_SPEED)
+                            .any { PodsSettings.supports(it, model) }) {
+                            MinimalLink(stringResource(R.string.redesign_press), stringResource(R.string.redesign_press_summary)) { detailPage = 7 }
+                            FidelityDivider()
+                        }
+                        MinimalLink(stringResource(R.string.redesign_audio), stringResource(R.string.redesign_audio_summary)) { detailPage = 8 }
+                        if (Capability.HEAD_GESTURES in model?.capabilities.orEmpty()) {
+                            FidelityDivider()
+                            MinimalLink(stringResource(R.string.head_gestures_title), stringResource(R.string.fidelity_head_summary)) { detailPage = 9 }
+                        }
+                    }
+                }
+                if (page == 9) {
                     item(key = "more_gestures_sleep") {
-                        SmallTitle(stringResource(R.string.dashboard_operation), modifier = titleModifier)
+                        FidelitySection(stringResource(R.string.dashboard_operation), modifier = titleModifier)
                         Card(modifier = cardModifier) {
-                            if (model?.capabilities?.contains(Capability.HEAD_GESTURES) == true) {
+                            if (page == 9 && model?.capabilities?.contains(Capability.HEAD_GESTURES) == true) {
                                 DashboardToggle(stringResource(R.string.head_gestures_title),
                                     stringResource(R.string.head_gestures_summary) + "\n" +
                                         stringResource(headGestureStatus(diagnostics?.getString("head_gestures"))),
                                     headGestures, onHeadGesturesChange)
-                                DashboardDivider(Modifier.padding(horizontal = 16.dp))
+                                FidelityDivider()
                                 DashboardLink(stringResource(R.string.head_test_title),
                                     stringResource(R.string.head_test_summary)) { detailPage = 4 }
                             }
-                            if (PodsSettings.supports(Key.SLEEP_DETECTION, model)) {
-                                DashboardDivider(Modifier.padding(horizontal = 16.dp))
-                                DashboardToggle(stringResource(R.string.sleep_detection_title),
-                                    feedback(Key.SLEEP_DETECTION, R.string.sleep_detection_summary),
-                                    settings[Key.SLEEP_DETECTION] == 1,
-                                    { onSettingChange(Key.SLEEP_DETECTION, if (it) 1 else 2) },
-                                    enabled = Key.SLEEP_DETECTION !in pendingSettings &&
-                                        (Key.SLEEP_DETECTION in settings || diagnostics?.getString("connection") == "connected"))
-                            }
+
                         }
                     }
                 }
 
-                item(key = "more_battery_reminders") {
-                    SmallTitle(stringResource(R.string.battery_reminder_title), modifier = titleModifier)
+                if (page == 10) item(key = "more_battery_reminders") {
+                    FidelitySection(stringResource(R.string.battery_reminder_title), modifier = titleModifier)
                     Card(modifier = cardModifier) {
-                        SuperSwitch(title = stringResource(R.string.battery_reminder_ears),
+                        MinimalToggle(title = stringResource(R.string.battery_reminder_ears),
                             summary = stringResource(R.string.battery_reminder_ears_summary),
                             checked = lowBatterySettings.earsEnabled,
                             onCheckedChange = { onLowBatterySettingsChange(lowBatterySettings.copy(earsEnabled = it)) })
-                        SuperDropdown(title = stringResource(R.string.battery_reminder_ears_threshold),
+                        MinimalDropdown(title = stringResource(R.string.battery_reminder_ears_threshold),
                             items = LowBatteryReminder.thresholds.map { "$it%" },
                             selectedIndex = LowBatteryReminder.thresholds.indexOf(lowBatterySettings.earsThreshold),
                             enabled = lowBatterySettings.earsEnabled,
                             onSelectedIndexChange = { onLowBatterySettingsChange(lowBatterySettings.copy(earsThreshold = LowBatteryReminder.thresholds[it])) })
-                        SuperSwitch(title = stringResource(R.string.battery_reminder_case),
+                        MinimalToggle(title = stringResource(R.string.battery_reminder_case),
                             summary = stringResource(R.string.battery_reminder_case_summary),
                             checked = lowBatterySettings.caseEnabled,
                             onCheckedChange = { onLowBatterySettingsChange(lowBatterySettings.copy(caseEnabled = it)) })
-                        SuperDropdown(title = stringResource(R.string.battery_reminder_case_threshold),
+                        MinimalDropdown(title = stringResource(R.string.battery_reminder_case_threshold),
                             items = LowBatteryReminder.thresholds.map { "$it%" },
                             selectedIndex = LowBatteryReminder.thresholds.indexOf(lowBatterySettings.caseThreshold),
                             enabled = lowBatterySettings.caseEnabled,
                             onSelectedIndexChange = { onLowBatterySettingsChange(lowBatterySettings.copy(caseThreshold = LowBatteryReminder.thresholds[it])) })
-                        top.yukonga.miuix.kmp.basic.BasicComponent(title = stringResource(R.string.battery_reminder_rules),
-                            summary = stringResource(R.string.battery_reminder_rules_summary), enabled = false)
+                        Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            FidelityText(stringResource(R.string.battery_reminder_rules), size = 16, weight = FontWeight.SemiBold)
+                            FidelityText(stringResource(R.string.battery_reminder_rules_summary), size = 12, color = Fidelity.muted())
+                        }
                     }
                 }
 
                     // Press & Hold Settings
-                if (PodsSettings.supports(Key.LISTENING_MODE_BYTE, model)) item(key = "more_press_hold") {
+                if (page == 7 && PodsSettings.supports(Key.LISTENING_MODE_BYTE, model)) item(key = "more_press_hold") {
                     PressAndHoldSettingPage(
                         onListeningModeChange = onListeningModeChange, titleModifier = titleModifier, cardModifier = cardModifier,
                         confirmedMask = settings[Key.LISTENING_MODE_BYTE], allowedModes = allowedModes,
@@ -419,25 +466,24 @@ fun PodDetailPage(
                     )
                 }
 
-                item(key = "more_timing") {
-                    SmallTitle(stringResource(R.string.controls_timing), modifier = titleModifier)
+                if (page == 7) item(key = "more_timing") {
+                    FidelitySection(stringResource(R.string.controls_timing), modifier = titleModifier)
                     Card(modifier = cardModifier) {
                         listOf(Key.PRESS_SPEED to R.string.control_press_speed,
                             Key.HOLD_DURATION to R.string.control_hold_duration,
                             Key.SWIPE_SPEED to R.string.control_swipe_speed).forEach { (key, title) ->
                             if (PodsSettings.supports(key, model)) {
                                 val offset = if (key == Key.SWIPE_SPEED) 1 else 0
-                                if (ready(key)) SuperDropdown(
+                                MinimalDropdown(
                                     title = stringResource(title),
                                     items = listOf(stringResource(R.string.control_default),
                                         stringResource(if (key == Key.PRESS_SPEED) R.string.control_slower else R.string.control_longer),
                                         stringResource(if (key == Key.PRESS_SPEED) R.string.control_slowest else R.string.control_longest)),
-                                    selectedIndex = settings.getValue(key) - offset,
+                                    selectedIndex = settings[key]?.minus(offset) ?: -1,
+                                    showValue = key in settings,
+                                    enabled = ready(key),
+                                    summary = if (!ready(key)) stringResource(if (key in pendingSettings) R.string.setting_pending else R.string.settings_reading) else statusText(key),
                                     onSelectedIndexChange = { onSettingChange(key, it + offset) },
-                                ) else top.yukonga.miuix.kmp.basic.BasicComponent(
-                                    title = stringResource(title),
-                                    summary = stringResource(if (key in pendingSettings) R.string.setting_pending else R.string.settings_reading),
-                                    enabled = false,
                                 )
                             }
                         }
@@ -445,44 +491,48 @@ fun PodDetailPage(
                 }
 
                     // Audio
-                item(key = "more_audio") {
-                    SmallTitle(stringResource(R.string.audio_title), modifier = titleModifier)
+                if (page == 8) item(key = "more_audio") {
+                    FidelitySection(stringResource(R.string.audio_title), modifier = titleModifier)
                     Card(
                         modifier = cardModifier
                     ) {
                         if (CustomEq.supportsModel(model) || customEqState.value != null) {
-                            DashboardLink(stringResource(R.string.eq_title), stringResource(R.string.eq_summary)) { equalizerParent = 1; detailPage = 5 }
-                            DashboardDivider(Modifier.padding(horizontal = 16.dp))
+                            DashboardLink(stringResource(R.string.eq_title), stringResource(R.string.eq_summary)) { equalizerParent = 8; detailPage = 5 }
+                            FidelityDivider()
                         }
                         if (PodsSettings.supports(Key.CONVERSATION_AWARENESS, model)) {
-                            SuperSwitch(
+                            MinimalToggle(
                                 title = stringResource(R.string.conversation_pause_media_title),
                                 summary = stringResource(R.string.conversation_pause_media_summary),
                                 checked = conversationPauseMedia,
+                                enabled = conversationAwareness,
                                 onCheckedChange = onConversationPauseMediaChange,
                             )
-                            SuperSwitch(
+                            MinimalToggle(
                                 title = stringResource(R.string.conversation_phone_volume_title),
                                 summary = stringResource(if (conversationPauseMedia) R.string.conversation_phone_volume_paused
                                     else R.string.conversation_phone_volume_summary),
                                 checked = conversationPhoneVolume,
-                                enabled = !conversationPauseMedia,
+                                enabled = conversationAwareness && !conversationPauseMedia,
                                 onCheckedChange = onConversationPhoneVolumeChange,
                             )
                         }
-                        if (PodsSettings.supports(Key.CHIME_VOLUME, model)) Column(Modifier.padding(16.dp)) {
-                            Text(stringResource(R.string.control_chime_volume), fontWeight = FontWeight.Medium)
-                            Text(if (ready(Key.CHIME_VOLUME)) "${chimeDraft.toInt()}%" else
-                                stringResource(if (Key.CHIME_VOLUME in pendingSettings) R.string.setting_pending else R.string.settings_reading),
-                                fontSize = 13.sp)
-                            statusText(Key.CHIME_VOLUME)?.let { Text(it, fontSize = 12.sp) }
+                        if (PodsSettings.supports(Key.CHIME_VOLUME, model)) Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                FidelityText(stringResource(R.string.control_chime_volume), Modifier.weight(1f), size = 16, weight = FontWeight.SemiBold)
+                                FidelityText(if (ready(Key.CHIME_VOLUME)) "${chimeDraft.toInt()}%" else
+                                    stringResource(if (Key.CHIME_VOLUME in pendingSettings) R.string.setting_pending else R.string.settings_reading),
+                                    size = 14, color = Fidelity.muted())
+                            }
+                            statusText(Key.CHIME_VOLUME)?.let { FidelityText(it, size = 12, color = Fidelity.muted()) }
                             Slider(value = chimeDraft, valueRange = 0f..100f,
                                 onValueChange = { chimeDraft = it },
                                 onValueChangeFinished = { onSettingChange(Key.CHIME_VOLUME, chimeDraft.toInt()) },
-                                enabled = ready(Key.CHIME_VOLUME), modifier = Modifier.fillMaxWidth()
+                                enabled = ready(Key.CHIME_VOLUME), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                     .progressSemantics(chimeDraft, 0f..100f))
                         }
-                        if (Capability.LOUD_SOUND_REDUCTION in model?.capabilities.orEmpty()) SuperSwitch(
+                        if (Capability.LOUD_SOUND_REDUCTION in model?.capabilities.orEmpty()) MinimalToggle(
                             title = stringResource(R.string.loud_sound_reduction_title),
                             summary = stringResource(R.string.loud_sound_unavailable),
                             checked = false,
@@ -490,66 +540,14 @@ fun PodDetailPage(
                             onCheckedChange = {}
                         )
 
-                        AnimatedVisibility(
-                            visible = ancMode == NoiseControlMode.ADAPTIVE && PodsSettings.supports(Key.ADAPTIVE_AUDIO_LEVEL, model),
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .heightIn(min = 56.dp)
-                                    .fillMaxWidth()
-                                    .padding(PaddingValues(16.dp)),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.adaptive_audio_title),
-                                        fontSize = MiuixTheme.textStyles.headline1.fontSize,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MiuixTheme.colorScheme.onSurface
-                                    )
-                                    Slider(
-                                        value = adaptiveDraft,
-                                        onValueChange = { adaptiveDraft = it },
-                                        onValueChangeFinished = { onAdaptiveAudioLevelChange(adaptiveDraft) },
-                                        enabled = ready(Key.ADAPTIVE_AUDIO_LEVEL),
-                                        modifier = Modifier.padding(top = 8.dp).progressSemantics(adaptiveDraft),
-                                        effect = true,
-                                        showKeyPoints = true,
-                                        keyPoints = listOf(0f, 0.5f, 1f),
-                                    )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            stringResource(R.string.less_noise),
-                                            fontSize = 12.sp,
-                                            color = MiuixTheme.colorScheme.onBackgroundVariant
-                                        )
-                                        Text(
-                                            stringResource(R.string.more_noise),
-                                            fontSize = 12.sp,
-                                            color = MiuixTheme.colorScheme.onBackgroundVariant
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        if (PodsSettings.supports(Key.ADJUST_VOLUME_BY_SWIPER, model)) SuperSwitch(
+                        if (PodsSettings.supports(Key.ADJUST_VOLUME_BY_SWIPER, model)) MinimalToggle(
                             title = stringResource(R.string.adjust_volume_by_swiper_title),
                             summary = feedback(Key.ADJUST_VOLUME_BY_SWIPER, R.string.adjust_volume_by_swiper_summary),
                             checked = adjustVolumeBySwiper,
                             enabled = ready(Key.ADJUST_VOLUME_BY_SWIPER),
                             onCheckedChange = onAdjustVolumeBySwiperChange
                         )
-                        if (PodsSettings.supports(Key.ALLOW_OFF_OPTION, model)) SuperSwitch(
+                        if (PodsSettings.supports(Key.ALLOW_OFF_OPTION, model)) MinimalToggle(
                             title = stringResource(R.string.allow_off_title),
                             summary = stringResource(R.string.allow_off_summary),
                             checked = settings[Key.ALLOW_OFF_OPTION] == 1,
@@ -559,81 +557,8 @@ fun PodDetailPage(
                     }
                 }
 
-                    // Auto Ear-Detection
-                item(key = "more_ear_detection") {
-                    SmallTitle(stringResource(R.string.ear_detection_title), modifier = titleModifier)
-                    Card(
-                        modifier = cardModifier
-                    ) {
-                        AnimatedVisibility(
-                            visible = earDetectionEnable,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            SuperSwitch(
-                                title = stringResource(R.string.auto_switch_to_speaker_title),
-                                summary = stringResource(R.string.auto_switch_to_speaker_summary),
-                                checked = autoSwitchToSpeaker,
-                                onCheckedChange = onAutoSwitchToSpeakerChange,
-                            )
-                        }
-                    }
-                }
-
-                    // Mic Phone
-                item(key = "more_microphone") {
-                    Card(
-                        modifier = cardModifier
-                    ) {
-                        if (ready(Key.MICROPHONE_MODE)) SuperDropdown(
-                            title = stringResource(R.string.microphone),
-                            items = listOf(stringResource(R.string.microphone_auto),
-                                stringResource(R.string.microphone_left),
-                                stringResource(R.string.microphone_right)
-                            ),
-                            selectedIndex = if (Key.MICROPHONE_MODE in settings) microphoneMode else -1,
-                            showValue = Key.MICROPHONE_MODE in settings,
-                            summary = if (Key.MICROPHONE_MODE in settings) statusText(Key.MICROPHONE_MODE)
-                                else stringResource(R.string.setting_select_to_apply),
-                            onSelectedIndexChange = onMicrophoneModeChange,
-                        ) else top.yukonga.miuix.kmp.basic.BasicComponent(
-                            title = stringResource(R.string.microphone),
-                            summary = stringResource(if (Key.MICROPHONE_MODE in pendingSettings) R.string.setting_pending else R.string.settings_reading),
-                            enabled = false,
-                        )
-                    }
-                }
-
-                    // Single Pod ANC Mode
-                if (PodsSettings.supports(Key.SINGLE_POD_ANC, model)) item(key = "more_single_anc") {
-                    Card(
-                        modifier = cardModifier
-                    ) {
-                        SuperSwitch(
-                            title = stringResource(R.string.noise_cancellation_single_airpod),
-                            summary = feedback(Key.SINGLE_POD_ANC, R.string.noise_cancellation_single_airpod_description),
-                            checked = noiseCancellationSingleAirPod,
-                            enabled = ready(Key.SINGLE_POD_ANC),
-                            onCheckedChange = onNoiseCancellationSingleAirPodChange,
-                        )
-                    }
-                }
             }
         }
-    }
-    SuperDialog(show = showOffInfo, title = stringResource(R.string.off_mode_confirm_title),
-        summary = stringResource(R.string.off_mode_enable_on_select),
-        onDismissRequest = { showOffInfo.value = false }) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(stringResource(android.R.string.cancel), onClick = { showOffInfo.value = false },
-                modifier = Modifier.weight(1f).border(1.dp,
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = .65f),
-                    ContinuousRoundedRectangle(ButtonDefaults.CornerRadius)))
-            TextButton(stringResource(android.R.string.ok), onClick = {
-                showOffInfo.value = false
-                onAncModeChange(NoiseControlMode.OFF)
-            }, enabled = ready(PodsSettings.NOISE_MODE) && Key.ALLOW_OFF_OPTION !in pendingSettings,
-                modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary())
         }
     }
 }

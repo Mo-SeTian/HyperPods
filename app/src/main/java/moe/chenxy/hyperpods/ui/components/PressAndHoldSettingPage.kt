@@ -47,7 +47,6 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.extra.SuperArrow
 import top.yukonga.miuix.kmp.extra.SuperDropdown
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.icons.useful.Cancel
@@ -116,12 +115,12 @@ fun PressAndHoldSettingPage(
 
     val showBottomSheet = rememberSaveable { mutableStateOf(false) }
 
-    SmallTitle(stringResource(R.string.long_press_shared), modifier = titleModifier.padding(top = 12.dp))
+    FidelitySection(stringResource(R.string.long_press_shared), modifier = titleModifier)
     Card(
         modifier = cardModifier
     ) {
-        SuperArrow(stringResource(R.string.set_noise_mode),
-            rightText = if (!enabled) stringResource(R.string.settings_reading)
+        MinimalLink(stringResource(R.string.set_noise_mode),
+            value = if (!enabled) stringResource(R.string.settings_reading)
                 else if (confirmedMask == null) stringResource(R.string.setting_select_to_apply) else settingMode[0],
             enabled = enabled, onClick = {
                 listeningModeConfigByte.value = ((confirmedMask ?: 0) and allowedMask).toByte()

@@ -46,6 +46,7 @@ import moe.chenxy.hyperpods.ui.components.ModuleActivationGuide
 import moe.chenxy.hyperpods.ui.components.ModuleWarningCard
 import moe.chenxy.hyperpods.ui.components.rememberModuleCheck
 import moe.chenxy.hyperpods.utils.ModuleStatus
+import moe.chenxy.hyperpods.utils.ListeningPosition
 import top.yukonga.miuix.kmp.basic.Scaffold
 
 var currentPodsInfo by mutableStateOf<AACPManager.Companion.AirPodsInformation?>(null)
@@ -57,6 +58,10 @@ fun sendBooleanSetting(context: Context, prefKey: String, value: Boolean) {
 fun sendPodsSetting(context: Context, prefKey: String, value: Int) {
     HyperPodsBroadcasts.send(context, Intent(HyperPodsAction.ACTION_PODS_SETTINGS_CHANGED)
         .putExtra("key", prefKey).putExtra("value", value), HyperPodsBroadcasts.BLUETOOTH)
+}
+
+fun sendAdaptiveAudioLevel(context: Context, level: Float) {
+    sendPodsSetting(context, HyperPodsPrefsKey.ADAPTIVE_AUDIO_LEVEL, ListeningPosition.wireStrength(level))
 }
 
 @Composable
@@ -143,7 +148,7 @@ fun MainUI() {
                         conversationAwareness.value = settings[HyperPodsPrefsKey.CONVERSATION_AWARENESS] == 1
                         adjustVolumeBySwiper.value = settings[HyperPodsPrefsKey.ADJUST_VOLUME_BY_SWIPER] == 1
                         noiseCancellationSingleAirPod.value = settings[HyperPodsPrefsKey.SINGLE_POD_ANC] == 1
-                        adaptiveAudioLevel.floatValue = (100 - (settings[HyperPodsPrefsKey.ADAPTIVE_AUDIO_LEVEL] ?: 50)) / 100f
+                        adaptiveAudioLevel.floatValue = ListeningPosition.levelFromWire(settings[HyperPodsPrefsKey.ADAPTIVE_AUDIO_LEVEL] ?: 50)
                         microphoneMode.value = PodsSettings.microphoneIndex(settings[HyperPodsPrefsKey.MICROPHONE_MODE]) ?: 0
                         ancMode.value = settings[PodsSettings.NOISE_MODE]?.let { NoiseControlMode.entries.getOrNull(it - 1) }
                     }
@@ -280,7 +285,7 @@ fun MainUI() {
             },
             adaptiveAudioLevel = adaptiveAudioLevel.floatValue,
             onAdaptiveAudioLevelChange = {
-                sendPodsSetting(context, HyperPodsPrefsKey.ADAPTIVE_AUDIO_LEVEL, (100 - it * 100).toInt())
+                sendAdaptiveAudioLevel(context, it)
             },
             ancMode = ancMode.value,
             onAncModeChange = {
@@ -437,7 +442,7 @@ fun AppHorizontalPager(
                     }
 
                 1 -> AboutPage(
-                    padding = padding
+                    padding = padding, podsInfo = currentPodsInfo, diagnostics = diagnostics, isActive = pagerState.currentPage == 1, moduleStatus = moduleCheck
                 )
             }
         }

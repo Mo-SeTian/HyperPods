@@ -26,7 +26,7 @@
     <string name="personlized_volume_summary">根据所处环境调整媒体音量</string>
     <string name="loud_sound_reduction_title">降低高音量</string>
     <string name="loud_sound_reduction_summary">降低所处环境中的高音量</string>
-    <string name="adjust_volume_by_swiper_title">音频控制</string>
+    <string name="adjust_volume_by_swiper_title">滑动调节音量</string>
     <string name="adjust_volume_by_swiper_summary">将拇指放在任一 AirPod 耳机柄上，然后用食指在触控操作区域上向上或向下轻扫以调整音量</string>
     <string name="adaptive_audio_title">自适应降噪调节</string>
     <string name="less_noise">更少噪音</string>

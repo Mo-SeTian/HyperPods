@@ -13,7 +13,7 @@ class ModuleIdentityTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun newPackageResolvesTheOriginalActivityClassAndPrivateProvider() {
-        assertEquals("io.github.mo_setian.hyperpods", context.packageName)
+        assertEquals(BuildConfig.APPLICATION_ID, context.packageName)
         val component = context.packageManager.resolveActivity(Intent(HyperPodsAction.ACTION_SHOW_PODS_UI)
             .setPackage(context.packageName), 0)?.activityInfo
         assertNotNull(component)

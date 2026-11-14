@@ -7,8 +7,10 @@ import android.os.Process
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ActivityScenario
@@ -70,7 +72,7 @@ class LauncherEntryTest {
     @Test fun launcherPageSurvivesDisconnectHidingItsIconAndRecreation() {
         LauncherIcon.setVisible(context, true)
         ActivityScenario.launch<MainActivity>(launcherIntent()).use { scenario ->
-            compose.onNodeWithText(context.getString(R.string.dashboard_about)).assertIsDisplayed()
+            compose.onNode(androidx.compose.ui.test.hasText(context.getString(R.string.dashboard_about)) and androidx.compose.ui.test.hasClickAction()).assertIsDisplayed()
             scenario.onActivity {
                 assertTrue(it.keepOpenOnDisconnect)
                 LauncherIcon.setVisible(it, false)
@@ -78,15 +80,26 @@ class LauncherEntryTest {
                 assertFalse(it.isFinishing)
             }
             scenario.recreate()
+            compose.waitForIdle()
             scenario.onActivity {
                 assertTrue(it.keepOpenOnDisconnect)
                 assertFalse(LauncherIcon.isVisible(it))
                 it.onPodsDisconnected(initializationFailed = false)
                 assertFalse(it.isFinishing)
             }
-            compose.onNodeWithText(context.getString(R.string.dashboard_about)).assertIsDisplayed()
-            compose.onNodeWithText(context.getString(R.string.dashboard_about)).performClick()
-            compose.onNodeWithContentDescription(context.getString(R.string.launcher_icon_title)).assertIsOff()
+            compose.waitUntil(5000) {
+                runCatching {
+                    compose.onNode(androidx.compose.ui.test.hasText(context.getString(R.string.dashboard_about)) and
+                        androidx.compose.ui.test.hasClickAction()).isDisplayed()
+                }.getOrDefault(false)
+            }
+            compose.onNode(androidx.compose.ui.test.hasText(context.getString(R.string.dashboard_about)) and androidx.compose.ui.test.hasClickAction()).assertIsDisplayed()
+            compose.onNode(androidx.compose.ui.test.hasText(context.getString(R.string.dashboard_about)) and androidx.compose.ui.test.hasClickAction()).performClick()
+            compose.waitUntil(5000) {
+                runCatching { compose.onAllNodesWithContentDescription(context.getString(R.string.fidelity_launcher))
+                    .fetchSemanticsNodes().size == 1 }.getOrDefault(false)
+            }
+            compose.onNodeWithContentDescription(context.getString(R.string.fidelity_launcher)).assertIsOff()
         }
     }
 
@@ -129,12 +142,12 @@ class LauncherEntryTest {
 
     @Test fun aboutSwitchCanBeChangedWithoutConnectingHeadphonesAndPersistsOnRecreation() {
         ActivityScenario.launch<MainActivity>(controlIntent()).use { scenario ->
-            compose.onNodeWithText(context.getString(R.string.dashboard_about)).performClick()
-            val title = context.getString(R.string.launcher_icon_title)
+            compose.onNode(androidx.compose.ui.test.hasText(context.getString(R.string.dashboard_about)) and androidx.compose.ui.test.hasClickAction()).performClick()
+            val title = context.getString(R.string.fidelity_launcher)
             compose.onNodeWithContentDescription(title).assertIsOff().performClick().assertIsOn()
             assertTrue(LauncherIcon.isVisible(context))
             scenario.recreate()
-            compose.onNodeWithText(context.getString(R.string.dashboard_about)).performClick()
+            compose.onNode(androidx.compose.ui.test.hasText(context.getString(R.string.dashboard_about)) and androidx.compose.ui.test.hasClickAction()).performClick()
             compose.onNodeWithContentDescription(title).assertIsOn().performClick().assertIsOff()
             assertFalse(LauncherIcon.isVisible(context))
             scenario.onActivity { assertFalse(it.isFinishing) }

@@ -109,8 +109,10 @@ class ModuleActivationUiTest {
         compose.runOnUiThread { compose.activity.intent.putExtra("module_warning", true) }
         compose.activityRule.scenario.recreate()
         compose.onNodeWithText(text(R.string.module_setup_partial_title)).assertIsDisplayed()
-        compose.revealSetting(text(R.string.noise_cancellation_title)).assertIsEnabled()
-        compose.revealSetting(text(R.string.dashboard_transparency)).performClick().assertIsSelected()
+        val slider = compose.revealSetting(androidx.compose.ui.test.hasContentDescription(text(R.string.redesign_slider)))
+        slider.assertIsEnabled().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+        compose.waitForIdle()
+        org.junit.Assert.assertEquals(0f, slider.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current, .01f)
     }
 
     @Test fun workingControlsWithNoSelfCheckReportAreNotLabeledAsAnUndetectedModule() {

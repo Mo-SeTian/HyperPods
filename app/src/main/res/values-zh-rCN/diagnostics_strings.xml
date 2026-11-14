@@ -102,7 +102,7 @@
     <string name="diagnostics_copied">诊断报告已复制</string>
     <string name="controls_timing">按压与滑动设置</string>
     <string name="control_press_speed">按压速度</string>
-    <string name="control_hold_duration">长按触发时长</string>
+    <string name="control_hold_duration">长按时长</string>
     <string name="control_swipe_speed">滑动调音量间隔</string>
     <string name="control_default">默认</string>
     <string name="control_slower">较慢</string>

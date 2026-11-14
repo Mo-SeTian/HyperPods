@@ -3,19 +3,21 @@ package moe.chenxy.hyperpods.ui.components
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
 import moe.chenxy.hyperpods.utils.ModuleStatus
-import top.yukonga.miuix.kmp.basic.BasicComponent
 
 @Composable
 fun ModuleSelfCheck(onReport: (String) -> Unit) {
     val state = rememberModuleCheck()
     val reports = state.check.reports
     val waiting = state.check.checking
-    BasicComponent(title = stringResource(R.string.module_self_check),
-        summary = stringResource(R.string.module_installed, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION))
+    FidelityText(stringResource(R.string.module_installed, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION),
+        Modifier.padding(vertical = 12.dp), size = 12, color = Fidelity.muted())
     val fields = ModuleStatus.packages.map { host ->
         val report = reports[host]
         val title = stringResource(when (host) {
@@ -37,8 +39,8 @@ fun ModuleSelfCheck(onReport: (String) -> Unit) {
             })
         title to summary
     }
-    fields.forEach { (title, summary) -> BasicComponent(title = title, summary = summary) }
+    fields.forEach { (title, summary) -> DiagnosticField(title, summary, stacked = true); FidelityDivider() }
     val reportText = fields.joinToString("\n") { (title, summary) -> "$title: $summary" }
     LaunchedEffect(reportText) { onReport(reportText) }
-    BasicComponent(title = stringResource(R.string.module_check_again), onClick = state::retry)
+    MinimalLink(stringResource(R.string.module_check_again), titleColor = Fidelity.accent(), onClick = state::retry)
 }

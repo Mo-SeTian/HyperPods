@@ -2,6 +2,7 @@ package moe.chenxy.hyperpods.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -27,11 +28,8 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.delay
 import moe.chenxy.hyperpods.R
-import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary
 import top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColorsPrimary
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -42,7 +40,6 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.icons.useful.Cancel
 import top.yukonga.miuix.kmp.icon.icons.useful.Confirm
 import top.yukonga.miuix.kmp.icon.icons.useful.Edit
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName: String, compact: Boolean = false, pending: Boolean = false) {
@@ -54,13 +51,10 @@ fun RenamePod(cardModifier: Modifier, onNameChange: (String) -> Unit, deviceName
         IconButton(onClick = { text = deviceName; showBottomSheet.value = true }, enabled = !pending, modifier = cardModifier) {
             Icon(MiuixIcons.Useful.Edit, contentDescription = stringResource(R.string.rename_title))
         }
-    } else Card(modifier = cardModifier) {
-        BasicComponent(
+    } else Box(modifier = cardModifier) {
+        MinimalLink(
             title = stringResource(R.string.rename_title),
-            titleColor = BasicComponentColors(
-                color = MiuixTheme.colorScheme.primary,
-                disabledColor = MiuixTheme.colorScheme.disabledOnPrimary
-            ),
+            titleColor = Fidelity.accent(),
             onClick = {
                 text = deviceName
                 showBottomSheet.value = !showBottomSheet.value

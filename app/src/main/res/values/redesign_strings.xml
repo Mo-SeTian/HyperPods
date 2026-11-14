@@ -1,0 +1,16 @@
+<resources>
+    <string name="redesign_device_menu">Device menu</string>
+    <string name="redesign_bluetooth">Bluetooth settings</string>
+    <string name="redesign_retained">Last reported</string>
+    <string name="redesign_listening">Listening mode</string>
+    <string name="redesign_current_off">Listening mode is off. Slide to enable Transparency or Noise Cancellation.</string>
+    <string name="redesign_press">Press and touch</string>
+    <string name="redesign_press_summary">Stem controls · Response speed</string>
+    <string name="redesign_audio">Sound and conversations</string>
+    <string name="redesign_audio_summary">Chimes · Playback during conversations</string>
+    <string name="redesign_battery_summary">Earbud and charging case thresholds</string>
+    <string name="redesign_sources">Protocol reference: LibrePods</string>
+    <string name="redesign_module_unknown">Check module status</string>
+    <string name="redesign_slider">Listening mode slider</string>
+    <string name="redesign_adaptive_range">Adaptive range</string>
+</resources>

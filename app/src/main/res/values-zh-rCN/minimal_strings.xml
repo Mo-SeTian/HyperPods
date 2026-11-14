@@ -1,0 +1,21 @@
+<resources>
+    <string name="minimal_personalized_summary">根据环境智能调整音量</string>
+    <string name="minimal_conversation_summary">说话时降低媒体音量</string>
+    <string name="minimal_detection_summary">摘下暂停，戴上继续</string>
+    <string name="minimal_wear_controls">佩戴与操作</string>
+    <string name="minimal_automation">自动化与提醒</string>
+    <string name="minimal_eq_lead">找到你喜欢的声音</string>
+    <string name="minimal_eq_description">保留声音的自然质感，或按你的喜好调节。</string>
+    <string name="minimal_eq_caption">低频更饱满 · 中频更清晰 · 高频更明亮</string>
+    <string name="minimal_pause_summary">对话结束后自动续播</string>
+    <string name="minimal_phone_summary">对话结束后恢复原来的音量</string>
+    <string name="minimal_phone_paused">讲话暂停媒体时无需调整音量</string>
+    <string name="minimal_swipe_summary">在耳机柄上轻扫以调节音量</string>
+    <string name="minimal_head_pose">相对姿态</string>
+    <string name="minimal_head_gestures">手势识别</string>
+    <string name="minimal_eq_summary">调节耳机低、中、高频</string>
+    <string name="minimal_more_summary">按压、声音与佩戴设置</string>
+    <string name="minimal_retry_summary">重新请求耳机状态，必要时重建控制通道</string>
+    <string name="minimal_syncing">正在同步…</string>
+    <string name="minimal_diagnostic_ready_summary">音频和控制通道均已连接</string>
+</resources>
