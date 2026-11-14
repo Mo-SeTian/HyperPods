@@ -27,10 +27,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.*
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,18 +53,10 @@ object Fidelity {
     @Composable fun surface() = if (dark()) Color(0xFF101215) else Color.White
 }
 
-@OptIn(ExperimentalTextApi::class)
-private val fidelityFont = FontFamily(
-    Font(R.font.misans_vf, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
-    Font(R.font.misans_vf, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
-    Font(R.font.misans_vf, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
-    Font(R.font.misans_vf, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(660))),
-)
-
 @Composable
 fun FidelityText(text: String, modifier: Modifier = Modifier, size: Int = 14, weight: FontWeight = FontWeight.Normal,
     color: Color = Fidelity.ink(), align: TextAlign? = null, maxLines: Int = Int.MAX_VALUE) {
-    BasicText(text, modifier, style = TextStyle(fontFamily = fidelityFont, fontSize = size.sp,
+    BasicText(text, modifier, style = TextStyle(fontFamily = FontFamily.Default, fontSize = size.sp,
         lineHeight = (size * 1.4f).sp, fontWeight = weight, color = color, textAlign = align ?: TextAlign.Start,
         platformStyle = PlatformTextStyle(includeFontPadding = false)), maxLines = maxLines,
         overflow = TextOverflow.Ellipsis)
