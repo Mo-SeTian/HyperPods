@@ -23,7 +23,6 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
@@ -124,15 +123,8 @@ fun FidelityConnected(text: String, ready: Boolean, modifier: Modifier = Modifie
 
 @Composable
 fun FidelityProduct(model: AirPodsBase?, showCase: Boolean, modifier: Modifier = Modifier) {
-    if (model?.name?.startsWith("AirPods Pro") == true) {
-        Image(painterResource(if (showCase) R.drawable.fidelity_pro2_hero_v2 else R.drawable.fidelity_pro2_buds),
-            null, modifier, contentScale = ContentScale.Fit)
-    } else Box(modifier, contentAlignment = Alignment.Center) {
-        if (showCase) Image(painterResource(when (model?.name) {
-            "AirPods 1", "AirPods 2" -> R.drawable.ui_classic_case
-            "AirPods 3" -> R.drawable.ui_open_case
-            else -> model?.caseRes ?: R.drawable.airpods_pro_case_notification
-        }), null,
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (showCase && model != null) Image(painterResource(model.caseRes), null,
             Modifier.fillMaxWidth(.58f).fillMaxHeight(.68f).align(Alignment.TopCenter))
         ModelArtwork(model, Modifier.fillMaxWidth(.9f).fillMaxHeight(.77f).align(Alignment.BottomCenter))
     }

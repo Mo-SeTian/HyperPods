@@ -173,14 +173,9 @@ private fun Reading(label: String, params: PodBatteryParams?, wear: Byte?, diagn
 fun ModelArtwork(model: AirPodsBase?, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         for (right in listOf(false, true)) {
-            val res = when (model?.name) {
-                "AirPods 1", "AirPods 2" -> R.drawable.ui_classic_bud
-                "AirPods 3" -> R.drawable.ui_open_bud
-                else -> if (right) model?.rightBudsRes ?: R.drawable.dashboard_headphones else model?.leftBudsRes ?: R.drawable.dashboard_headphones
-            }
-            Image(painterResource(res), null, Modifier.weight(1f).fillMaxHeight().graphicsLayer {
-                if (right && res in listOf(R.drawable.ui_classic_bud, R.drawable.ui_open_bud)) scaleX = -1f
-            })
+            val res = if (right) model?.rightBudsRes else model?.leftBudsRes
+            Image(painterResource(res ?: R.drawable.dashboard_headphones), null,
+                Modifier.weight(1f).fillMaxHeight())
         }
     }
 }
