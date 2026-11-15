@@ -1,6 +1,6 @@
 # HyperPods HyperOS 4 适配修改说明
 
-当前独立发行版：`3.0.0-AAP-W-HyperOS4`，`versionCode = 31`，应用包名 **`io.github.mo_setian.hyperpods`**，显示名称 **HyperPods HyperOS 4**。
+当前独立发行版：`3.0.0-AAP-W-HyperOS4`，`versionCode = 32`，应用包名 **`io.github.mo_setian.hyperpods`**，显示名称 **HyperPods HyperOS 4**。
 
 本版改用独立应用包名及正式签名，用于二改版的独立分发。首次安装不能覆盖旧 `moe.chenxy.hyperpods`，应用设置需重新配置；先在 LSPosed 关闭旧模块，再启用新模块，勾选系统蓝牙、小米蓝牙扩展和系统界面，打开新应用配置设置后重启手机。不要同时启用两个版本。后续新包沿用同一签名并递增版本号，可覆盖升级。完整步骤见 [LSPosed 发布与迁移说明](docs/LSPosed发布说明.md)。
 
@@ -10,7 +10,7 @@
 - [LibrePods](https://github.com/librepods-org/librepods)：耳机协议、型号与能力表、部分图片、头部手势及姿态计算的实现或参考来源；具体版本、改编范围与署名见源码和下文记录。
 - [Miuix](https://github.com/compose-miuix-ui/miuix)：Compose 设置界面控件。
 
-当前设置界面采用 Miuix 控件、浅色/深色蓝色强调主题：四种听音模式保持一行，左右耳机独立显示电量，耳机仓在线且电量有效时显示。更多控制、设备信息与诊断使用统一分组样式；各页独立保留滚动位置，支持可中断的页面过渡与关闭动画。最新设置逻辑修复及实机验收边界见 [LibrePods 功能对照与修复记录](docs/LibrePods功能对照审查.md)。
+当前设置界面继续使用原生 Compose / Miuix，浅色纯白背景、蓝色强调，并支持深色模式与系统字体。首页通过连续滑块在通透、自适应和降噪之间调节，自适应范围内控制耳机原生强度；左右耳独立显示电量，耳机仓在线且电量有效时显示，图片使用各型号已有资源。均衡器和更多设置统一列表样式，设备信息与连接诊断位于关于页，状态同步重试位于模块状态下方；各页独立保留滚动位置，支持可中断的页面过渡与系统减少动画设置。最新设置逻辑修复及实机验收边界见 [LibrePods 功能对照与修复记录](docs/LibrePods功能对照审查.md)。
 
 自适应降噪调节参考 [LibrePods 的设置更新方式](https://github.com/librepods-org/librepods/blob/89356c08cea3db0b6b54792d9329d09a87cc85fa/android/app/src/main/java/me/kavishdevar/librepods/presentation/viewmodel/AirPodsViewModel.kt#L370)：成功发送后保留滑杆新值，不再因 3 秒内没有对应回报而误报失败；诊断仍标记“已发送但未收到回报”，后续真实回报校正本地值。发送失败保留原值并明确提示，实际听音模式切换仍需耳机确认。
 
@@ -86,7 +86,7 @@ Fork 信息：
 - 上游仓库：<https://github.com/Art-Chen/HyperPods>
 - 当前 Fork：<https://github.com/Mo-SeTian/HyperPods>
 - HyperOS 4 分支：`os4-dev`
-- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 31`
+- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 32`
 
 ## 2. 测试环境
 

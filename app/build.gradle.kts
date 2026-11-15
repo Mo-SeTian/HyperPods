@@ -25,7 +25,7 @@ android {
         applicationId = "io.github.mo_setian.hyperpods"
         minSdk = 35
         targetSdk = 36
-        versionCode = 31
+        versionCode = 32
         versionName = "3.0.0-AAP-W-HyperOS4"
         val revision = providers.exec {
             workingDir(rootProject.projectDir)
