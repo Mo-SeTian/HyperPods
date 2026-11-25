@@ -6,7 +6,7 @@
 - 应用 ID：`io.github.mo_setian.hyperpods`
 - 源码：<https://github.com/Mo-SeTian/HyperPods/tree/os4-dev>
 - 原始项目：<https://github.com/Art-Chen/HyperPods/tree/os3-dev>
-- 构建 32：`3.0.0-AAP-W-HyperOS4`
+- 构建 34：`4.0.0-AAP-W-HyperOS4`
 
 应用 ID 与 Kotlin 命名空间用途不同。源码类、JNI 方法和 Xposed 入口保留 `moe.chenxy.hyperpods`，Yuki 注解显式使用新的 `BuildConfig.APPLICATION_ID`。设置 Provider、发送者 UID 校验、通知图片和跳转使用新应用 ID；内部广播以新应用 ID 为前缀，与旧包隔离。
 

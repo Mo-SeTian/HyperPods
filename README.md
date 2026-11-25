@@ -1,6 +1,6 @@
 # HyperPods HyperOS 4 适配修改说明
 
-当前独立发行版：`3.0.0-AAP-W-HyperOS4`，`versionCode = 32`，应用包名 **`io.github.mo_setian.hyperpods`**，显示名称 **HyperPods HyperOS 4**。
+当前独立发行版：`4.0.0-AAP-W-HyperOS4`，`versionCode = 34`，应用包名 **`io.github.mo_setian.hyperpods`**，显示名称 **HyperPods HyperOS 4**。
 
 本版改用独立应用包名及正式签名，用于二改版的独立分发。首次安装不能覆盖旧 `moe.chenxy.hyperpods`，应用设置需重新配置；先在 LSPosed 关闭旧模块，再启用新模块，勾选系统蓝牙、小米蓝牙扩展和系统界面，打开新应用配置设置后重启手机。不要同时启用两个版本。后续新包沿用同一签名并递增版本号，可覆盖升级。完整步骤见 [LSPosed 发布与迁移说明](docs/LSPosed发布说明.md)。
 
@@ -86,7 +86,7 @@ Fork 信息：
 - 上游仓库：<https://github.com/Art-Chen/HyperPods>
 - 当前 Fork：<https://github.com/Mo-SeTian/HyperPods>
 - HyperOS 4 分支：`os4-dev`
-- 当前版本：`3.0.0-AAP-W-HyperOS4`，`versionCode = 32`
+- 当前版本：`4.0.0-AAP-W-HyperOS4`，`versionCode = 34`
 
 ## 2. 测试环境
 
