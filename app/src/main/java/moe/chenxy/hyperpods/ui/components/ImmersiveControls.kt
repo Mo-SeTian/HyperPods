@@ -182,7 +182,11 @@ fun ModelArtwork(model: AirPodsBase?, modifier: Modifier = Modifier) {
 
 @Composable
 fun ListeningSlider(mode: NoiseControlMode?, adaptiveLevel: Float, adaptive: Boolean, enabled: Boolean,
-    feedback: String?, onCommit: (Float) -> Unit, available: Boolean = enabled, strengthFeedback: String? = null) {
+    feedback: String?, onCommit: (Float) -> Unit, available: Boolean = enabled, strengthFeedback: String? = null,
+    containerColor: Color = Fidelity.surface(),
+    contentPadding: PaddingValues = PaddingValues(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 22.dp),
+    compact: Boolean = false,
+) {
     val position = ListeningPosition.fromReport(mode, adaptiveLevel)
     var draft by remember { mutableFloatStateOf(position) }
     var dragging by remember { mutableStateOf(false) }
@@ -272,12 +276,14 @@ fun ListeningSlider(mode: NoiseControlMode?, adaptiveLevel: Float, adaptive: Boo
         feedbackAtRequest = feedback to strengthFeedback
         currentOnCommit(target)
     }
-    val thumbWidth = 68.dp
-    val thumbInset = 7.dp
+    val thumbWidth = if (compact) 54.dp else 68.dp
+    val thumbInset = if (compact) 6.dp else 7.dp
     val thumbCenterInsetPx = with(LocalDensity.current) { (thumbInset + thumbWidth / 2).toPx() }
     val sliderLabel = stringResource(R.string.redesign_slider)
     val rangeLabel = stringResource(R.string.redesign_adaptive_range)
-    val displayedMode = if (dragging || requestedPosition != null) ListeningPosition.modeAt(draft, adaptive) else mode
+    val waitingForMode = compact && mode == null
+    val displayedMode = if (!waitingForMode && (dragging || requestedPosition != null))
+        ListeningPosition.modeAt(draft, adaptive) else mode
     val modeText = stringResource(when(displayedMode) {
         NoiseControlMode.TRANSPARENCY -> R.string.dashboard_transparency
         NoiseControlMode.NOISE_CANCELLATION -> R.string.noise_cancellation_title
@@ -288,21 +294,26 @@ fun ListeningSlider(mode: NoiseControlMode?, adaptiveLevel: Float, adaptive: Boo
     val displayedStrength = ListeningPosition.wireStrength(if (dragging || requestedPosition != null)
         ListeningPosition.adaptiveLevel(draft) else adaptiveLevel)
     val pendingText = stringResource(R.string.setting_pending)
-    Column(Modifier.fillMaxWidth().background(Fidelity.surface())
-        .padding(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 22.dp)) {
+    Column(Modifier.fillMaxWidth().background(containerColor).padding(contentPadding)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            FidelityText(stringResource(R.string.redesign_listening), size = 18, weight = FontWeight.SemiBold)
-            FidelityText(modeText, size = 17, weight = FontWeight.SemiBold, color = Fidelity.accent())
+            val labelModifier = if (compact) Modifier.weight(1f) else Modifier
+            FidelityText(stringResource(R.string.redesign_listening), labelModifier,
+                size = if (compact) 16 else 18, weight = FontWeight.SemiBold)
+            FidelityText(modeText, labelModifier, size = if (compact) 15 else 17,
+                weight = FontWeight.SemiBold, color = if (waitingForMode) Fidelity.muted() else Fidelity.accent(),
+                align = if (compact) androidx.compose.ui.text.style.TextAlign.End else null)
         }
-        BoxWithConstraints(Modifier.padding(top = 20.dp).fillMaxWidth().height(56.dp)
-            .alpha(if (available) 1f else .45f)
+        BoxWithConstraints(Modifier.padding(top = if (compact) 10.dp else 20.dp).fillMaxWidth().height(if (compact) 48.dp else 56.dp)
+            .alpha(if (available && !waitingForMode) 1f else .45f)
             .semantics {
                 contentDescription = sliderLabel
                 stateDescription = (if (adaptive && displayedMode == NoiseControlMode.ADAPTIVE) "$modeText; $rangeLabel; $displayedStrength%" else modeText) +
-                    if (requestedPosition != null) "; $pendingText" else ""
-                progressBarRangeInfo = ProgressBarRangeInfo(draft, 0f..1f)
+                    if (!waitingForMode && requestedPosition != null) "; $pendingText" else ""
                 if (!enabled) disabled()
-                setProgress { value -> if (enabled) { commit(value); true } else false }
+                if (!waitingForMode) {
+                    progressBarRangeInfo = ProgressBarRangeInfo(draft, 0f..1f)
+                    setProgress { value -> if (enabled) { commit(value); true } else false }
+                }
             }.pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 try {
@@ -332,28 +343,39 @@ fun ListeningSlider(mode: NoiseControlMode?, adaptiveLevel: Float, adaptive: Boo
                 }, onDragEnd = { dragging = false; commit(draft) },
                     onDragCancel = { if (dragging) reset() })
             }) {
-            Box(Modifier.matchParentSize().background(Fidelity.panel(), CircleShape))
+            val trackColor = if (compact) Color.White.copy(alpha = .44f) else Fidelity.panel()
+            Box(Modifier.matchParentSize().padding(vertical = if (compact) 6.dp else 0.dp)
+                .background(trackColor, CircleShape))
             val travel = maxWidth - thumbWidth - thumbInset * 2
-            if (adaptive) {
+            if (adaptive && !waitingForMode) {
                 // This visible region uses exactly the same bounds as modeAt /
                 // adaptiveLevel. Both ends belong to Adaptive and reach 0 / 100.
                 val rangePadding = 12.dp
+                val rangeColor = when {
+                    compact -> Color(0xFF9EC9FC).copy(alpha = .78f)
+                    Fidelity.dark() -> Color(0xFF233B58)
+                    else -> Color(0xFFDCECFF)
+                }
                 Row(Modifier.offset(x = thumbInset + thumbWidth / 2 + travel * ListeningPosition.ADAPTIVE_START - rangePadding)
-                    .padding(vertical = 6.dp)
+                    .padding(vertical = if (compact) 8.dp else 6.dp)
                     .width(travel * (ListeningPosition.ADAPTIVE_END - ListeningPosition.ADAPTIVE_START) + rangePadding * 2)
                     .fillMaxHeight().clip(CircleShape)
-                    .background(if (Fidelity.dark()) Color(0xFF233B58) else Color(0xFFDCECFF))
+                    .background(rangeColor)
                     .padding(horizontal = rangePadding),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(4.dp).background(Fidelity.muted().copy(alpha = .9f), CircleShape))
-                    Box(Modifier.size(4.dp).background(Fidelity.muted().copy(alpha = .9f), CircleShape))
+                    if (!compact) {
+                        Box(Modifier.size(4.dp).background(Fidelity.muted().copy(alpha = .9f), CircleShape))
+                        Box(Modifier.size(4.dp).background(Fidelity.muted().copy(alpha = .9f), CircleShape))
+                    }
                 }
             }
-            Row(Modifier.fillMaxSize().padding(horizontal = 23.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Icon(fidelityPainter(R.drawable.transparency), null, Modifier.size(30.dp), tint = Fidelity.muted())
-                Icon(fidelityPainter(R.drawable.noise_cancellation), null, Modifier.size(30.dp), tint = Fidelity.muted())
+            val modeIconSize = if (compact) 26.dp else 30.dp
+            Row(Modifier.fillMaxSize().padding(horizontal = if (compact) 20.dp else 23.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Icon(fidelityPainter(R.drawable.transparency), null, Modifier.size(modeIconSize), tint = Fidelity.muted())
+                Icon(fidelityPainter(R.drawable.noise_cancellation), null, Modifier.size(modeIconSize), tint = Fidelity.muted())
             }
-            Box(Modifier.offset(x = travel * thumb + thumbInset).padding(vertical = 6.dp).width(thumbWidth).fillMaxHeight()
+            if (!waitingForMode) Box(Modifier.offset(x = travel * thumb + thumbInset).padding(vertical = 6.dp).width(thumbWidth).fillMaxHeight()
                 .testTag("listening-thumb"), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.matchParentSize()) {
                     val amount = deformation.coerceIn(-.06f, 1f)
@@ -386,13 +408,13 @@ fun ListeningSlider(mode: NoiseControlMode?, adaptiveLevel: Float, adaptive: Boo
                     NoiseControlMode.TRANSPARENCY -> R.drawable.transparency
                     NoiseControlMode.ADAPTIVE -> R.drawable.adaptive
                     else -> R.drawable.noise_cancellation
-                }), null, Modifier.size(31.dp).graphicsLayer {
+                }), null, Modifier.size(modeIconSize + 1.dp).graphicsLayer {
                     scaleX = 1f - .1f * deformation.coerceAtLeast(0f)
                     scaleY = scaleX
                 }, tint = Color.White)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.Top) {
+        Row(Modifier.fillMaxWidth().padding(top = if (compact) 4.dp else 8.dp), verticalAlignment = Alignment.Top) {
             FidelityText(stringResource(R.string.dashboard_transparency), Modifier.weight(1f), size = 13,
                 color = if (displayedMode == NoiseControlMode.TRANSPARENCY) Fidelity.accent() else Fidelity.muted(), align = androidx.compose.ui.text.style.TextAlign.Center)
             if (adaptive) Column(Modifier.weight(3f), horizontalAlignment = Alignment.CenterHorizontally) {

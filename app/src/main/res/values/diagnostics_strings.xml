@@ -8,7 +8,7 @@
     <string name="module_checking">Waiting for process report…</string>
     <string name="module_no_report">No report received. This does not prove the module is disabled.</string>
     <string name="module_matches">Matches the installed app</string>
-    <string name="module_restart">Different from the installed app. Restart the phone to load the new module.</string>
+    <string name="module_restart">The loaded module version differs from the app. Restart this LSPosed scope process to load the installed version.</string>
     <string name="module_native_ok">Native Bluetooth hook reports success</string>
     <string name="module_native_failed">Native Bluetooth hook reports failure</string>
     <string name="module_native_unknown">Native hook result not available</string>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="quick_controls_title">AirPods quick controls</string>
+    <string name="quick_battery_percent" translatable="false">%1$d%%</string>
+    <string name="quick_case">Case</string>
+</resources>

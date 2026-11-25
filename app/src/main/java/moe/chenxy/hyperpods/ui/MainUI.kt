@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,7 +44,6 @@ import moe.chenxy.hyperpods.utils.data.EarDetectionParams
 import moe.chenxy.hyperpods.utils.data.HyperPodsAction
 import moe.chenxy.hyperpods.utils.data.HyperPodsPrefsKey
 import moe.chenxy.hyperpods.ui.components.DashboardNavigation
-import moe.chenxy.hyperpods.ui.components.ModuleActivationGuide
 import moe.chenxy.hyperpods.ui.components.ModuleWarningCard
 import moe.chenxy.hyperpods.ui.components.rememberModuleCheck
 import moe.chenxy.hyperpods.utils.ModuleStatus
@@ -66,6 +67,8 @@ fun sendAdaptiveAudioLevel(context: Context, level: Float) {
 
 @Composable
 fun MainUI() {
+    val mainActivity = LocalActivity.current as? MainActivity
+    val homeRequested = mainActivity?.homeRequested == true
     val pagerState = rememberPagerState(pageCount = { 2 })
     val moduleCheck = rememberModuleCheck()
 
@@ -92,6 +95,12 @@ fun MainUI() {
     val conversationAwareness = remember { mutableStateOf(false) }
     val noiseCancellationSingleAirPod = remember { mutableStateOf(false) }
     val canShowDetailPage = remember { mutableStateOf(false) }
+    LaunchedEffect(homeRequested, canShowDetailPage.value) {
+        if (homeRequested) {
+            pagerState.scrollToPage(0)
+            if (!canShowDetailPage.value) mainActivity?.consumeHomeRequest()
+        }
+    }
     val ancMode = remember { mutableStateOf<NoiseControlMode?>(null) }
     val microphoneMode = remember { mutableStateOf(0) }
 
@@ -184,7 +193,7 @@ fun MainUI() {
                         customEqState = CustomEqState()
                         pendingSettings = emptySet()
                         settingFeedback.clear()
-                        (context as? MainActivity)?.onPodsDisconnected(p1.getBooleanExtra("initialization_failed", false))
+                        mainActivity?.onPodsDisconnected(p1.getBooleanExtra("initialization_failed", false))
                     }
                 }
             }
@@ -260,6 +269,8 @@ fun MainUI() {
             pagerState = pagerState,
             padding = padding,
             canShowDetailPage = canShowDetailPage.value,
+            homeRequested = homeRequested,
+            onHomeOpened = { mainActivity?.consumeHomeRequest() },
             deviceName = mainTitle.value,
             batteryParams = batteryParams.value,
             earDetectionParams = earDetectionParams.value,
@@ -332,7 +343,7 @@ fun MainUI() {
             onAllowOffChange = { sendBooleanSetting(context, HyperPodsPrefsKey.ALLOW_OFF_OPTION, it) },
             onSettingChange = { key, value -> sendPodsSetting(context, key, value) },
             diagnostics = diagnostics,
-            desktopEntry = (context as? MainActivity)?.keepOpenOnDisconnect == true,
+            desktopEntry = mainActivity?.keepOpenOnDisconnect == true,
             moduleCheck = moduleCheck.check,
             onModuleCheck = moduleCheck::retry,
         )
@@ -387,6 +398,8 @@ fun AppHorizontalPager(
     desktopEntry: Boolean = false,
     moduleCheck: ModuleStatus.Check = ModuleStatus.Check(),
     onModuleCheck: () -> Unit = {},
+    homeRequested: Boolean = false,
+    onHomeOpened: () -> Unit = {},
 ) {
     HorizontalPager(
         state = pagerState,
@@ -428,6 +441,8 @@ fun AppHorizontalPager(
                                 podsInfo = currentPodsInfo,
                                 deviceName = deviceName,
                                 isActive = pagerState.currentPage == 0,
+                                homeRequested = homeRequested,
+                                onHomeOpened = onHomeOpened,
                                 onNameChange = onNameChange,
                                 microphoneMode = microphoneMode,
                                 onMicrophoneModeChange = onMicrophoneModeChange,
@@ -436,8 +451,7 @@ fun AppHorizontalPager(
                                 noiseCancellationSingleAirPod = noiseCancellationSingleAirPod,
                             )
                         } else {
-                            if (moduleCheck.issue != null) ModuleActivationGuide(padding, moduleCheck, onModuleCheck)
-                            else WaitingPodsPage(padding, desktopEntry)
+                            ModuleWaitingPage(padding, desktopEntry, moduleCheck, onModuleCheck)
                         }
                     }
 

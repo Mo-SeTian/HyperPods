@@ -44,13 +44,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 object Fidelity {
     val blue = Color(0xFF007AFF)
     @Composable fun dark() = MiuixTheme.colorScheme.surface.luminance() < .2f
-    @Composable fun ink() = if (dark()) Color(0xFFF0F4FC) else Color(0xFF0A1018)
-    @Composable fun muted() = if (dark()) Color(0xFFADBBD0) else Color(0xFF657185)
-    @Composable fun accent() = if (dark()) Color(0xFF86B7FF) else Color(0xFF006DE0)
+    @Composable fun ink() = LocalFidelityTextPalette.current?.ink ?: if (dark()) Color(0xFFF0F4FC) else Color(0xFF0A1018)
+    @Composable fun muted() = LocalFidelityTextPalette.current?.muted ?: if (dark()) Color(0xFFADBBD0) else Color(0xFF657185)
+    @Composable fun accent() = LocalFidelityTextPalette.current?.accent ?: if (dark()) Color(0xFF86B7FF) else Color(0xFF006DE0)
     @Composable fun panel() = if (dark()) Color(0xFF23272E) else Color(0xFFF2F4F8)
     @Composable fun divider() = if (dark()) Color(0xFF3B424D) else Color(0xFFE2E6EC)
     @Composable fun surface() = if (dark()) Color(0xFF101215) else Color.White
 }
+
+internal data class FidelityTextPalette(val ink: Color, val muted: Color, val accent: Color)
+internal val LocalFidelityTextPalette = staticCompositionLocalOf<FidelityTextPalette?> { null }
 
 @Composable
 fun FidelityText(text: String, modifier: Modifier = Modifier, size: Int = 14, weight: FontWeight = FontWeight.Normal,
@@ -76,11 +79,11 @@ fun fidelityPainter(res: Int): Painter {
 }
 
 @Composable
-fun FidelitySwitch(checked: Boolean, enabled: Boolean = true) {
+fun FidelitySwitch(checked: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier) {
     val color by animateColorAsState(if (checked) Fidelity.blue else
         if (Fidelity.dark()) Color(0xFF68768B) else Color(0xFFD8DDE4), tween(150), label = "SwitchTrack")
     val x by animateDpAsState(if (checked) 22.dp else 2.dp, tween(150), label = "SwitchThumb")
-    Box(Modifier.size(44.dp, 24.dp).clip(CircleShape).background(color).clearAndSetSemantics {}) {
+    Box(modifier.size(44.dp, 24.dp).clip(CircleShape).background(color).clearAndSetSemantics {}) {
         Box(Modifier.offset(x, 2.dp).size(20.dp).background(Color.White, CircleShape))
     }
 }

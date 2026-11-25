@@ -6,8 +6,8 @@
     <string name="module_setup_partial_title">Some module reports are missing</string>
     <string name="module_setup_control_report_title">Module self-check is incomplete</string>
     <string name="module_setup_partial_summary">Some target processes have not reported. Check the recommended scope, restart your phone, then check again.</string>
-    <string name="module_setup_restart_title">Restart to load the updated module</string>
-    <string name="module_setup_restart_summary">The app was updated, but some target processes are still running an older module. Restart your phone, then check again.</string>
+    <string name="module_setup_restart_title">Restart the LSPosed scope processes</string>
+    <string name="module_setup_restart_summary">The loaded module version differs from the app. Some features may be temporarily unavailable.</string>
     <string name="module_setup_missing">Not reported: %1$s</string>
     <string name="module_setup_control_available">Headphone controls are still available, but module self-check reports have not arrived. Check the scope, restart, then check again.</string>
     <string name="module_setup_step_enable">Enable the HyperPods module</string>

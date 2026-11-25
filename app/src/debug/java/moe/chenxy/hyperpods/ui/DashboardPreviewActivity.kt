@@ -31,6 +31,8 @@ import top.yukonga.miuix.kmp.basic.*
 
 /** Renders the production page with synthetic data, without Bluetooth or preference writes. */
 class DashboardPreviewActivity : ComponentActivity() {
+    internal var homeRequested by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val dark = intent.getIntExtra("theme", 1) == 2
@@ -67,9 +69,11 @@ class DashboardPreviewActivity : ComponentActivity() {
                     HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
                         if (page == 1) AboutPage(padding = padding) else PodDetailPage(
                             homeNotice = {
-                                if (intent.getBooleanExtra("module_warning", false)) ModuleWarningCard(
+                                val outdated = intent.getBooleanExtra("module_restart_notice", false)
+                                if (outdated || intent.getBooleanExtra("module_warning", false)) ModuleWarningCard(
                                     ModuleStatus.Check(mapOf(HyperPodsBroadcasts.BLUETOOTH to ModuleStatus.Report(
-                                        HyperPodsBroadcasts.BLUETOOTH, BuildConfig.VERSION_CODE, BuildConfig.BUILD_REVISION, "native_ok")), false), {})
+                                        HyperPodsBroadcasts.BLUETOOTH, BuildConfig.VERSION_CODE - if (outdated) 1 else 0,
+                                        BuildConfig.BUILD_REVISION, "native_ok")), false), {})
                             },
                             padding = padding,
                             batteryParams = BatteryParams(
@@ -106,6 +110,7 @@ class DashboardPreviewActivity : ComponentActivity() {
                             deviceName = name,
                             customEqState = eq, onCustomEqChange = { value, _ -> eq = eq.copy(value = value, revision = eq.revision + 1) },
                             isActive = pager.currentPage == 0,
+                            homeRequested = homeRequested, onHomeOpened = { homeRequested = false },
                             settings = if (unknown) emptyMap() else mapOf(
                                 PodsSettings.NOISE_MODE to anc.ordinal + 1,
                                 Key.PERSONLIZED_VOLUME to if (personalized) 1 else 2,

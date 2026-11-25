@@ -312,6 +312,11 @@ object L2CAPController {
         }
     }
 
+    private fun matchesQuickControlTarget(intent: Intent): Boolean =
+        !intent.hasExtra(HyperPodsAction.EXTRA_CONTROL_ADDRESS) ||
+            (intent.getStringExtra(HyperPodsAction.EXTRA_CONTROL_ADDRESS) == mDevice.address &&
+                intent.getLongExtra(HyperPodsAction.EXTRA_CONTROL_SESSION, -1) == customEqConnectionId)
+
     @Synchronized
     fun handleUIEvent(intent: Intent) {
         if (mContext == null) return
@@ -394,6 +399,7 @@ object L2CAPController {
                 sendDiagnostics()
             }
             HyperPodsAction.ACTION_ANC_SELECT -> {
+                if (!matchesQuickControlTarget(intent)) return
                 val status = intent.getIntExtra("status", 0)
                 setANCMode(status)
             }
@@ -465,7 +471,7 @@ object L2CAPController {
                         }
                         val written = manager?.sendCustomEq(eq) == true
                         sendSettingResult(PodsSettings.CUSTOM_EQ, written, status = if (written) "sent" else "write_failed")
-                    } else if (intent.hasExtra("value")) {
+                    } else if (intent.hasExtra("value") && matchesQuickControlTarget(intent)) {
                         sendSetting(it, intent.getIntExtra("value", -1))
                     }
                 }
@@ -475,6 +481,7 @@ object L2CAPController {
 
     private fun sendConnectedStatus() {
         Intent(HyperPodsAction.ACTION_PODS_CONNECTED).apply {
+            putExtra(HyperPodsAction.EXTRA_CONTROL_ADDRESS, mDevice.address)
             putExtra("device_info", currentPodsInfo)
             putExtra("device_name", mDevice.alias ?: mDevice.name)
             HyperPodsBroadcasts.send(mContext, this)

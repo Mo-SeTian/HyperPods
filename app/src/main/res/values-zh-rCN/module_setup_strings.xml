@@ -6,8 +6,8 @@
     <string name="module_setup_partial_title">部分进程尚未回报</string>
     <string name="module_setup_control_report_title">模块自检尚未完成</string>
     <string name="module_setup_partial_summary">部分目标进程尚未回报，请检查推荐作用域，重启手机后重新检测。</string>
-    <string name="module_setup_restart_title">请重启加载新版模块</string>
-    <string name="module_setup_restart_summary">应用已更新，部分目标进程仍在运行旧版模块。请重启手机后重新检测。</string>
+    <string name="module_setup_restart_title">请重启 LSPosed 作用域进程</string>
+    <string name="module_setup_restart_summary">模块版本与应用不一致，部分功能可能暂不可用。</string>
     <string name="module_setup_missing">尚未回报：%1$s</string>
     <string name="module_setup_control_available">耳机控制仍可使用，但尚未收到模块自检回报。请检查作用域，并在重启后重新检测。</string>
     <string name="module_setup_step_enable">启用 HyperPods 模块</string>

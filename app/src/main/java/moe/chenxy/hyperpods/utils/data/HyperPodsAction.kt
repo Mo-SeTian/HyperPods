@@ -5,6 +5,10 @@ import moe.chenxy.hyperpods.BuildConfig
 object HyperPodsAction {
     private const val PREFIX = BuildConfig.APPLICATION_ID + ".action."
     const val ACTION_SHOW_PODS_UI = PREFIX + "show_airpods_ui"
+    const val ACTION_SHOW_QUICK_CONTROLS = PREFIX + "show_quick_controls"
+    const val ACTION_SHOW_PODS_HOME = PREFIX + "show_airpods_home"
+    const val EXTRA_CONTROL_ADDRESS = "control_address"
+    const val EXTRA_CONTROL_SESSION = "control_session"
     const val ACTION_STRONG_TOAST = PREFIX + "sendstrongtoast"
     const val ACTION_UPDATE_NOTIFICATION = PREFIX + "updatepodsnotification"
     const val ACTION_CANCEL_NOTIFICATION = PREFIX + "cancelpodsnotification"

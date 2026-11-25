@@ -25,6 +25,7 @@ import com.highcapable.yukihookapi.hook.factory.method
 import com.hyperfocus.api.FocusApi
 import de.robv.android.xposed.XposedHelpers
 import moe.chenxy.hyperpods.BuildConfig
+import moe.chenxy.hyperpods.QuickControlsActivity
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.LowBatterySettings
@@ -36,6 +37,7 @@ import moe.chenxy.hyperpods.utils.SystemApisUtils
 import moe.chenxy.hyperpods.utils.SystemApisUtils.cancelAsUser
 import moe.chenxy.hyperpods.utils.SystemApisUtils.notifyAsUser
 import moe.chenxy.hyperpods.utils.SystemApisUtils.supportsIsland
+import moe.chenxy.hyperpods.utils.ISLAND_QUICK_CONTROLS
 import moe.chenxy.hyperpods.utils.buildConnectedPodsNotification
 import moe.chenxy.hyperpods.utils.data.BatteryParams
 import moe.chenxy.hyperpods.utils.miuiStrongToast.MiuiStrongToastUtil.showCaseBatteryToast
@@ -185,8 +187,8 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             val pendingIntent = PendingIntent.getActivity(
                 context,
                 0,
-                Intent(HyperPodsAction.ACTION_SHOW_PODS_UI).setPackage(BuildConfig.APPLICATION_ID),
-                PendingIntent.FLAG_IMMUTABLE
+                QuickControlsActivity.notificationIntent(address),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
 
             val caseBattStr = if (shouldShowCaseBattery(batteryParams))
@@ -342,6 +344,7 @@ object MiBluetoothToastHook : YukiBaseHooker(){
             a.putString("miui.effect.src","true")
             a.putBundle("miui.focus.actions", bundle)
             a.putCharSequence("miui.targetPkg", BuildConfig.APPLICATION_ID)
+            a.putBoolean(ISLAND_QUICK_CONTROLS, true)
             a.putAll(api)
             sendNotification.addExtras(a)
             val notificationManager = context.getSystemService("notification") as NotificationManager

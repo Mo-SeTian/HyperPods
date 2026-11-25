@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -95,9 +96,23 @@ fun ModuleActivationGuide(padding: PaddingValues, check: ModuleStatus.Check, onR
     }
 }
 
+@Composable
+internal fun ModuleRestartNotice() {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)
+        .background(Fidelity.panel(), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        FidelityText(stringResource(R.string.module_setup_restart_title), size = 14, weight = FontWeight.SemiBold)
+        FidelityText(stringResource(R.string.module_setup_restart_summary), size = 12, color = Fidelity.muted())
+    }
+}
+
 /** A missing self-check report must not hide already-working headphone controls. */
 @Composable
 fun ModuleWarningCard(check: ModuleStatus.Check, onRetry: () -> Unit) {
+    if (check.issue == ModuleStatus.Issue.RESTART) {
+        ModuleRestartNotice()
+        return
+    }
     DashboardGroup(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(if (check.issue == ModuleStatus.Issue.NO_REPORT)

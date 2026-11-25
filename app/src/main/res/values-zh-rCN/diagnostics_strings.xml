@@ -8,7 +8,7 @@
     <string name="module_checking">正在等待进程回报…</string>
     <string name="module_no_report">未收到回报；这不代表模块未启用。</string>
     <string name="module_matches">与当前安装版本一致</string>
-    <string name="module_restart">与当前安装版本不同，请重启手机加载新模块。</string>
+    <string name="module_restart">已加载的模块与应用版本不一致。请重启此 LSPosed 作用域进程以加载已安装的版本。</string>
     <string name="module_native_ok">蓝牙原生 Hook 回报成功</string>
     <string name="module_native_failed">蓝牙原生 Hook 回报失败</string>
     <string name="module_native_unknown">暂时无法读取原生 Hook 结果</string>

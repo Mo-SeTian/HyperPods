@@ -27,13 +27,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberUpdatedState
-import kotlinx.coroutines.delay
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,7 +51,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import moe.chenxy.hyperpods.R
 import moe.chenxy.hyperpods.pods.NoiseControlMode
-import moe.chenxy.hyperpods.utils.ListeningPosition
 import androidx.compose.runtime.key
 
 import moe.chenxy.hyperpods.ui.components.DashboardLink
@@ -124,11 +120,12 @@ fun PodDetailPage(
     customEqState: CustomEqState = CustomEqState(),
     onCustomEqChange: (CustomEq, Long) -> Unit = { _, _ -> },
     homeNotice: (@Composable () -> Unit)? = null,
+    homeRequested: Boolean = false,
+    onHomeOpened: () -> Unit = {},
 ) {
     val model = podsInfo?.let { getModelByModelNumber(it.modelNumber) }
     val context = LocalContext.current
-    var adaptiveRequest by remember(customEqState.session) { mutableStateOf<Float?>(null) }
-    val foreground = rememberUiForeground { adaptiveRequest = null }
+    val foreground = rememberUiForeground {}
     val connection = diagnostics?.getString("connection")
     val controlsBlocked = diagnostics?.getString("recovery").orEmpty().isNotEmpty()
     // Explicit native strength writes do not require an earlier firmware echo.
@@ -162,6 +159,12 @@ fun PodDetailPage(
     }
     var detailPage by rememberSaveable { mutableIntStateOf(0) }
     var equalizerParent by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(homeRequested, isActive) {
+        if (homeRequested && isActive) {
+            detailPage = 0
+            onHomeOpened()
+        }
+    }
     fun back() { detailPage = when (detailPage) { 4 -> 9; 7, 8, 9, 10 -> 1; 5 -> equalizerParent; else -> 0 } }
     BackHandler(enabled = isActive && detailPage != 0) { back() }
     // Keep every page's saveable state outside the animated content. Switching the
@@ -169,42 +172,11 @@ fun PodDetailPage(
     val listStates = listOf(rememberLazyListState(), rememberLazyListState(),
         rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState(),
         rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState(), rememberLazyListState())
-    // Keep the two-step Adaptive change above page navigation. Never queue a write
-    // across a new control session or while the connection is being recovered.
-    val sendLevel by rememberUpdatedState(onAdaptiveAudioLevelChange)
-    val adaptiveLevelReady = ready(Key.ADAPTIVE_AUDIO_LEVEL)
-    // "sent" + pending is emitted only after the Bluetooth writer accepts the
-    // mode command. Like LibrePods, do not require a separate firmware echo to
-    // write AUTO_ANC_STRENGTH; the displayed mode remains report-driven.
-    val adaptiveModeWritten = PodsSettings.NOISE_MODE in pendingSettings && settingFeedback[PodsSettings.NOISE_MODE] == "sent"
-    LaunchedEffect(ancMode, adaptiveRequest, controlsBlocked, adaptiveLevelReady, adaptiveModeWritten, foreground, isActive, connection) {
-        if (controlsBlocked || !foreground || !isActive || connection == "disconnected" || connection == "failed") adaptiveRequest = null
-        else if ((ancMode == NoiseControlMode.ADAPTIVE || adaptiveModeWritten) && adaptiveRequest != null && adaptiveLevelReady) {
-            sendLevel(adaptiveRequest!!)
-            adaptiveRequest = null
-        }
-    }
-    LaunchedEffect(settingFeedback[PodsSettings.NOISE_MODE]) {
-        if (settingFeedback[PodsSettings.NOISE_MODE] in listOf("timeout", "write_failed", "interrupted", "invalid")) adaptiveRequest = null
-    }
-    LaunchedEffect(adaptiveRequest) { if (adaptiveRequest != null) { delay(6500); adaptiveRequest = null } }
-    fun applyListeningPosition(position: Float) {
-        if (!ready(PodsSettings.NOISE_MODE)) return
-        val adaptive = PodsSettings.supports(Key.ADAPTIVE_AUDIO_LEVEL, model)
-        adaptiveRequest = null
-        when (val target = ListeningPosition.modeAt(position, adaptive)) {
-            NoiseControlMode.ADAPTIVE -> {
-                val level = ListeningPosition.adaptiveLevel(position)
-                if (ancMode == NoiseControlMode.ADAPTIVE) {
-                    if (adaptiveLevelReady) onAdaptiveAudioLevelChange(level)
-                } else {
-                    if (adaptiveLevelReady) adaptiveRequest = level
-                    onAncModeChange(NoiseControlMode.ADAPTIVE)
-                }
-            }
-            else -> onAncModeChange(target)
-        }
-    }
+    val listeningAvailable = foreground && isActive && !controlsBlocked && connection != "disconnected" && connection != "failed"
+    val listening = rememberListeningCommit(customEqState.session, ancMode, PodsSettings.supports(Key.ADAPTIVE_AUDIO_LEVEL, model),
+        listeningAvailable, ready(PodsSettings.NOISE_MODE), ready(Key.ADAPTIVE_AUDIO_LEVEL),
+        PodsSettings.NOISE_MODE in pendingSettings && settingFeedback[PodsSettings.NOISE_MODE] == "sent",
+        settingFeedback[PodsSettings.NOISE_MODE], onAncModeChange, onAdaptiveAudioLevelChange)
     val travel = with(LocalDensity.current) { 28.dp.roundToPx() }
     AnimatedContent(
         targetState = detailPage,
@@ -277,12 +249,10 @@ fun PodDetailPage(
                     if (PodsSettings.supports(PodsSettings.NOISE_MODE, model)) item(key = "home_noise") {
                         key(customEqState.session) {
                         ListeningSlider(ancMode, adaptiveAudioLevel, PodsSettings.supports(Key.ADAPTIVE_AUDIO_LEVEL, model),
-                            isActive && page == detailPage && ready(PodsSettings.NOISE_MODE) && adaptiveRequest == null && Key.ADAPTIVE_AUDIO_LEVEL !in pendingSettings,
+                            isActive && page == detailPage && ready(PodsSettings.NOISE_MODE) && !listening.waitingForAdaptive && Key.ADAPTIVE_AUDIO_LEVEL !in pendingSettings,
                             settingFeedback[PodsSettings.NOISE_MODE],
-                            // Capture current reports for every composition. A local
-                            // function reference can retain the previous mode here.
-                            { applyListeningPosition(it) },
-                            available = foreground && isActive && page == detailPage && !controlsBlocked && connection != "disconnected" && connection != "failed",
+                            listening.apply,
+                            available = page == detailPage && listeningAvailable,
                             strengthFeedback = settingFeedback[Key.ADAPTIVE_AUDIO_LEVEL])
                         }
                     }

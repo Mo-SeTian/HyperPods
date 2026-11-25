@@ -23,6 +23,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <activity android:name="moe.chenxy.hyperpods.QuickControlsActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="${applicationId}.quick_controls"
+            android:theme="@style/Theme.HyperPods.QuickControls" />
         <!-- Only this launcher entry is toggled; other control-page entrances remain enabled. -->
         <activity-alias
             android:name="${applicationId}.Launcher"

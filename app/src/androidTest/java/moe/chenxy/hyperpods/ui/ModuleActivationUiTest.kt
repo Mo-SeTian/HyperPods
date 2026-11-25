@@ -33,10 +33,10 @@ class ModuleActivationUiTest {
             compose.activity.setContent {
                 AppTheme(theme) {
                     top.yukonga.miuix.kmp.basic.Scaffold(bottomBar = { DashboardNavigation(0) {} }) { padding ->
-                        if (check.issue != null) ModuleActivationGuide(padding, check) {
+                        ModuleWaitingPage(padding, true, check) {
                             retries++
                             check = ModuleStatus.Check(previousIssue = check.issue)
-                        } else WaitingPodsPage(padding, true)
+                        }
                     }
                 }
             }
@@ -79,6 +79,11 @@ class ModuleActivationUiTest {
             check = ModuleStatus.Check(reports().mapValues { it.value.copy(revision = "00000000") }, false)
         }
         compose.onNodeWithText(text(R.string.module_setup_restart_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.launcher_disconnected_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.module_setup_help)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.module_setup_retry)).assertDoesNotExist()
+        compose.runOnIdle { check = ModuleStatus.Check(reports(), false) }
+        compose.onNodeWithText(text(R.string.module_setup_restart_title)).assertDoesNotExist()
     }
 
     @Test fun liveProbeWaitsForTimeoutAndRefreshesWhenTheAppResumes() {
@@ -113,6 +118,18 @@ class ModuleActivationUiTest {
         slider.assertIsEnabled().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
         compose.waitForIdle()
         org.junit.Assert.assertEquals(0f, slider.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current, .01f)
+    }
+
+    @Test fun outdatedHostIsOnlyANoticeWhileControlsAreAvailable() {
+        compose.runOnUiThread { compose.activity.intent.putExtra("module_restart_notice", true) }
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText(text(R.string.module_setup_restart_title)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.module_setup_restart_summary)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.module_setup_help)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.module_setup_retry)).assertDoesNotExist()
+        val slider = compose.revealSetting(hasContentDescription(text(R.string.redesign_slider)))
+        slider.assertIsEnabled().performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0f) }
+        assertEquals(0f, slider.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current, .01f)
     }
 
     @Test fun workingControlsWithNoSelfCheckReportAreNotLabeledAsAnUndetectedModule() {

@@ -1,6 +1,10 @@
 package moe.chenxy.hyperpods.hook
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
+import android.app.ActivityOptions
+import android.app.KeyguardManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.service.notification.StatusBarNotification
@@ -11,6 +15,7 @@ import com.highcapable.yukihookapi.hook.factory.method
 import de.robv.android.xposed.XposedHelpers
 import moe.chenxy.hyperpods.BuildConfig
 import moe.chenxy.hyperpods.utils.HyperPodsBroadcasts
+import moe.chenxy.hyperpods.utils.ISLAND_QUICK_CONTROLS
 import moe.chenxy.hyperpods.utils.PodsFocusCardFooter
 import moe.chenxy.hyperpods.utils.PodsIslandData
 import moe.chenxy.hyperpods.utils.PodsIslandLayout
@@ -97,6 +102,22 @@ object SystemUIPluginHook : YukiBaseHooker() {
                 Class.forName("miui.systemui.dynamicisland.window.content.DynamicIslandContentView", false, pluginLoaderClassLoader)
             }.getOrNull()
             if (islandView != null) {
+                val expandedState = runCatching {
+                    Class.forName("miui.systemui.dynamicisland.event.DynamicIslandState\$Expanded", false, pluginLoaderClassLoader)
+                }.getOrNull()
+                val collapseEvent = runCatching {
+                    val type = Class.forName("miui.systemui.dynamicisland.event.DynamicIslandEvent\$Collapse", false, pluginLoaderClassLoader)
+                    XposedHelpers.getStaticObjectField(type, "INSTANCE")
+                }.getOrNull()
+                if (expandedState != null && collapseEvent != null) {
+                    val click = runCatching { islandView.getDeclaredMethod("onIslandClick") }.getOrNull()
+                    if (click != null) islandView.method { name = click.name; paramCount = 0 }.hook {
+                        before {
+                            val view = this.instance as? View ?: return@before
+                            if (openQuickControlsFromExpandedIsland(view, expandedState, collapseEvent)) this.result = null
+                        }
+                    }
+                }
                 islandView.method { name = "calculateBigIslandWidth"; paramCount = 0 }.hook {
                     before {
                         runCatching { restoreIslandLayout(this.instance) }
@@ -207,6 +228,42 @@ object SystemUIPluginHook : YukiBaseHooker() {
     private fun isHyperPods(sbn: StatusBarNotification?): Boolean =
         sbn?.packageName == HyperPodsBroadcasts.XIAOMI_BLUETOOTH &&
             sbn.notification.extras.getCharSequence("miui.targetPkg")?.toString() == BuildConfig.APPLICATION_ID
+
+    private fun openQuickControlsFromExpandedIsland(view: View, expandedState: Class<*>, collapseEvent: Any): Boolean {
+        val coordinator = runCatching {
+            if (!expandedState.isInstance(XposedHelpers.callMethod(view, "getState"))) return false
+            val data = XposedHelpers.callMethod(view, "getCurrentIslandData") ?: return false
+            val extras = XposedHelpers.callMethod(data, "getExtras") as? Bundle ?: return false
+            val sbn = extras.getParcelable("miui.sbn", StatusBarNotification::class.java)
+            if (!isHyperPods(sbn) || sbn == null || !sbn.notification.extras.getBoolean(ISLAND_QUICK_CONTROLS)) return false
+            val pending = sbn.notification.contentIntent ?: return false
+            if (!pending.isActivity || !pending.isImmutable || pending.creatorPackage != sbn.packageName) return false
+            val context = view.context
+            if (context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != false ||
+                context.getSystemService(ActivityManager::class.java)?.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE) return false
+            val events = XposedHelpers.callMethod(view, "getDynamicIslandEventCoordinator") ?: return false
+            val expanded = XposedHelpers.callMethod(events, "getExpandedStateHandler") ?: return false
+            if (XposedHelpers.callMethod(expanded, "getCurrent") !== view) return false
+
+            // This is a direct user tap on the visible island. Keep the regular
+            // launcher transition and notification dismissal out of this path.
+            val options = ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(
+                if (Build.VERSION.SDK_INT >= 36) ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_IF_VISIBLE
+                else ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+            pending.send(context, 0, null, null, null, null, options.toBundle())
+            events
+        }.getOrElse {
+            Log.w("Art_Chen", "Unable to open HyperPods controls from the island", it)
+            return false
+        }
+        // Return to the compact battery capsule using the system's collapse event.
+        // Once the popup launch was accepted, never run the original click as well.
+        runCatching {
+            XposedHelpers.callMethod(coordinator, "setUserExpanded", false)
+            XposedHelpers.callMethod(coordinator, "dispatchEvent", collapseEvent, null)
+        }.onFailure { Log.w("Art_Chen", "Unable to collapse the HyperPods island", it) }
+        return true
+    }
 
     @SuppressLint("DiscouragedApi")
     private fun focusPart(root: View?, name: String): View? {
